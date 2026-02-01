@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Juan Escobar — Software Engineer & Applied AI Developer</title>
+  <style>
+    :root{--bg:#0f1720;--card:#0b1320;--muted:#9aa4b2;--accent:#6ee7b7}
+    body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:linear-gradient(180deg,#071023 0%, #0f1720 100%);color:#e6eef6;margin:0;padding:24px}
+    .container{max-width:980px;margin:0 auto}
+    header{display:flex;gap:16px;align-items:center}
+    .avatar{width:88px;height:88px;border-radius:12px;background:#0a1220;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent);font-size:28px}
+    h1{margin:0 0 4px}
+    .meta{color:var(--muted);margin:0}
+    .links a{color:var(--accent);text-decoration:none;margin-right:12px}
+    .grid{display:grid;grid-template-columns:1fr;gap:18px;margin-top:18px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:16px;border-radius:10px;border:1px solid rgba(255,255,255,0.03)}
+    .repos{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+    .repo{padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.02)}
+    .repo a{color:#cfeee1;font-weight:600;text-decoration:none}
+    .repo .desc{color:var(--muted);font-size:14px;margin-top:6px}
+    .meta-row{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:13px;margin-top:10px}
+    footer{color:var(--muted);margin-top:28px;font-size:13px}
+    .spinner{width:28px;height:28px;border-radius:50%;border:3px solid rgba(255,255,255,0.06);border-top-color:var(--accent);animation:spin .9s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="avatar">JE</div>
+      <div>
+        <h1>Juan Escobar</h1>
+        <p class="meta">Software Engineer & Applied AI Developer — despliegue de ML en producción • MLOps • Backend • Full-stack</p>
+        <p class="links">
+          <a href="https://github.com/juanesscobar" target="_blank">GitHub</a>
+          <a href="https://www.linkedin.com/in/juanesscobar" target="_blank">LinkedIn</a>
+          <a href="mailto:hello@tu-dominio.com">hello@tu-dominio.com</a>
+        </p>
+      </div>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Servicios</h3>
+        <p class="meta">Desarrollo full-stack, producción de modelos ML/AI, MLOps, revisiones arquitectónicas y consultoría.</p>
+      </div>
+
+      <section class="card">
+        <h3>Proyectos públicos</h3>
+        <div id="repos-status" style="display:flex;align-items:center;gap:10px;">
+          <div class="spinner" id="spinner"></div>
+          <div id="status-text">Cargando repositorios públicos...</div>
+        </div>
+        <div id="repos" class="repos" style="margin-top:12px;display:none"></div>
+        <div id="repos-error" style="display:none;color:#ffb3a7;margin-top:12px"></div>
+      </section>
+
+      <div class="card">
+        <h3>Contacto y contratación</h3>
+        <p class="meta">Disponible para contratos freelance, consultoría y posiciones remotas. Reunión inicial de 30 minutos gratuita.</p>
+      </div>
+    </div>
+
+    <footer>
+      <div>© Juan Escobar — Ingeniería de software & IA aplicada</div>
+    </footer>
+  </div>
+
+  <script>
+    // Configuración: cambia el usuario y los repos "pinned" si quieres
+    const config = {
+      username: "juanesscobar",
+      pinned: ["proyecto-a","proyecto-b"] // repos que quieres destacar primero (opcional)
+    };
+
+    async function fetchRepos() {
+      const statusText = document.getElementById('status-text');
+      try {
+        const resp = await fetch(`https://api.github.com/users/${config.username}/repos?per_page=100`);
+        if (!resp.ok) throw new Error("GitHub API: " + resp.status + " — " + resp.statusText);
+        const repos = await resp.json();
+
+        // Orden: pinned primero, luego por estrellas y actualización
+        const pinnedSet = new Set(config.pinned || []);
+        repos.sort((a,b) => (b.stargazers_count - a.stargazers_count) || (new Date(b.updated_at) - new Date(a.updated_at)));
+        const pinned = repos.filter(r => pinnedSet.has(r.name));
+        const others = repos.filter(r => !pinnedSet.has(r.name));
+
+        renderRepos([...pinned, ...others]);
+      } catch (err) {
+        document.getElementById('repos-status').style.display = 'none';
+        const e = document.getElementById('repos-error');
+        e.style.display = 'block';
+        e.textContent = "No se pudieron cargar los repositorios automáticamente. Puedes editar manualmente el README o subir una versión estática. ("+err.message+")";
+        console.error(err);
+      } finally {
+        document.getElementById('spinner').style.display = 'none';
+      }
+    }
+
+    function renderRepos(repos) {
+      const container = document.getElementById('repos');
+      container.style.display = 'grid';
+      document.getElementById('repos-status').style.display = 'none';
+      if (!repos || repos.length === 0) {
+        container.innerHTML = "<div style='color:#9aa4b2'>No se encontraron repositorios públicos.</div>";
+        return;
+      }
+      container.innerHTML = repos.map(r => {
+        const desc = r.description ? escapeHtml(r.description) : "— sin descripción —";
+        const lang = r.language ? `<span title='Lenguaje'>${r.language}</span>` : "";
+        const stars = r.stargazers_count ? `★ ${r.stargazers_count}` : "";
+        const homepage = r.homepage ? `<a href="${r.homepage}" target="_blank" style="margin-left:8px;color:var(--accent);font-weight:600">Demo</a>` : "";
+        return `
+          <div class="repo">
+            <div><a href="${r.html_url}" target="_blank">${r.name}</a></div>
+            <div class="desc">${desc}</div>
+            <div class="meta-row">${lang} ${stars} ${homepage}</div>
+          </div>`;
+      }).join("");
+    }
+
+    function escapeHtml(s){ return s ? s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]) : s; }
+
+    fetchRepos();
+  </script>
+</body>
+</html>
