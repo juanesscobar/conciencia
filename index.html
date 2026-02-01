@@ -35,7 +35,7 @@
         <p class="links">
           <a href="https://github.com/juanesscobar" target="_blank">GitHub</a>
           <a href="https://www.linkedin.com/in/juanesscobar" target="_blank">LinkedIn</a>
-          <a href="mailto:hello@tu-dominio.com">hello@tu-dominio.com</a>
+          <a href="https://juanesscobar.github.io/conciencia/">https://juanesscobar.github.io/conciencia/</a>
         </p>
       </div>
     </header>
@@ -108,7 +108,7 @@
         return;
       }
       container.innerHTML = repos.map(r => {
-        const desc = r.description ? escapeHtml(r.description) : "— sin descripción —";
+        const desc = r.description ? escapeHtml(r.description) : "";
         const lang = r.language ? `<span title='Lenguaje'>${r.language}</span>` : "";
         const stars = r.stargazers_count ? `★ ${r.stargazers_count}` : "";
         const homepage = r.homepage ? `<a href="${r.homepage}" target="_blank" style="margin-left:8px;color:var(--accent);font-weight:600">Demo</a>` : "";
