@@ -2,7 +2,7 @@
 Software Engineer & Applied AI Developer  
 Especializado en construir productos de software escalables y soluciones de inteligencia artificial aplicadas para producción.
 
-[🌐 Sitio / Portfolio]([https://juanesscobar.github.io](https://juanesscobar.github.io/conciencia/) · [💼 LinkedIn]([https://www.linkedin.com/in/juanesscobar](https://www.linkedin.com/in/juan-andres-escobar-a1121113b/)) · ✉️ hello@tu-dominio.com
+[🌐 Sitio / Portfolio](conciencia](https://juanesscobar.github.io/conciencia/) · [💼 LinkedIn]([https://www.linkedin.com/in/juanesscobar](https://www.linkedin.com/in/juan-andres-escobar-a1121113b/)) · ✉️ [[juanesscobar](https://github.com/juanesscobar/)]
 
 ---
 
