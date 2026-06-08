@@ -22,6 +22,8 @@ class ProjectCategory(str, enum.Enum):
     CORE = "core"
     LEGACY = "legacy"
     PORTFOLIO = "portfolio"
+    HARDWARE = "hardware"
+    EDUCATION = "education"
 
 class Project(Base):
     __tablename__ = "projects"

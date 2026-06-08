@@ -21,23 +21,10 @@ from app.models import Project, Task, Agent, Activity, Metric
 # access to the values within the .ini file in use.
 config = context.config
 
-# Get database URL from environment
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://missioncontrol:missioncontrol@localhost:5432/missioncontrol")
+# Get database URL from alembic.ini directly
+DATABASE_URL = config.get_main_option("sqlalchemy.url")
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
-
-# add your model's MetaData object here
-# for 'autogenerate' support
 target_metadata = Base.metadata
-
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
-
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
@@ -70,8 +57,10 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    # Use DATABASE_URL from environment
-    connectable = create_engine(DATABASE_URL, poolclass=pool.NullPool)
+    connectable = create_engine(
+        DATABASE_URL,
+        poolclass=pool.NullPool if "sqlite" in DATABASE_URL else pool.QueuePool
+    )
 
     with connectable.connect() as connection:
         context.configure(

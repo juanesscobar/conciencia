@@ -1,16 +1,60 @@
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { api } from '../services/api'
+import { api, githubApi } from '../services/api'
+
+interface Commit {
+  sha: string
+  message: string
+  author: string
+  date: string
+  url: string
+}
+
+interface Pull {
+  id: number
+  title: string
+  state: string
+  user: { login: string }
+  created_at: string
+  url: string
+}
+
+interface Issue {
+  id: number
+  title: string
+  state: string
+  user: { login: string }
+  created_at: string
+  url: string
+}
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>()
   
-  const { data: project, isLoading } = useQuery({
+  const { data: project, isLoading: projectLoading } = useQuery({
     queryKey: ['project', id],
     queryFn: () => api.get(`/api/v1/projects/${id}`).then(res => res.data)
   })
 
-  if (isLoading) {
+  const { data: commits } = useQuery<Commit[]>({
+    queryKey: ['commits', project?.github_repo],
+    queryFn: () => githubApi.getCommits(project.github_repo.split('/')[1]).then(res => res.data.commits),
+    enabled: !!project?.github_repo
+  })
+
+  const { data: pulls } = useQuery<Pull[]>({
+    queryKey: ['pulls', project?.github_repo],
+    queryFn: () => api.get(`/api/v1/integrations/github/pulls/${project.github_repo.split('/')[1]}`).then(res => res.data.pulls),
+    enabled: !!project?.github_repo
+  })
+
+  const { data: issues } = useQuery<Issue[]>({
+    queryKey: ['issues', project?.github_repo],
+    queryFn: () => api.get(`/api/v1/integrations/github/issues/${project.github_repo.split('/')[1]}`).then(res => res.data.issues),
+    enabled: !!project?.github_repo
+  })
+
+  if (projectLoading) {
     return <div>Loading project...</div>
   }
 
@@ -54,8 +98,68 @@ export default function ProjectDetail() {
           </div>
 
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold mb-4">Activity</h2>
-            <p className="text-gray-500">Activity feed coming soon...</p>
+            <h2 className="text-lg font-semibold mb-4">Recent Commits</h2>
+            {commits && commits.length > 0 ? (
+              <ul className="space-y-3">
+                {commits.slice(0, 5).map((commit) => (
+                  <li key={commit.sha} className="border-b pb-2 last:border-0">
+                    <a href={commit.url} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline font-mono text-sm">
+                      {commit.sha}
+                    </a>
+                    <p className="text-gray-700 text-sm truncate">{commit.message}</p>
+                    <p className="text-xs text-gray-500">{commit.author} - {new Date(commit.date).toLocaleDateString()}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-gray-500">No commits found</p>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-lg font-semibold mb-4">Pull Requests</h2>
+            {pulls && pulls.length > 0 ? (
+              <ul className="space-y-3">
+                {pulls.slice(0, 5).map((pr) => (
+                  <li key={pr.id} className="border-b pb-2 last:border-0">
+                    <a href={pr.url} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">
+                      {pr.title}
+                    </a>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${pr.state === 'open' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}`}>
+                        {pr.state}
+                      </span>
+                      <span className="text-xs text-gray-500">by {pr.user.login}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-gray-500">No pull requests found</p>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-lg font-semibold mb-4">Issues</h2>
+            {issues && issues.length > 0 ? (
+              <ul className="space-y-3">
+                {issues.slice(0, 5).map((issue) => (
+                  <li key={issue.id} className="border-b pb-2 last:border-0">
+                    <a href={issue.url} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">
+                      {issue.title}
+                    </a>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${issue.state === 'open' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                        {issue.state}
+                      </span>
+                      <span className="text-xs text-gray-500">by {issue.user.login}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-gray-500">No issues found</p>
+            )}
           </div>
         </div>
 

@@ -61,7 +61,7 @@ async def sync_project_with_github(project_id: UUID, db: Session = Depends(get_d
                     type="commit",
                     description=f"Commit by {commit['commit']['author']['name']}: {commit['commit']['message'][:100]}",
                     external_url=commit["html_url"],
-                    metadata={
+                    extra_data={
                         "sha": commit["sha"][:7],
                         "author": commit["commit"]["author"]["name"],
                     }
@@ -93,6 +93,48 @@ async def get_repo_commits(repo_name: str, per_page: int = 30):
                     "url": commit["html_url"]
                 }
                 for commit in commits
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"GitHub API error: {str(e)}")
+
+@router.get("/pulls/{repo_name}")
+async def get_repo_pulls(repo_name: str, state: str = "all"):
+    """Get pull requests for a specific repo"""
+    try:
+        pulls = await github_client.get_repo_pulls(repo_name, state=state)
+        return {
+            "pulls": [
+                {
+                    "id": pr["id"],
+                    "title": pr["title"],
+                    "state": pr["state"],
+                    "user": {"login": pr["user"]["login"]},
+                    "created_at": pr["created_at"],
+                    "url": pr["html_url"]
+                }
+                for pr in pulls
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"GitHub API error: {str(e)}")
+
+@router.get("/issues/{repo_name}")
+async def get_repo_issues(repo_name: str, state: str = "all"):
+    """Get issues for a specific repo"""
+    try:
+        issues = await github_client.get_repo_issues(repo_name, state=state)
+        return {
+            "issues": [
+                {
+                    "id": issue["id"],
+                    "title": issue["title"],
+                    "state": issue["state"],
+                    "user": {"login": issue["user"]["login"]},
+                    "created_at": issue["created_at"],
+                    "url": issue["html_url"]
+                }
+                for issue in issues
             ]
         }
     except Exception as e:

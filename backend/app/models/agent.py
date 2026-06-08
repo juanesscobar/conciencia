@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Enum
+from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Enum, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -21,6 +21,10 @@ class AutonomyLevel(str, enum.Enum):
     PREVIEW = "preview"
     APPROVAL = "approval"
 
+class AgentStatus(str, enum.Enum):
+    ACTIVE = "active"
+    PAUSED = "paused"
+
 class Agent(Base):
     __tablename__ = "agents"
     
@@ -36,7 +40,3 @@ class Agent(Base):
     
     # Relationships
     activities = relationship("Activity", back_populates="agent")
-
-class AgentStatus(str, enum.Enum):
-    ACTIVE = "active"
-    PAUSED = "paused"

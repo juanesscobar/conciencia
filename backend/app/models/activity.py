@@ -23,7 +23,7 @@ class Activity(Base):
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id"))
     type = Column(Enum(ActivityType), nullable=False)
     description = Column(Text, nullable=False)
-    metadata = Column(JSON, default=dict)
+    extra_data = Column(JSON, default=dict)
     external_url = Column(String(500))
     created_at = Column(DateTime, default=datetime.utcnow)
     
