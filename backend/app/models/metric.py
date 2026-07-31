@@ -1,5 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Enum, Float
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Enum, Float, Uuid
 from sqlalchemy.orm import relationship
 from app.database import Base
 import uuid
@@ -19,9 +18,9 @@ class MetricPeriod(str, enum.Enum):
 class Metric(Base):
     __tablename__ = "metrics"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"))
-    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id"))
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
+    project_id = Column(Uuid, ForeignKey("projects.id"))
+    agent_id = Column(Uuid, ForeignKey("agents.id"))
     category = Column(Enum(MetricCategory), nullable=False)
     name = Column(String(100), nullable=False)
     value = Column(Float, nullable=False)

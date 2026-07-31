@@ -1,5 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Enum, JSON
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Enum, JSON, Uuid
 from sqlalchemy.orm import relationship
 from app.database import Base
 import uuid
@@ -18,9 +17,9 @@ class ActivityType(str, enum.Enum):
 class Activity(Base):
     __tablename__ = "activities"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"))
-    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id"))
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
+    project_id = Column(Uuid, ForeignKey("projects.id"))
+    agent_id = Column(Uuid, ForeignKey("agents.id"))
     type = Column(Enum(ActivityType), nullable=False)
     description = Column(Text, nullable=False)
     extra_data = Column(JSON, default=dict)

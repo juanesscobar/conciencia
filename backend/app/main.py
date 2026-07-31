@@ -4,9 +4,10 @@ import uvicorn
 from app.routers import projects, tasks, activities
 from app.routers import github as github_router
 from app.routers import metrics
+from app.routers import auth as auth_router
+from app.routers import agents as agents_router
 from app.modules.jobscout.router import router as jobscout_router
 from app.config import get_cors_origins, ENVIRONMENT
-from app.database import engine, Base
 
 app = FastAPI(
     title="Mission Control",
@@ -23,16 +24,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router.router)
 app.include_router(projects.router)
 app.include_router(tasks.router)
 app.include_router(activities.router)
 app.include_router(metrics.router)
 app.include_router(github_router.router)
+app.include_router(agents_router.router)
 app.include_router(jobscout_router)
 
-@app.on_event("startup")
-async def startup():
-    Base.metadata.create_all(bind=engine)
 
 @app.get("/")
 async def root():
@@ -44,9 +44,11 @@ async def root():
         "environment": ENVIRONMENT
     }
 
+
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

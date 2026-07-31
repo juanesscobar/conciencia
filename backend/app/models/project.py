@@ -1,5 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Text, JSON, ForeignKey, Enum, Float
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, DateTime, Text, JSON, ForeignKey, Enum, Float, Uuid
 from sqlalchemy.orm import relationship
 from app.database import Base
 import uuid
@@ -28,7 +27,7 @@ class ProjectCategory(str, enum.Enum):
 class Project(Base):
     __tablename__ = "projects"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text)
     status = Column(Enum(ProjectStatus), default=ProjectStatus.ACTIVE)

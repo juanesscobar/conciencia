@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime, date
+from datetime import datetime
 from uuid import UUID
 
 class TaskBase(BaseModel):
@@ -8,8 +8,10 @@ class TaskBase(BaseModel):
     description: Optional[str] = None
     status: str = "backlog"
     priority: str = "medium"
-    assignee: Optional[str] = None
-    due_date: Optional[date] = None
+    type: str = "feature"
+    assignee_type: Optional[str] = None
+    assignee_id: Optional[UUID] = None
+    due_date: Optional[datetime] = None
     github_issue: Optional[str] = None
     github_pr: Optional[str] = None
 
@@ -25,6 +27,6 @@ class Task(TaskBase):
     project_id: UUID
     created_at: datetime
     updated_at: datetime
-    
+
     class Config:
         from_attributes = True

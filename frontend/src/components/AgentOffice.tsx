@@ -1,6 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '../services/api'
 
 interface Agent {
   id: string
@@ -52,12 +50,6 @@ export default function AgentOffice() {
     return () => clearInterval(interval)
   }, [])
 
-  const { data: apiAgents } = useQuery({
-    queryKey: ['agents'],
-    queryFn: () => api.get('/api/v1/agents/').then(res => res.data),
-    enabled: false // Por ahora usamos datos simulados
-  })
-
   const workingCount = agents.filter(a => a.status === 'working').length
   const totalProductivity = Math.round(agents.reduce((acc, a) => acc + a.productivity, 0) / agents.length)
 
@@ -103,11 +95,10 @@ export default function AgentOffice() {
 
         {/* Grid de escritorios */}
         <div className="grid grid-cols-4 gap-6">
-          {agents.map((agent, index) => (
+            {agents.map((agent) => (
             <Desk 
               key={agent.id} 
               agent={agent} 
-              index={index}
               onClick={() => setSelectedAgent(agent)}
               isSelected={selectedAgent?.id === agent.id}
             />
@@ -169,9 +160,8 @@ export default function AgentOffice() {
   )
 }
 
-function Desk({ agent, index, onClick, isSelected }: { 
+function Desk({ agent, onClick, isSelected }: { 
   agent: Agent
-  index: number
   onClick: () => void
   isSelected: boolean 
 }) {

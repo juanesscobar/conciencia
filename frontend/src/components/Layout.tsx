@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { ReactNode } from 'react'
+import { useAuth } from '../contexts/AuthContext'
 
 interface LayoutProps {
   children: ReactNode
@@ -14,6 +15,7 @@ const navigation = [
 
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
+  const { user, logout } = useAuth()
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -22,7 +24,7 @@ export default function Layout({ children }: LayoutProps) {
         <div className="flex items-center h-16 px-6 border-b border-gray-200">
           <span className="text-xl font-bold text-primary-600">🎯 Mission Control</span>
         </div>
-        
+
         <nav className="p-4 space-y-1">
           {navigation.map((item) => {
             const isActive = location.pathname === item.href
@@ -44,14 +46,23 @@ export default function Layout({ children }: LayoutProps) {
         </nav>
 
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200">
-          <div className="flex items-center">
-            <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold">
-              IT
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold text-sm">
+                {user?.display_name?.charAt(0) || '?'}
+              </div>
+              <div className="ml-3">
+                <p className="text-sm font-medium text-gray-900">{user?.display_name || user?.username}</p>
+                <p className="text-xs text-gray-500 capitalize">{user?.role || 'user'}</p>
+              </div>
             </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-900">Iron Toto</p>
-              <p className="text-xs text-gray-500">CEO</p>
-            </div>
+            <button
+              onClick={logout}
+              className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+              title="Sign out"
+            >
+              ⏻
+            </button>
           </div>
         </div>
       </div>
