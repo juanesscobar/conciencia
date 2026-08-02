@@ -7,13 +7,14 @@ from app.routers import metrics
 from app.routers import auth as auth_router
 from app.routers import agents as agents_router
 from app.routers import memories as memories_router
+from app.routers import settings as settings_router
 from app.modules.jobscout.router import router as jobscout_router
 from app.config import get_cors_origins, ENVIRONMENT
 
 app = FastAPI(
     title="Mission Control",
     description="Software Factory + Project Governance System",
-    version="1.0.0-alpha"
+    version="2.0.0-alpha"
 )
 
 origins = get_cors_origins()
@@ -33,6 +34,7 @@ app.include_router(metrics.router)
 app.include_router(github_router.router)
 app.include_router(agents_router.router)
 app.include_router(memories_router.router)
+app.include_router(settings_router.router)
 app.include_router(jobscout_router)
 
 
@@ -40,7 +42,7 @@ app.include_router(jobscout_router)
 async def root():
     return {
         "name": "Mission Control",
-        "version": "1.0.0-alpha",
+        "version": "2.0.0-alpha",
         "status": "operational",
         "ceo": "Iron Toto",
         "environment": ENVIRONMENT

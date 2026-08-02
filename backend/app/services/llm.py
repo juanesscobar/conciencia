@@ -2,10 +2,12 @@
 LLM Service — Motor de agentes vía API DeepSeek (compatible con OpenAI SDK).
 
 Cada agente usa su SOUL.md/AGENTS.md como system prompt y ejecuta tareas
-con la API de DeepSeek. La API key se lee de DEEPSEEK_API_KEY en .env.
+con la API de DeepSeek. La API key se resuelve en este orden:
+  1. Variable de entorno DEEPSEEK_API_KEY (seteada por el router de settings)
+  2. Setting persistente DEEPSEEK_API_KEY en la DB (tabla settings)
+  3. backend/.env
 """
 import os
-import json
 from typing import Optional
 
 try:
@@ -13,22 +15,43 @@ try:
 except ImportError:
     OpenAI = None
 
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 
 
+def _load_key_from_db() -> str:
+    """Intenta leer DEEPSEEK_API_KEY desde la tabla settings."""
+    try:
+        from app.database import SessionLocal
+        from app.models.setting import Setting
+        db = SessionLocal()
+        try:
+            setting = db.query(Setting).filter(Setting.key == "DEEPSEEK_API_KEY").first()
+            return setting.value if setting and setting.value else ""
+        finally:
+            db.close()
+    except Exception:
+        return ""
+
+
+def get_api_key() -> str:
+    key = os.getenv("DEEPSEEK_API_KEY", "")
+    if not key:
+        key = _load_key_from_db()
+    return key
+
+
 def is_configured() -> bool:
-    return bool(DEEPSEEK_API_KEY) and OpenAI is not None
+    return bool(get_api_key()) and OpenAI is not None
 
 
 def get_client():
     if not is_configured():
         raise RuntimeError(
-            "DEEPSEEK_API_KEY no configurada. Agregala en backend/.env "
-            "(https://platform.deepseek.com)"
+            "DEEPSEEK_API_KEY no configurada. Agregala desde el Dashboard → Settings, "
+            "o en backend/.env (https://platform.deepseek.com)"
         )
-    return OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
+    return OpenAI(api_key=get_api_key(), base_url=DEEPSEEK_BASE_URL)
 
 
 def run_agent(agent_name: str, system_prompt: str, task: str, context: Optional[str] = None) -> dict:
@@ -47,7 +70,8 @@ def run_agent(agent_name: str, system_prompt: str, task: str, context: Optional[
     if not is_configured():
         return {
             "output": (
-                "[MODO SIMULADO] DeepSeek no configurado (falta DEEPSEEK_API_KEY en backend/.env).\n\n"
+                "[MODO SIMULADO] DeepSeek no configurado. "
+                "Agregá tu DEEPSEEK_API_KEY desde el Dashboard → Settings (configuración de agentes).\n\n"
                 f"Agente: {agent_name}\nTarea recibida: {task[:200]}"
             ),
             "usage": None,

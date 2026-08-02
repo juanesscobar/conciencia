@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../services/api'
 import AgentOffice from '../components/AgentOffice'
 import UserMemory from '../components/UserMemory'
+import DeepSeekSettings from '../components/DeepSeekSettings'
 
 interface Metric {
   id: string
@@ -71,6 +72,11 @@ export default function Dashboard() {
         <StatCard title="TOTAL_TASKS" value={totalTasks} icon="☑" color="cyan" />
         <StatCard title="COMPLETED" value={completedTasks} icon="✓" color="purple" />
         <StatCard title="OPEN_TASKS" value={openTasks} icon="◌" color="orange" />
+      </div>
+
+      {/* ⚙️ CONFIGURACIÓN DEL MOTOR IA */}
+      <div className="mb-8">
+        <DeepSeekSettings />
       </div>
 
       {/* 🏢 OFICINA VIRTUAL - Agentes trabajando */}
