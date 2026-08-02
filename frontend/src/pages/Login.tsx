@@ -64,7 +64,7 @@ export default function Login() {
               value={username}
               onChange={e => setUsername(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              placeholder="irontoto"
+              placeholder="admin"
               required
             />
           </div>
@@ -114,7 +114,7 @@ export default function Login() {
 
         <div className="mt-6 p-3 bg-gray-50 rounded-lg text-xs text-gray-500">
           <p className="font-medium mb-1">Demo credentials:</p>
-          <p>Username: <code className="bg-gray-200 px-1 rounded">irontoto</code></p>
+          <p>Username: <code className="bg-gray-200 px-1 rounded">admin</code></p>
           <p>Password: <code className="bg-gray-200 px-1 rounded">admin123</code></p>
         </div>
       </div>

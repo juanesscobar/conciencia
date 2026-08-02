@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../services/api'
+import { useState } from 'react'
 
 interface Project {
   id: string
@@ -14,9 +15,20 @@ interface Project {
 }
 
 export default function Projects() {
+  const [showModal, setShowModal] = useState(false)
+  const queryClient = useQueryClient()
+
   const { data: projects, isLoading } = useQuery<Project[]>({
     queryKey: ['projects'],
     queryFn: () => api.get('/api/v1/projects/').then(res => res.data)
+  })
+
+  const createProject = useMutation({
+    mutationFn: (data: any) => api.post('/api/v1/projects/', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      setShowModal(false)
+    },
   })
 
   if (isLoading) {
@@ -27,7 +39,10 @@ export default function Projects() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
-        <button className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
+        <button
+          onClick={() => setShowModal(true)}
+          className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+        >
           + New Project
         </button>
       </div>
@@ -72,6 +87,155 @@ export default function Projects() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {showModal && (
+        <ProjectModal
+          onClose={() => setShowModal(false)}
+          onSubmit={(data) => createProject.mutate(data)}
+          loading={createProject.isPending}
+        />
+      )}
+    </div>
+  )
+}
+
+function ProjectModal({ onClose, onSubmit, loading }: {
+  onClose: () => void
+  onSubmit: (data: any) => void
+  loading: boolean
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [status, setStatus] = useState('active')
+  const [priority, setPriority] = useState('p1')
+  const [category, setCategory] = useState('core')
+  const [githubRepo, setGithubRepo] = useState('')
+  const [techStack, setTechStack] = useState('')
+  const [error, setError] = useState('')
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) {
+      setError('Name is required')
+      return
+    }
+    onSubmit({
+      name: name.trim(),
+      description: description.trim() || null,
+      status,
+      priority,
+      category,
+      github_repo: githubRepo.trim() || null,
+      tech_stack: techStack.split(',').map(t => t.trim()).filter(Boolean),
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-lg w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold text-gray-900">New Project</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              placeholder="Project name"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              placeholder="What is this project about?"
+            />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select value={status} onChange={e => setStatus(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+                <option value="archived">Archived</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+              <select value={priority} onChange={e => setPriority(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                <option value="p0">P0 - Critical</option>
+                <option value="p1">P1 - High</option>
+                <option value="p2">P2 - Medium</option>
+                <option value="p3">P3 - Low</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+              <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                <option value="core">Core</option>
+                <option value="legacy">Legacy</option>
+                <option value="portfolio">Portfolio</option>
+                <option value="hardware">Hardware</option>
+                <option value="education">Education</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">GitHub Repo</label>
+            <input
+              type="text"
+              value={githubRepo}
+              onChange={e => setGithubRepo(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              placeholder="juanesscobar/Multilimp (optional)"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tech Stack</label>
+            <input
+              type="text"
+              value={techStack}
+              onChange={e => setTechStack(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              placeholder="Python, FastAPI, React (comma separated)"
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-sm">{error}</div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+            >
+              {loading ? 'Creating...' : 'Create Project'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   )

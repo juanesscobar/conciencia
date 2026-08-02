@@ -15,3 +15,11 @@ build/
 *.egg-info/
 .DS_Store
 *.log
+
+# Secrets & local env
+.env
+.env.*
+!.env.example
+backend/.env
+*.pem
+*.key

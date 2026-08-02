@@ -34,8 +34,13 @@ def get_cors_origins() -> List[str]:
     if origins_str:
         return [o.strip() for o in origins_str.split(",") if o.strip()]
     if ENVIRONMENT == "production":
-        return []
-    return ["http://localhost:5173", "http://localhost:3000"]
+        return ["http://46.62.196.151"]
+    return [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://46.62.196.151",
+        "http://46.62.196.151:80"
+    ]
 
 
 DEFAULT_REPOS = ["openagent"]
