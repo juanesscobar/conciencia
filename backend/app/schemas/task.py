@@ -12,6 +12,8 @@ class TaskBase(BaseModel):
     assignee_type: Optional[str] = None
     assignee_id: Optional[UUID] = None
     due_date: Optional[datetime] = None
+    estimated_hours: Optional[float] = None
+    actual_hours: Optional[float] = None
     github_issue: Optional[str] = None
     github_pr: Optional[str] = None
 

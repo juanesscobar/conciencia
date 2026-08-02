@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
 interface LayoutProps {
@@ -30,11 +30,26 @@ function TerminalHeader() {
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const { user, logout } = useAuth()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  const closeSidebar = () => setSidebarOpen(false)
 
   return (
     <div className="min-h-screen bg-bg-950 scanlines">
+      {/* Overlay mobile */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/70 z-30 md:hidden"
+          onClick={closeSidebar}
+        ></div>
+      )}
+
       {/* Sidebar */}
-      <div className="fixed inset-y-0 left-0 w-64 bg-bg-900 border-r border-bg-700">
+      <div
+        className={`fixed inset-y-0 left-0 w-64 bg-bg-900 border-r border-bg-700 z-40 transform transition-transform duration-200 md:translate-x-0 ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
         <TerminalHeader />
 
         <div className="flex items-center h-14 px-6 border-b border-bg-800">
@@ -48,6 +63,7 @@ export default function Layout({ children }: LayoutProps) {
               <Link
                 key={item.name}
                 to={item.href}
+                onClick={closeSidebar}
                 className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                   isActive
                     ? 'bg-bg-800 text-primary-400 border border-primary-500/30 shadow-neon'
@@ -67,8 +83,8 @@ export default function Layout({ children }: LayoutProps) {
               <div className="w-8 h-8 rounded-full bg-bg-800 border border-primary-500/50 flex items-center justify-center text-primary-400 font-bold text-sm shadow-neon">
                 {user?.display_name?.charAt(0) || '?'}
               </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-200">{user?.display_name || user?.username}</p>
+              <div className="ml-3 min-w-0">
+                <p className="text-sm font-medium text-gray-200 truncate">{user?.display_name || user?.username}</p>
                 <p className="text-xs text-primary-500">{user?.role || 'operator'}</p>
               </div>
             </div>
@@ -84,8 +100,21 @@ export default function Layout({ children }: LayoutProps) {
       </div>
 
       {/* Main content */}
-      <div className="pl-64">
-        <main className="p-8">
+      <div className="md:pl-64">
+        {/* Topbar mobile */}
+        <div className="md:hidden sticky top-0 z-20 bg-bg-900/95 backdrop-blur border-b border-bg-700 px-4 py-3 flex items-center justify-between">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="text-primary-400 text-xl p-1 hover:text-primary-300"
+            aria-label="Open menu"
+          >
+            ☰
+          </button>
+          <span className="text-sm font-bold text-primary-400 tracking-wider">◉ MC</span>
+          <span className="text-primary-500 animate-blink text-xs">▊</span>
+        </div>
+
+        <main className="p-4 md:p-8">
           {children}
         </main>
       </div>

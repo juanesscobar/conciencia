@@ -4,6 +4,7 @@ import { api } from '../services/api'
 import AgentOffice from '../components/AgentOffice'
 import UserMemory from '../components/UserMemory'
 import DeepSeekSettings from '../components/DeepSeekSettings'
+import SystemLogs from '../components/SystemLogs'
 
 interface Metric {
   id: string
@@ -68,7 +69,7 @@ export default function Dashboard() {
         <span className="text-xs text-gray-600 font-mono">$ uptime --live</span>
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-8">
         <StatCardLink title="ACTIVE_PROJECTS" value={activeProjects} icon="▣" color="green" to="/projects" />
         <StatCardLink title="TOTAL_TASKS" value={totalTasks} icon="☑" color="cyan" to="/tasks" />
         <StatCardLink title="COMPLETED" value={completedTasks} icon="✓" color="purple" to="/tasks" />
@@ -134,14 +135,19 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* 🖥️ LOGS DEL SISTEMA EN VIVO */}
+      <div className="mb-8">
+        <SystemLogs />
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 hack-card p-6">
           <h2 className="text-lg font-semibold text-primary-400 mb-4">// PROJECT_OVERVIEW</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {projects?.map((project: any) => (
               <div key={project.id} className="border border-bg-700 rounded-lg p-4 hover:border-primary-500/50 transition-colors">
                 <h3 className="font-medium text-gray-200">{project.name}</h3>
-                <p className="text-sm text-gray-600 mt-1">{project.description}</p>
+                <p className="text-sm text-gray-600 mt-1 line-clamp-2">{project.description}</p>
                 <div className="mt-2 flex items-center gap-2">
                   <StatusBadge status={project.status} />
                   <PriorityBadge priority={project.priority} />
@@ -169,17 +175,17 @@ function StatCardLink({ title, value, icon, color, to }: { title: string, value:
   }
 
   return (
-    <Link to={to} className="hack-card p-6 hover:border-primary-500/50 hover:shadow-neon transition-all group">
+    <Link to={to} className="hack-card p-4 md:p-6 hover:border-primary-500/50 hover:shadow-neon transition-all group">
       <div className="flex items-center">
-        <div className={`w-12 h-12 rounded-lg bg-bg-800 border ${colors[color]} flex items-center justify-center text-2xl`}>
+        <div className={`w-10 h-10 md:w-12 md:h-12 rounded-lg bg-bg-800 border ${colors[color]} flex items-center justify-center text-xl md:text-2xl`}>
           {icon}
         </div>
-        <div className="ml-4">
-          <p className="text-xs font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-bold text-gray-200 group-hover:text-primary-400 transition-colors">{value}</p>
+        <div className="ml-3 md:ml-4">
+          <p className="text-[10px] md:text-xs font-medium text-gray-600">{title}</p>
+          <p className="text-xl md:text-2xl font-bold text-gray-200 group-hover:text-primary-400 transition-colors">{value}</p>
         </div>
       </div>
-      <p className="mt-3 text-[10px] text-gray-700 group-hover:text-primary-500 transition-colors">
+      <p className="mt-2 md:mt-3 text-[10px] text-gray-700 group-hover:text-primary-500 transition-colors hidden md:block">
         ▸ abrir {title.toLowerCase().replace(/_/g, ' ')}
       </p>
     </Link>
