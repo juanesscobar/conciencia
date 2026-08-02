@@ -23,3 +23,15 @@ build/
 backend/.env
 *.pem
 *.key
+# Scripts de admin local (pueden contener credenciales)
+backend/create_*.py
+backend/reset_*.py
+backend/set_*.py
+backend/fix_*.py
+backend/test_*.py
+backend/init_db.py
+backend/check_*.py
+backend/seed_*.py
+add_*.py
+patch_*.py
+test_api.py
