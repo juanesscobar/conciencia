@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { api } from '../services/api'
 import AgentOffice from '../components/AgentOffice'
 import UserMemory from '../components/UserMemory'
@@ -68,10 +69,10 @@ export default function Dashboard() {
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <StatCard title="ACTIVE_PROJECTS" value={activeProjects} icon="▣" color="green" />
-        <StatCard title="TOTAL_TASKS" value={totalTasks} icon="☑" color="cyan" />
-        <StatCard title="COMPLETED" value={completedTasks} icon="✓" color="purple" />
-        <StatCard title="OPEN_TASKS" value={openTasks} icon="◌" color="orange" />
+        <StatCardLink title="ACTIVE_PROJECTS" value={activeProjects} icon="▣" color="green" to="/projects" />
+        <StatCardLink title="TOTAL_TASKS" value={totalTasks} icon="☑" color="cyan" to="/tasks" />
+        <StatCardLink title="COMPLETED" value={completedTasks} icon="✓" color="purple" to="/tasks" />
+        <StatCardLink title="OPEN_TASKS" value={openTasks} icon="◌" color="orange" to="/tasks" />
       </div>
 
       {/* ⚙️ CONFIGURACIÓN DEL MOTOR IA */}
@@ -159,7 +160,7 @@ export default function Dashboard() {
   )
 }
 
-function StatCard({ title, value, icon, color }: { title: string, value: number, icon: string, color: 'green' | 'cyan' | 'purple' | 'orange' }) {
+function StatCardLink({ title, value, icon, color, to }: { title: string, value: number, icon: string, color: 'green' | 'cyan' | 'purple' | 'orange', to: string }) {
   const colors = {
     green: 'text-primary-400 border-primary-500/40',
     cyan: 'text-neon-400 border-neon-500/40',
@@ -168,17 +169,20 @@ function StatCard({ title, value, icon, color }: { title: string, value: number,
   }
 
   return (
-    <div className="hack-card p-6 hover:border-primary-500/30 transition-colors">
+    <Link to={to} className="hack-card p-6 hover:border-primary-500/50 hover:shadow-neon transition-all group">
       <div className="flex items-center">
         <div className={`w-12 h-12 rounded-lg bg-bg-800 border ${colors[color]} flex items-center justify-center text-2xl`}>
           {icon}
         </div>
         <div className="ml-4">
           <p className="text-xs font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-bold text-gray-200">{value}</p>
+          <p className="text-2xl font-bold text-gray-200 group-hover:text-primary-400 transition-colors">{value}</p>
         </div>
       </div>
-    </div>
+      <p className="mt-3 text-[10px] text-gray-700 group-hover:text-primary-500 transition-colors">
+        ▸ abrir {title.toLowerCase().replace(/_/g, ' ')}
+      </p>
+    </Link>
   )
 }
 
