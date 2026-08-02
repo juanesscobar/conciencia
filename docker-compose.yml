@@ -64,6 +64,9 @@ services:
       - "5173:5173"
     environment:
       - VITE_API_URL=http://46.62.196.151
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     command: npm run dev -- --host
 
 volumes:
