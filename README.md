@@ -1,286 +1,222 @@
-# 🎯 MISSION CONTROL
-## Software Factory + Project Governance System
+# 🎯 Mission Control
 
-**CEO:** Iron Toto (@irontoto7)  
-**Estado:** Planificación → MVP  
-**Versión:** 1.0.0-alpha  
+> **Agent orchestration engine** — Software Factory + Project Governance System
+> Orquesta proyectos, sub-agentes IA y métricas de negocio en un solo dashboard.
 
----
-
-## 🏗️ Visión
-
-Mission Control es el **cerebro operativo** que orquesta todos los proyectos, sub-agentes y métricas. Trabajamos como una software factory: vos sos el CEO que define estrategia, los sub-agentes ejecutan, y el sistema trackea todo.
-
-**Principios:**
-1. **Autonomía con supervisión** — los agentes pueden actuar, pero envían previews antes de deploys
-2. **Métricas accionables** — benchmark contra industria + métricas personales
-3. **Transparencia total** — dashboard unificado con estado de todo
-4. **Iteración continua** — MVP primero, automatización después
+![Version](https://img.shields.io/badge/version-2.0.0--alpha-00ff41?style=flat-square&labelColor=0a0f1a)
+![Stack](https://img.shields.io/badge/stack-FastAPI%20%2B%20React-00d9ff?style=flat-square&labelColor=0a0f1a)
+![License](https://img.shields.io/badge/license-MIT-00ff41?style=flat-square&labelColor=0a0f1a)
 
 ---
 
-## 📦 Portafolio de Proyectos
+## ⚡ Qué es
 
-### 🔴 Core (Activo/Alto Valor)
-| Proyecto | Stack | Estado | Prioridad |
-|----------|-------|--------|-----------|
-| **Open Agent IA** | FastAPI + PostgreSQL + Redis | MVP entregado | P0 |
-| **JobScout** | Node.js + Remotive API | Funcionando | P1 |
-| **Atiendo AI** | Node.js + whatsapp-web.js | Activo | P1 |
-| **Mission Control** | FastAPI/React + PostgreSQL | En planificación | P0 |
+**Mission Control** es el cerebro operativo de una software factory personal: un motor de agentes IA que ejecuta tareas usando sus propios archivos de identidad (`SOUL.md`, `AGENTS.md`) como system prompts, conectado a APIs de LLM como **DeepSeek**.
 
-### 🟡 Legacy/Mantenimiento
-| Proyecto | Stack | Estado | Notas |
-|----------|-------|--------|-------|
-| **nanobot** | Python + Flask | v0.1.3 | OpenClaw simplificado |
-
-### 🔵 Integrados en Mission Control (Recreados)
-| Proyecto | Stack Original | Integración | Notas |
-|----------|----------------|-------------|-------|
-| **TaskOk v2** | Node.js + Mongo | FastAPI + React | Dashboard gestión de tareas + control de asistencia integrado en MC |
-
-### 🟢 GitHub Portfolio (23 repos)
-- **conciencia** y otros proyectos para pulir una vez estabilicemos core
+- 🎯 **Dashboard** con métricas, activity feed y oficina virtual de agentes
+- 🤖 **8 agentes** (Dev, Ops, QA, PM, R&D, Comms, Fin, Admin) — cada uno con su `SOUL.md`
+- 🧠 **Motor de ejecución** — los agentes corren tareas reales vía API de DeepSeek
+- 👤 **Memoria de usuario** — cada operador tiene su propio "memorial" persistente
+- 📊 **Governance** — proyectos, tareas, sprints, métricas y actividad en tiempo real
+- 🔀 **GitHub integrado** — commits, PRs, issues por proyecto
 
 ---
 
-## 🤖 Sub-Agentes de la Software Factory
+## 🖼️ Screenshots
 
-### 1. 👨‍💻 Developer Agent (DEV)
-**Responsabilidad:** Codificación, PRs, code reviews, debugging
-
-**Capacidades:**
-- Generar features desde especificaciones
-- Crear PRs con descripción y tests
-- Code review automático (estilo, bugs, performance)
-- Debugging y fix de issues
-
-**Autonomía:** 
-- ✅ Puede escribir código y tests
-- ✅ Puede crear branches y PRs
-- ⚠️ Necesita aprobación para merge a main
-- ❌ No puede deployar a producción sin preview
+| Dashboard | Agents |
+|-----------|--------|
+| Métricas + actividad + memoria + oficina | Grid de 8 agentes + consola de ejecución |
 
 ---
 
-### 2. 🚀 DevOps Agent (OPS)
-**Responsabilidad:** Infraestructura, deploys, CI/CD, monitoreo
+## 🚀 Quickstart (local)
 
-**Capacidades:**
-- Setup de infra (Docker, K8s, cloud)
-- Pipeline CI/CD
-- Deploys a staging/prod
-- Monitoreo y alertas
-- Backups y disaster recovery
+### Requisitos
+- Docker + Docker Compose
+- (Opcional) API key de DeepSeek: https://platform.deepseek.com
 
-**Autonomía:**
-- ✅ Puede configurar infra y pipelines
-- ✅ Deploy automático a staging
-- ⚠️ Deploy a prod con preview obligatorio
-- ✅ Puede escalar recursos automáticamente
+### 1. Clonar y configurar
 
----
+```bash
+git clone https://github.com/juanesscobar/mission-control.git
+cd mission-control
 
-### 3. 🧪 QA Agent (QA)
-**Responsabilidad:** Testing, calidad, validación
+cp backend/.env.example backend/.env
+# Editar backend/.env y agregar:
+#   DEEPSEEK_API_KEY=tu_key_aqui
+#   SECRET_KEY=genera_uno_fuerte_con_python3_-c_"import secrets;print(secrets.token_urlsafe(48))"
+```
 
-**Capacidades:**
-- Escribir tests unitarios/integración/E2E
-- Ejecutar test suites
-- Validar ACs (Acceptance Criteria)
-- Detectar regresiones
-- Verificar performance
+### 2. Levantar
 
-**Autonomía:**
-- ✅ Puede rechazar PRs por calidad
-- ✅ Puede bloquear deploys con bugs críticos
-- ✅ Reporta métricas de cobertura
+```bash
+docker compose up -d --build
+```
 
----
+### 3. Acceder
 
-### 4. 📊 Product Agent (PM)
-**Responsabilidad:** Roadmap, priorización, especificaciones
+| Servicio | URL |
+|----------|-----|
+| Frontend | http://localhost:5173 |
+| Backend API | http://localhost:8000 |
+| API Docs | http://localhost:8000/docs |
+| PostgreSQL | localhost:5432 |
 
-**Capacidades:**
-- Mantener backlog ordenado
-- Escribir especificaciones claras
-- Priorizar features según impacto/esfuerzo
-- Definir milestones y releases
-- User stories y ACs
-
-**Autonomía:**
-- ✅ Puede reordenar prioridades (con notificación)
-- ✅ Puede crear tickets/features
-- ⚠️ Cambios de roadmap grandes necesitan sync con CEO
+> **Nota:** en desarrollo el frontend apunta a `http://localhost:8000`. En producción
+> se configura `VITE_API_URL` apuntando al dominio/IP del backend.
 
 ---
 
-### 5. 📚 Research Agent (R&D)
-**Responsabilidad:** Investigación, documentación, análisis técnico
+## 🤖 Motor de Agentes
 
-**Capacidades:**
-- Research de tecnologías/libs nuevas
-- Análisis de competencia
-- Documentación técnica y de usuario
-- Spike/proof of concepts
-- Análisis de deuda técnica
-
-**Autonomía:**
-- ✅ Puede investigar y documentar
-- ✅ Puede recomendar adoptar/rechazar tecnologías
-- ⚠️ Decisiones arquitectónicas grandes necesitan aprobación
-
----
-
-### 6. 🎨 Comms Strategy Agent (COMMS)
-**Responsabilidad:** Comunicación, marketing, contenido, community
-
-**Capacidades:**
-- Estrategia de comunicación por proyecto
-- Copy para landing pages
-- Posts para redes (LinkedIn, Twitter/X)
-- Newsletter/email updates
-- Documentación pública/docs sites
-
-**Autonomía:**
-- ✅ Puede crear borradores de contenido
-- ⚠️ Publicaciones públicas necesitan aprobación
-- ✅ Puede programar posts aprobados
-
----
-
-### 7. 💰 Finance Agent (FIN)
-**Responsabilidad:** Finanzas, presupuestos, métricas de negocio
-
-**Capacidades:**
-- Track de costos (infra, APIs, servicios)
-- Proyecciones de revenue (si aplica)
-- ROI de features/proyectos
-- Alertas de gastos anormales
-- Reports financieros
-
-**Autonomía:**
-- ✅ Puede alertar sobre overspending
-- ✅ Puede recomendar optimizaciones de costo
-- ⚠️ Cambios de planes de pricing necesitan aprobación
-
----
-
-### 8. 🎯 Admin Agent (ADMIN)
-**Responsabilidad:** Tareas administrativas, organización, recordatorios
-
-**Capacidades:**
-- Scheduling de reuniones/checkpoints
-- Follow-ups de tareas pendientes
-- Organización de documentos
-- Recordatorios de deadlines
-- Resúmenes de estado
-
-**Autonomía:**
-- ✅ Puede crear recordatorios y tareas
-- ✅ Puede enviar resúmenes periódicos
-- ✅ Puede reorganizar documentación
-
----
-
-## 📊 Sistema de Métricas
-
-### Métricas de Industria (Benchmark)
-| Métrica | Target | Fuente |
-|---------|--------|--------|
-| Lead Time (idea → prod) | < 7 días | DORA |
-| Deployment Frequency | > 1/día | DORA |
-| Change Failure Rate | < 15% | DORA |
-| MTTR (recovery) | < 1 hora | DORA |
-| Code Coverage | > 80% | Estándar |
-| PR Review Time | < 24h | Estándar |
-| Bug Escape Rate | < 5% | Estándar |
-
-### Métricas Personales (Iron Toto)
-| Métrica | Objetivo | Tracking |
-|---------|----------|----------|
-| Proyectos activos completados/mes | 2+ | Manual → Auto |
-| Features shipped/semana | 3+ | Dashboard |
-| Horas de deep work/semana | 20+ | Time tracking |
-| Nuevos usuarios/adopción | Variable | Por proyecto |
-| Repos actualizados/mes | 5+ | GitHub API |
-| Side project revenue | $XXX/mes | Manual |
-
----
-
-## 🏛️ Estructura de Trabajo
-
-### Ritmos (Cadencia)
-
-| Ritmo | Frecuencia | Participantes | Output |
-|-------|------------|---------------|--------|
-| **Daily** | Diaria | Todos los agentes | Status update (escrito) |
-| **Sprint Planning** | Semanal | PM + CEO | Sprint backlog definido |
-| **Sprint Review** | Semanal | Todos | Demo + métricas |
-| **Retrospective** | Quincenal | Todos | Mejoras de proceso |
-| **Strategy Sync** | Mensual | CEO + PM + R&D | Roadmap ajustado |
-| **Financial Review** | Mensual | FIN + CEO | Reporte de costos/ROI |
-
-### Flujo de Trabajo (GitHub Flow)
+### Arquitectura
 
 ```
-1. PM crea feature ticket con especificaciones
-2. DEV toma ticket → branch → desarrollo
-3. QA escribe tests de aceptación
-4. DEV abre PR → QA review automático
-5. OPS valida CI/CD pasa
-6. Deploy a staging automático
-7. QA valida en staging
-8. Preview enviado a CEO para aprobación
-9. Deploy a producción (manual o auto según riesgo)
-10. Métricas actualizadas automáticamente
+┌─────────────────────────────────────────────────────┐
+│                     FRONTEND (React)                │
+│  Dashboard · Projects · Tasks · Agents · Memories   │
+└──────────────────────┬──────────────────────────────┘
+                       │ REST /api/v1
+┌──────────────────────▼──────────────────────────────┐
+│                     BACKEND (FastAPI)               │
+│  routers/agents.py → /run                           │
+│       │                                             │
+│       ├── lee agents/<role>/SOUL.md + AGENTS.md     │
+│       │        (system prompt)                      │
+│       ├── arma mensaje con la tarea                 │
+│       └── llama a services/llm.py                   │
+│              └── DeepSeek API (OpenAI-compatible)   │
+└─────────────────────────────────────────────────────┘
+```
+
+### Cómo funciona
+
+1. Cada agente tiene un directorio `agents/<role>/` con su identidad:
+   - `SOUL.md` — personalidad, responsabilidades, boundaries
+   - `AGENTS.md` — workflow, herramientas, convenciones (opcional)
+2. Al ejecutar una tarea, el backend **arma el system prompt con esos archivos**
+3. Llama a DeepSeek con la tarea y devuelve el output al dashboard
+4. La ejecución se guarda en `agent_executions` y aparece en el activity feed
+
+### API de ejecución
+
+```bash
+# Ejecutar un agente con texto libre
+curl -X POST http://localhost:8000/api/v1/agents/{agent_id}/run \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"task_text": "Analiza el backlog y sugiere prioridades"}'
+
+# Ejecutar un agente sobre una tarea existente
+curl -X POST http://localhost:8000/api/v1/agents/{agent_id}/run \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"task_id": "uuid-de-la-tarea"}'
+
+# Ver los archivos MD de un agente
+curl http://localhost:8000/api/v1/agents/{agent_id}/files \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+> Sin `DEEPSEEK_API_KEY` configurada, el motor corre en **modo simulado**
+> (responde con la tarea recibida) para que puedas probar el flujo completo.
+
+---
+
+## 👤 Memoria de Usuario
+
+Cada operador tiene su propio memorial persistente (`user_memories`):
+
+```bash
+# Crear
+curl -X POST http://localhost:8000/api/v1/memories/ \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"title": "Stack preferido", "content": "FastAPI + React", "category": "preference"}'
+
+# Listar
+curl http://localhost:8000/api/v1/memories/ -H "Authorization: Bearer $TOKEN"
+```
+
+Categorías: `general` · `project` · `decision` · `preference`
+
+---
+
+## 📁 Estructura
+
+```
+mission-control/
+├── agents/                  # Identidad de cada agente (SOUL.md, AGENTS.md)
+│   ├── dev/
+│   ├── ops/
+│   ├── qa/
+│   ├── pm/
+│   ├── rd/
+│   ├── comms/
+│   ├── fin/
+│   └── admin/
+├── backend/
+│   ├── app/
+│   │   ├── routers/         # FastAPI routers (projects, tasks, agents, memories...)
+│   │   ├── models/          # SQLAlchemy models
+│   │   ├── schemas/         # Pydantic schemas
+│   │   └── services/
+│   │       └── llm.py       # Motor DeepSeek (OpenAI-compatible)
+│   └── .env.example         # Variables de entorno (nunca commitees .env)
+├── frontend/
+│   └── src/
+│       ├── pages/           # Dashboard, Projects, Tasks, Agents, Login
+│       └── components/      # Layout, AgentOffice, UserMemory
+├── docker-compose.yml
+└── nginx/nginx.conf
 ```
 
 ---
 
-## 🗺️ Roadmap Mission Control
+## 🔐 Seguridad
 
-### Fase 1: Foundation (Semanas 1-2)
-- [ ] Setup repo Mission Control
-- [ ] Definir arquitectura base (FastAPI + React)
-- [ ] Modelo de datos: Proyectos, Agentes, Tareas, Métricas
-- [ ] Dashboard básico (read-only de proyectos)
-- [ ] Integración GitHub API (lista repos, commits, PRs)
+- **Nunca** commitees `backend/.env` — está en `.gitignore` (usa `.env.example`)
+- `SECRET_KEY` debe ser un valor fuerte y único por instalación
+- Las contraseñas se hashean con bcrypt
+- JWT con expiración de 60 minutos
+- El repo público **no contiene** tokens, claves ni datos reales
 
-### Fase 2: Governance (Semanas 3-4)
-- [ ] CRUD de proyectos
-- [ ] Sistema de tareas con estados
-- [ ] Dashboard de métricas básicas
-- [ ] Integración con Telegram (notificaciones)
-- [ ] Bot de status diario automatizado
+### Checklist antes de pushear a un repo público
 
-### Fase 3: Agents MVP (Semanas 5-6)
-- [ ] Implementar DEV Agent básico (code review)
-- [ ] Implementar PM Agent (backlog management)
-- [ ] Implementar ADMIN Agent (reminders)
-- [ ] Comandos Telegram para interactuar con agentes
-
-### Fase 4: Automation (Semanas 7-8)
-- [ ] DEV Agent puede crear PRs
-- [ ] OPS Agent maneja deploys staging
-- [ ] QA Agent ejecuta tests automáticos
-- [ ] Preview system antes de deploys prod
-
-### Fase 5: Intelligence (Semanas 9-12)
-- [ ] FIN Agent con tracking de costos
-- [ ] COMMS Agent con estrategia de contenido
-- [ ] R&D Agent con research automático
-- [ ] Dashboard predictivo (predicciones de entrega)
+```bash
+git status                              # revisar qué se va
+git check-ignore backend/.env           # debe imprimir la ruta
+grep -rIn "ghp_\|sk-\|BEGIN.*PRIVATE" . --exclude-dir=node_modules --exclude-dir=.git
+```
 
 ---
 
-## 🎯 Próximos Pasos Inmediatos
+## 🗺️ Roadmap
 
-1. **Aprobar este plan** (vos como CEO)
-2. **Crear SOUL.md de cada agente** (personalidad + instrucciones)
-3. **Setup repo Mission Control** (estructura base)
-4. **Sprint 1:** Foundation + Dashboard read-only
+- [x] **MVP** — dashboard, proyectos, tareas, métricas, activity
+- [x] **Agent Office** — panel visual con 8 agentes
+- [x] **Dark hacker theme** — UI estilo terminal
+- [x] **Motor DeepSeek** — ejecución de agentes con LLM
+- [x] **Memoria de usuario** — memorial por operador
+- [ ] **Auth avanzada** — roles, rate limiting, 2FA
+- [ ] **Sprints y governance** — planificación, retrospectivas
+- [ ] **Deploys automatizados** — aprobación previa al push
+- [ ] **Métricas predictivas** — tendencias y alertas
 
 ---
 
-*Documento vivo — se actualiza según evolucione la factory.*
+## 🧑‍💻 Contribuir
+
+1. Fork + branch (`feature/xyz`)
+2. PR con descripción clara
+3. Los agentes revisan tu código 🤖
+
+---
+
+## 📄 Licencia
+
+MIT — uso libre con atribución.
+
+---
+
+*Built by [@juanesscobar](https://github.com/juanesscobar) — Iron Toto*

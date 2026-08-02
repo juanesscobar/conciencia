@@ -6,6 +6,7 @@ from app.routers import github as github_router
 from app.routers import metrics
 from app.routers import auth as auth_router
 from app.routers import agents as agents_router
+from app.routers import memories as memories_router
 from app.modules.jobscout.router import router as jobscout_router
 from app.config import get_cors_origins, ENVIRONMENT
 
@@ -31,6 +32,7 @@ app.include_router(activities.router)
 app.include_router(metrics.router)
 app.include_router(github_router.router)
 app.include_router(agents_router.router)
+app.include_router(memories_router.router)
 app.include_router(jobscout_router)
 
 

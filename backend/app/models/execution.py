@@ -17,7 +17,7 @@ class AgentExecution(Base):
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
     agent_id = Column(Uuid, ForeignKey("agents.id"), nullable=False)
-    task_id = Column(Uuid, ForeignKey("tasks.id"), nullable=False)
+    task_id = Column(Uuid, ForeignKey("tasks.id"), nullable=True)
     status = Column(Enum(ExecutionStatus), default=ExecutionStatus.PENDING)
     output = Column(Text)
     error_message = Column(Text)

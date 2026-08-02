@@ -32,47 +32,47 @@ export default function Projects() {
   })
 
   if (isLoading) {
-    return <div>Loading projects...</div>
+    return <div className="text-primary-400 animate-blink">Loading projects...</div>
   }
 
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
+        <h1 className="text-2xl font-bold text-primary-400 tracking-wider">// PROJECTS</h1>
         <button
           onClick={() => setShowModal(true)}
-          className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+          className="px-4 py-2 bg-primary-600/90 text-bg-950 font-bold rounded-lg hover:bg-primary-500 hover:shadow-neon transition-all"
         >
-          + New Project
+          + NEW_PROJECT
         </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div className="hack-card overflow-hidden">
+        <table className="min-w-full divide-y divide-bg-800">
+          <thead className="bg-bg-800">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">
                 Name
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">
                 Priority
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">
                 Category
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="divide-y divide-bg-800">
             {projects?.map((project) => (
-              <tr key={project.id} className="hover:bg-gray-50">
+              <tr key={project.id} className="hover:bg-bg-800 transition-colors">
                 <td className="px-6 py-4">
-                  <Link to={`/projects/${project.id}`} className="text-primary-600 hover:text-primary-900 font-medium">
+                  <Link to={`/projects/${project.id}`} className="text-primary-400 hover:text-primary-300 font-medium">
                     {project.name}
                   </Link>
-                  <p className="text-sm text-gray-500">{project.description}</p>
+                  <p className="text-sm text-gray-600">{project.description}</p>
                 </td>
                 <td className="px-6 py-4">
                   <StatusBadge status={project.status} />
@@ -132,40 +132,40 @@ function ProjectModal({ onClose, onSubmit, loading }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-lg w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+      <div className="hack-card w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto border-primary-500/30 shadow-neon">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-gray-900">New Project</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+          <h2 className="text-xl font-bold text-primary-400">// NEW_PROJECT</h2>
+          <button onClick={onClose} className="text-gray-600 hover:text-alert-400 text-2xl">&times;</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+            <label className="block text-sm font-medium text-primary-400 mb-1">$ name *</label>
             <input
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="hack-input"
               placeholder="Project name"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <label className="block text-sm font-medium text-primary-400 mb-1">$ description</label>
             <textarea
               value={description}
               onChange={e => setDescription(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="hack-input"
               placeholder="What is this project about?"
             />
           </div>
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-              <select value={status} onChange={e => setStatus(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              <label className="block text-sm font-medium text-primary-400 mb-1">$ status</label>
+              <select value={status} onChange={e => setStatus(e.target.value)} className="hack-select w-full">
                 <option value="active">Active</option>
                 <option value="paused">Paused</option>
                 <option value="archived">Archived</option>
@@ -173,8 +173,8 @@ function ProjectModal({ onClose, onSubmit, loading }: {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-              <select value={priority} onChange={e => setPriority(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              <label className="block text-sm font-medium text-primary-400 mb-1">$ priority</label>
+              <select value={priority} onChange={e => setPriority(e.target.value)} className="hack-select w-full">
                 <option value="p0">P0 - Critical</option>
                 <option value="p1">P1 - High</option>
                 <option value="p2">P2 - Medium</option>
@@ -182,8 +182,8 @@ function ProjectModal({ onClose, onSubmit, loading }: {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-              <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              <label className="block text-sm font-medium text-primary-400 mb-1">$ category</label>
+              <select value={category} onChange={e => setCategory(e.target.value)} className="hack-select w-full">
                 <option value="core">Core</option>
                 <option value="legacy">Legacy</option>
                 <option value="portfolio">Portfolio</option>
@@ -194,45 +194,47 @@ function ProjectModal({ onClose, onSubmit, loading }: {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">GitHub Repo</label>
+            <label className="block text-sm font-medium text-primary-400 mb-1">$ github_repo</label>
             <input
               type="text"
               value={githubRepo}
               onChange={e => setGithubRepo(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="hack-input"
               placeholder="juanesscobar/Multilimp (optional)"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Tech Stack</label>
+            <label className="block text-sm font-medium text-primary-400 mb-1">$ tech_stack</label>
             <input
               type="text"
               value={techStack}
               onChange={e => setTechStack(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="hack-input"
               placeholder="Python, FastAPI, React (comma separated)"
             />
           </div>
 
           {error && (
-            <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-sm">{error}</div>
+            <div className="bg-alert-500/10 border border-alert-500/40 text-alert-400 px-4 py-2 rounded-lg text-sm">
+              <span className="text-alert-500">✗</span> {error}
+            </div>
           )}
 
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              className="px-4 py-2 border border-bg-700 rounded-lg text-gray-500 hover:bg-bg-800"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+              className="px-4 py-2 bg-primary-600/90 text-bg-950 font-bold rounded-lg hover:bg-primary-500 hover:shadow-neon disabled:opacity-50 transition-all"
             >
-              {loading ? 'Creating...' : 'Create Project'}
+              {loading ? 'CREATING...' : '[ CREATE ]'}
             </button>
           </div>
         </form>
@@ -243,10 +245,10 @@ function ProjectModal({ onClose, onSubmit, loading }: {
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    active: 'bg-green-100 text-green-800',
-    paused: 'bg-yellow-100 text-yellow-800',
-    archived: 'bg-gray-100 text-gray-800',
-    completed: 'bg-blue-100 text-blue-800',
+    active: 'bg-primary-500/10 text-primary-400 border border-primary-500/40',
+    paused: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/40',
+    archived: 'bg-gray-500/10 text-gray-400 border border-gray-500/40',
+    completed: 'bg-neon-500/10 text-neon-400 border border-neon-500/40',
   }
 
   return (
@@ -258,10 +260,10 @@ function StatusBadge({ status }: { status: string }) {
 
 function PriorityBadge({ priority }: { priority: string }) {
   const colors: Record<string, string> = {
-    p0: 'bg-red-100 text-red-800',
-    p1: 'bg-orange-100 text-orange-800',
-    p2: 'bg-yellow-100 text-yellow-800',
-    p3: 'bg-gray-100 text-gray-800',
+    p0: 'bg-alert-500/10 text-alert-400 border border-alert-500/40',
+    p1: 'bg-orange-500/10 text-orange-400 border border-orange-500/40',
+    p2: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/40',
+    p3: 'bg-gray-500/10 text-gray-400 border border-gray-500/40',
   }
 
   return (

@@ -21,19 +21,19 @@ interface Project {
 }
 
 const statusColors: Record<string, string> = {
-  backlog: 'bg-gray-100 text-gray-800',
-  todo: 'bg-blue-100 text-blue-800',
-  in_progress: 'bg-yellow-100 text-yellow-800',
-  review: 'bg-purple-100 text-purple-800',
-  done: 'bg-green-100 text-green-800',
-  cancelled: 'bg-red-100 text-red-800',
+  backlog: 'bg-gray-500/10 text-gray-400 border border-gray-500/40',
+  todo: 'bg-blue-500/10 text-blue-400 border border-blue-500/40',
+  in_progress: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/40',
+  review: 'bg-purple-500/10 text-purple-400 border border-purple-500/40',
+  done: 'bg-primary-500/10 text-primary-400 border border-primary-500/40',
+  cancelled: 'bg-alert-500/10 text-alert-400 border border-alert-500/40',
 }
 
 const priorityColors: Record<string, string> = {
-  critical: 'bg-red-100 text-red-800',
-  high: 'bg-orange-100 text-orange-800',
-  medium: 'bg-blue-100 text-blue-800',
-  low: 'bg-gray-100 text-gray-800',
+  critical: 'bg-alert-500/10 text-alert-400 border border-alert-500/40',
+  high: 'bg-orange-500/10 text-orange-400 border border-orange-500/40',
+  medium: 'bg-blue-500/10 text-blue-400 border border-blue-500/40',
+  low: 'bg-gray-500/10 text-gray-400 border border-gray-500/40',
 }
 
 export default function Tasks() {
@@ -61,7 +61,7 @@ export default function Tasks() {
   })
 
   if (isLoading) {
-    return <div className="text-gray-500">Loading tasks...</div>
+    return <div className="text-primary-400 animate-blink">Loading tasks...</div>
   }
 
   const filtered = tasks?.filter(t => !filterStatus || t.status === filterStatus) || []
@@ -69,12 +69,12 @@ export default function Tasks() {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Tasks</h1>
+        <h1 className="text-2xl font-bold text-primary-400 tracking-wider">// TASKS</h1>
         <div className="flex gap-3">
           <select
             value={filterProject}
             onChange={e => setFilterProject(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            className="hack-select text-sm"
           >
             <option value="">All Projects</option>
             {projects?.map(p => (
@@ -84,7 +84,7 @@ export default function Tasks() {
           <select
             value={filterStatus}
             onChange={e => setFilterStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            className="hack-select text-sm"
           >
             <option value="">All Status</option>
             <option value="backlog">Backlog</option>
@@ -96,37 +96,37 @@ export default function Tasks() {
           </select>
           <button
             onClick={() => setShowModal(true)}
-            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
+            className="px-4 py-2 bg-primary-600/90 text-bg-950 font-bold rounded-lg hover:bg-primary-500 hover:shadow-neon text-sm transition-all"
           >
-            + New Task
+            + NEW_TASK
           </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div className="hack-card overflow-hidden">
+        <table className="min-w-full divide-y divide-bg-800">
+          <thead className="bg-bg-800">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assignee</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">Title</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">Priority</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">Type</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">Assignee</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">Created</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
+          <tbody className="divide-y divide-bg-800">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-8 text-center text-gray-500">No tasks found</td>
+                <td colSpan={6} className="px-6 py-8 text-center text-gray-600">No tasks found</td>
               </tr>
             ) : (
               filtered.map((task) => (
-                <tr key={task.id} className="hover:bg-gray-50">
+                <tr key={task.id} className="hover:bg-bg-800 transition-colors">
                   <td className="px-6 py-4">
-                    <div className="font-medium text-gray-900">{task.title}</div>
+                    <div className="font-medium text-gray-200">{task.title}</div>
                     {task.description && (
-                      <div className="text-sm text-gray-500 truncate max-w-xs">{task.description}</div>
+                      <div className="text-sm text-gray-600 truncate max-w-xs">{task.description}</div>
                     )}
                   </td>
                   <td className="px-6 py-4">
@@ -198,31 +198,31 @@ function TaskModal({ projects, onClose, onSubmit, loading }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-lg w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+      <div className="hack-card w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto border-primary-500/30 shadow-neon">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-gray-900">New Task</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+          <h2 className="text-xl font-bold text-primary-400">// NEW_TASK</h2>
+          <button onClick={onClose} className="text-gray-600 hover:text-alert-400 text-2xl">&times;</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+            <label className="block text-sm font-medium text-primary-400 mb-1">$ title *</label>
             <input
               type="text"
               value={title}
               onChange={e => setTitle(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="hack-input"
               placeholder="Task title"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Project *</label>
+            <label className="block text-sm font-medium text-primary-400 mb-1">$ project *</label>
             <select
               value={projectId}
               onChange={e => setProjectId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="hack-select w-full"
             >
               {projects.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
@@ -231,20 +231,20 @@ function TaskModal({ projects, onClose, onSubmit, loading }: {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <label className="block text-sm font-medium text-primary-400 mb-1">$ description</label>
             <textarea
               value={description}
               onChange={e => setDescription(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="hack-input"
               placeholder="Describe the task..."
             />
           </div>
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-              <select value={status} onChange={e => setStatus(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              <label className="block text-sm font-medium text-primary-400 mb-1">$ status</label>
+              <select value={status} onChange={e => setStatus(e.target.value)} className="hack-select w-full">
                 <option value="backlog">Backlog</option>
                 <option value="todo">Todo</option>
                 <option value="in_progress">In Progress</option>
@@ -253,8 +253,8 @@ function TaskModal({ projects, onClose, onSubmit, loading }: {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-              <select value={priority} onChange={e => setPriority(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              <label className="block text-sm font-medium text-primary-400 mb-1">$ priority</label>
+              <select value={priority} onChange={e => setPriority(e.target.value)} className="hack-select w-full">
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
@@ -262,8 +262,8 @@ function TaskModal({ projects, onClose, onSubmit, loading }: {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-              <select value={type} onChange={e => setType(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              <label className="block text-sm font-medium text-primary-400 mb-1">$ type</label>
+              <select value={type} onChange={e => setType(e.target.value)} className="hack-select w-full">
                 <option value="feature">Feature</option>
                 <option value="bug">Bug</option>
                 <option value="research">Research</option>
@@ -274,23 +274,25 @@ function TaskModal({ projects, onClose, onSubmit, loading }: {
           </div>
 
           {error && (
-            <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-sm">{error}</div>
+            <div className="bg-alert-500/10 border border-alert-500/40 text-alert-400 px-4 py-2 rounded-lg text-sm">
+              <span className="text-alert-500">✗</span> {error}
+            </div>
           )}
 
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              className="px-4 py-2 border border-bg-700 rounded-lg text-gray-500 hover:bg-bg-800"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+              className="px-4 py-2 bg-primary-600/90 text-bg-950 font-bold rounded-lg hover:bg-primary-500 hover:shadow-neon disabled:opacity-50 transition-all"
             >
-              {loading ? 'Creating...' : 'Create Task'}
+              {loading ? 'CREATING...' : '[ CREATE ]'}
             </button>
           </div>
         </form>

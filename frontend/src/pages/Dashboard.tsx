@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../services/api'
 import AgentOffice from '../components/AgentOffice'
+import UserMemory from '../components/UserMemory'
 
 interface Metric {
   id: string
@@ -48,7 +49,7 @@ export default function Dashboard() {
   })
 
   if (projectsLoading) {
-    return <div>Loading...</div>
+    return <div className="text-primary-400 animate-blink">Loading system...</div>
   }
 
   const activeProjects = projects?.filter((p: any) => p.status === 'active').length || 0
@@ -60,13 +61,16 @@ export default function Dashboard() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Dashboard</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-primary-400 tracking-wider">// DASHBOARD</h1>
+        <span className="text-xs text-gray-600 font-mono">$ uptime --live</span>
+      </div>
       
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <StatCard title="Active Projects" value={activeProjects} icon="📁" color="blue" />
-        <StatCard title="Total Tasks" value={totalTasks} icon="✅" color="green" />
-        <StatCard title="Completed" value={completedTasks} icon="🎯" color="purple" />
-        <StatCard title="Open Tasks" value={openTasks} icon="🔄" color="orange" />
+        <StatCard title="ACTIVE_PROJECTS" value={activeProjects} icon="▣" color="green" />
+        <StatCard title="TOTAL_TASKS" value={totalTasks} icon="☑" color="cyan" />
+        <StatCard title="COMPLETED" value={completedTasks} icon="✓" color="purple" />
+        <StatCard title="OPEN_TASKS" value={openTasks} icon="◌" color="orange" />
       </div>
 
       {/* 🏢 OFICINA VIRTUAL - Agentes trabajando */}
@@ -75,21 +79,21 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold mb-4">Metrics</h2>
+        <div className="hack-card p-6">
+          <h2 className="text-lg font-semibold text-primary-400 mb-4">// METRICS</h2>
           {metrics && metrics.length > 0 ? (
             <div className="space-y-4">
               {metrics.map((metric: Metric) => (
                 <div key={metric.id}>
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-sm font-medium text-gray-700">{metric.name}</span>
-                    <span className="text-sm text-gray-500">
+                    <span className="text-sm font-medium text-gray-300">{metric.name}</span>
+                    <span className="text-sm text-primary-500">
                       {metric.value} / {metric.target || 'N/A'} {metric.unit}
                     </span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="w-full bg-bg-800 rounded-full h-2 border border-bg-700">
                     <div 
-                      className={`h-2 rounded-full ${metric.target && metric.value >= metric.target ? 'bg-green-500' : 'bg-blue-500'}`}
+                      className={`h-2 rounded-full ${metric.target && metric.value >= metric.target ? 'bg-primary-500 shadow-neon' : 'bg-neon-500'}`}
                       style={{ width: metric.target ? `${Math.min(100, (metric.value / metric.target) * 100)}%` : `${Math.min(100, metric.value)}%` }}
                     />
                   </div>
@@ -97,68 +101,75 @@ export default function Dashboard() {
               ))}
             </div>
           ) : (
-            <p className="text-gray-500">No metrics available</p>
+            <p className="text-gray-600">No metrics available</p>
           )}
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
+        <div className="hack-card p-6">
+          <h2 className="text-lg font-semibold text-primary-400 mb-4">// ACTIVITY_LOG</h2>
           {recentActivities.length > 0 ? (
             <ul className="space-y-3">
               {recentActivities.map((activity: Activity) => (
-                <li key={activity.id} className="border-b pb-2 last:border-0">
+                <li key={activity.id} className="border-b border-bg-800 pb-2 last:border-0">
                   <div className="flex items-center gap-2">
                     <ActivityIcon type={activity.type} />
-                    <span className="text-sm text-gray-700">{activity.description}</span>
+                    <span className="text-sm text-gray-300">{activity.description}</span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-600 mt-1">
                     {new Date(activity.created_at).toLocaleString()}
                   </p>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-gray-500">No recent activity</p>
+            <p className="text-gray-600">No recent activity</p>
           )}
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold mb-4">Project Overview</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {projects?.map((project: any) => (
-            <div key={project.id} className="border rounded-lg p-4">
-              <h3 className="font-medium text-gray-900">{project.name}</h3>
-              <p className="text-sm text-gray-500 mt-1">{project.description}</p>
-              <div className="mt-2 flex items-center gap-2">
-                <StatusBadge status={project.status} />
-                <PriorityBadge priority={project.priority} />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 hack-card p-6">
+          <h2 className="text-lg font-semibold text-primary-400 mb-4">// PROJECT_OVERVIEW</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {projects?.map((project: any) => (
+              <div key={project.id} className="border border-bg-700 rounded-lg p-4 hover:border-primary-500/50 transition-colors">
+                <h3 className="font-medium text-gray-200">{project.name}</h3>
+                <p className="text-sm text-gray-600 mt-1">{project.description}</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <StatusBadge status={project.status} />
+                  <PriorityBadge priority={project.priority} />
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+        </div>
+
+        {/* 🧠 MEMORIA DE USUARIO */}
+        <div>
+          <UserMemory />
         </div>
       </div>
     </div>
   )
 }
 
-function StatCard({ title, value, icon, color }: { title: string, value: number, icon: string, color: 'blue' | 'green' | 'purple' | 'orange' }) {
+function StatCard({ title, value, icon, color }: { title: string, value: number, icon: string, color: 'green' | 'cyan' | 'purple' | 'orange' }) {
   const colors = {
-    blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-green-50 text-green-600',
-    purple: 'bg-purple-50 text-purple-600',
-    orange: 'bg-orange-50 text-orange-600',
+    green: 'text-primary-400 border-primary-500/40',
+    cyan: 'text-neon-400 border-neon-500/40',
+    purple: 'text-purple-400 border-purple-500/40',
+    orange: 'text-orange-400 border-orange-500/40',
   }
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
+    <div className="hack-card p-6 hover:border-primary-500/30 transition-colors">
       <div className="flex items-center">
-        <div className={`w-12 h-12 rounded-lg ${colors[color]} flex items-center justify-center text-2xl`}>
+        <div className={`w-12 h-12 rounded-lg bg-bg-800 border ${colors[color]} flex items-center justify-center text-2xl`}>
           {icon}
         </div>
         <div className="ml-4">
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-bold text-gray-900">{value}</p>
+          <p className="text-xs font-medium text-gray-600">{title}</p>
+          <p className="text-2xl font-bold text-gray-200">{value}</p>
         </div>
       </div>
     </div>
@@ -170,20 +181,20 @@ function ActivityIcon({ type }: { type: string }) {
     commit: '💾',
     pr: '🔀',
     issue: '🐛',
-    task_change: '✅',
-    deploy: '🚀',
-    release: '📦',
-    agent_action: '🤖',
+    task_change: '✓',
+    deploy: '▲',
+    release: '▣',
+    agent_action: '◈',
   }
-  return <span>{icons[type] || '📌'}</span>
+  return <span>{icons[type] || '▸'}</span>
 }
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    active: 'bg-green-100 text-green-800',
-    paused: 'bg-yellow-100 text-yellow-800',
-    archived: 'bg-gray-100 text-gray-800',
-    completed: 'bg-blue-100 text-blue-800',
+    active: 'bg-primary-500/10 text-primary-400 border border-primary-500/40',
+    paused: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/40',
+    archived: 'bg-gray-500/10 text-gray-400 border border-gray-500/40',
+    completed: 'bg-neon-500/10 text-neon-400 border border-neon-500/40',
   }
   return (
     <span className={`px-2 py-0.5 text-xs rounded-full ${colors[status] || colors.active}`}>
@@ -194,10 +205,10 @@ function StatusBadge({ status }: { status: string }) {
 
 function PriorityBadge({ priority }: { priority: string }) {
   const colors: Record<string, string> = {
-    p0: 'bg-red-100 text-red-800',
-    p1: 'bg-orange-100 text-orange-800',
-    p2: 'bg-yellow-100 text-yellow-800',
-    p3: 'bg-gray-100 text-gray-800',
+    p0: 'bg-alert-500/10 text-alert-400 border border-alert-500/40',
+    p1: 'bg-orange-500/10 text-orange-400 border border-orange-500/40',
+    p2: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/40',
+    p3: 'bg-gray-500/10 text-gray-400 border border-gray-500/40',
   }
   return (
     <span className={`px-2 py-0.5 text-xs rounded-full ${colors[priority] || colors.p3}`}>

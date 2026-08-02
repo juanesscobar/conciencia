@@ -63,6 +63,8 @@ export const agentsApi = {
   getById: (id: string) => api.get(`/api/v1/agents/${id}`),
   getTasks: (id: string) => api.get(`/api/v1/agents/${id}/tasks`),
   getActivity: (id: string) => api.get(`/api/v1/agents/${id}/activity`),
+  getFiles: (id: string) => api.get(`/api/v1/agents/${id}/files`),
+  run: (id: string, data: any) => api.post(`/api/v1/agents/${id}/run`, data),
 }
 
 export const metricsApi = {

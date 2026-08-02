@@ -6,3 +6,4 @@ from app.models.metric import Metric
 from app.models.user import User
 from app.models.sprint import Sprint
 from app.models.execution import AgentExecution
+from app.models.user_memory import UserMemory
