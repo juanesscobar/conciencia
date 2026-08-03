@@ -220,3 +220,31 @@ MIT — uso libre con atribución.
 ---
 
 *Built by [@juanesscobar](https://github.com/juanesscobar) — Iron Toto*
+
+---
+
+## M�dulo de Entregables + Reportes (v2, 2026-08-03)
+
+### Endpoints nuevos
+
+| Endpoint | Descripcion |
+|----------|-------------|
+| GET/POST /api/v1/deliverables | Listar / crear entregables (report, commit, PR, build, doc, other) |
+| GET/PUT/DELETE /api/v1/deliverables/{id} | Detalle / actualizar estado / eliminar |
+| GET /api/v1/reports/sprint/{sprint_id} | Informe consolidado: sprint + tareas + entregables + commits/PRs de GitHub |
+| GET /api/v1/reports/summary | Resumen global de progreso |
+| GET/POST /api/v1/sprints | Listar / crear sprints |
+
+### Vista frontend
+- Nueva pagina /reports (Trabajo Entregado): resumen global, informe de sprint con barra de progreso, commits y PRs mergeados, tabla de entregables con filtros y acciones.
+
+### Operacion 24/7 (servidor Hetzner)
+- Script autopilot.sh + cron jobs:
+  - 0 * * * * -> sync GitHub horario
+  - 0 8 * * * -> reporte diario (summary + sprint)
+  - 0 9 * * 0 -> reporte semanal completo
+- Reportes en /opt/mission-control/reports/daily_*.json
+- Log: /var/log/mission-control-autopilot.log
+
+### Deploy
+ssh -i ~/.ssh/hetzner_mc root@46.62.196.151 -> cd /opt/mission-control && git pull origin v2-refactor -> docker restart mission-control-backend-1
