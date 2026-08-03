@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import Tasks from './pages/Tasks'
+import Reports from './pages/Reports'
 import Agents from './pages/Agents'
 import Login from './pages/Login'
 
@@ -30,6 +31,7 @@ function App() {
       <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
       <Route path="/projects/:id" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
       <Route path="/tasks" element={<ProtectedRoute><Tasks /></ProtectedRoute>} />
+      <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
       <Route path="/agents" element={<ProtectedRoute><Agents /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

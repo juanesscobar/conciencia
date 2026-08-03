@@ -86,3 +86,21 @@ export const authApi = {
     api.post('/api/v1/auth/register', { email, username, password }),
   me: () => api.get('/api/v1/auth/me'),
 }
+
+export const deliverablesApi = {
+  getAll: (params?: any) => api.get('/api/v1/deliverables', { params }),
+  getById: (id: string) => api.get(`/api/v1/deliverables/${id}`),
+  create: (data: any) => api.post('/api/v1/deliverables', data),
+  update: (id: string, data: any) => api.put(`/api/v1/deliverables/${id}`, data),
+  delete: (id: string) => api.delete(`/api/v1/deliverables/${id}`),
+}
+
+export const reportsApi = {
+  sprint: (sprintId: string) => api.get(`/api/v1/reports/sprint/${sprintId}`),
+  summary: () => api.get('/api/v1/reports/summary'),
+}
+
+export const sprintsApi = {
+  getAll: () => api.get('/api/v1/sprints/'),
+  getById: (id: string) => api.get(`/api/v1/sprints/${id}`),
+}

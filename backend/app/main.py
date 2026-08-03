@@ -9,9 +9,16 @@ from app.routers import agents as agents_router
 from app.routers import memories as memories_router
 from app.routers import settings as settings_router
 from app.routers import system as system_router
+from app.routers import reports as reports_router
+from app.routers import sprints as sprints_router
 from app.modules.jobscout.router import router as jobscout_router
 from app.config import get_cors_origins, ENVIRONMENT
 from app.services.system_logger import setup_logging
+from app.database import Base, engine
+
+# Crea tablas faltantes automáticamente (idempotente, no pisa migraciones alembic)
+from app import models  # noqa: F401  (registra todos los modelos en Base.metadata)
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Mission Control",
@@ -41,6 +48,8 @@ app.include_router(agents_router.router)
 app.include_router(memories_router.router)
 app.include_router(settings_router.router)
 app.include_router(system_router.router)
+app.include_router(reports_router.router)
+app.include_router(sprints_router.router)
 app.include_router(jobscout_router)
 
 
