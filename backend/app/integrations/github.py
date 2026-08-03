@@ -55,6 +55,18 @@ class GitHubClient:
             self.headers["Authorization"] = f"token {self.token}"
         self.headers["Accept"] = "application/vnd.github.v3+json"
 
+    def _normalize_repo(self, repo_name: str) -> str:
+        """Acepta tanto 'multilimp' como 'juanesscobar/Multilimp' y
+        normaliza a 'owner/repo' evitando duplicar el username."""
+        repo_name = repo_name.strip().rstrip('/')
+        if '/' in repo_name:
+            return repo_name
+        return f"{self.username}/{repo_name}"
+
+    def _repo_url(self, repo_name: str) -> str:
+        return f"{self.base_url}/repos/{self._normalize_repo(repo_name)}"
+
+
     async def _cache_get(self, key: str) -> Optional[Any]:
         if redis_client:
             try:
@@ -120,8 +132,8 @@ class GitHubClient:
     async def get_repo(self, repo_name: str) -> Dict[str, Any]:
         return await self._make_request(
             "GET",
-            f"{self.base_url}/repos/{self.username}/{repo_name}",
-            cache_key=f"repo:{self.username}/{repo_name}",
+            self._repo_url(repo_name),
+            cache_key=f"repo:{self._normalize_repo(repo_name)}",
         )
 
     async def get_repo_commits(
@@ -129,8 +141,8 @@ class GitHubClient:
     ) -> List[Dict[str, Any]]:
         return await self._make_request(
             "GET",
-            f"{self.base_url}/repos/{self.username}/{repo_name}/commits",
-            cache_key=f"commits:{self.username}/{repo_name}",
+            f"{self._repo_url(repo_name)}/commits",
+            cache_key=f"commits:{self._normalize_repo(repo_name)}",
             params={"per_page": per_page},
         )
 
@@ -139,8 +151,8 @@ class GitHubClient:
     ) -> List[Dict[str, Any]]:
         return await self._make_request(
             "GET",
-            f"{self.base_url}/repos/{self.username}/{repo_name}/pulls",
-            cache_key=f"pulls:{self.username}/{repo_name}:{state}",
+            f"{self._repo_url(repo_name)}/pulls",
+            cache_key=f"pulls:{self._normalize_repo(repo_name)}:{state}",
             params={"state": state, "per_page": 100},
         )
 
@@ -149,8 +161,8 @@ class GitHubClient:
     ) -> List[Dict[str, Any]]:
         return await self._make_request(
             "GET",
-            f"{self.base_url}/repos/{self.username}/{repo_name}/issues",
-            cache_key=f"issues:{self.username}/{repo_name}:{state}",
+            f"{self._repo_url(repo_name)}/issues",
+            cache_key=f"issues:{self._normalize_repo(repo_name)}:{state}",
             params={"state": state, "per_page": 100},
         )
 
