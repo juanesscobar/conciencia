@@ -18,6 +18,21 @@ interface Lead {
   created_at: string | null
 }
 
+interface LeadStats {
+  total: number
+  by_status: Record<string, number>
+  by_source: Record<string, number>
+  avg_score: number
+  top_sources: { source: string; count: number }[]
+}
+
+interface LeadList {
+  items: Lead[]
+  total: number
+  page: number
+  page_size: number
+}
+
 const statusColors: Record<string, string> = {
   new: 'bg-blue-500/10 text-blue-400 border border-blue-500/40',
   contacted: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/40',
@@ -54,12 +69,12 @@ export default function Leads() {
   const [showModal, setShowModal] = useState(false)
   const queryClient = useQueryClient()
 
-  const { data: stats } = useQuery({
+  const { data: stats } = useQuery<LeadStats>({
     queryKey: ['lead-stats'],
     queryFn: () => leadsApi.stats().then(res => res.data),
   })
 
-  const { data: leadsData, isLoading } = useQuery({
+  const { data: leadsData, isLoading } = useQuery<LeadList>({
     queryKey: ['leads', search, filterStatus, filterSource],
     queryFn: () =>
       leadsApi.getAll({
