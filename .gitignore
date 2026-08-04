@@ -41,3 +41,6 @@ test_api.py
 e2e_*.sh
 rotate_*.py
 reset_*.py
+
+check_*.sh
+
