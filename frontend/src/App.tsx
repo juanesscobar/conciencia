@@ -8,6 +8,7 @@ import ProjectDetail from './pages/ProjectDetail'
 import Tasks from './pages/Tasks'
 import Reports from './pages/Reports'
 import Agents from './pages/Agents'
+import Leads from './pages/Leads'
 import Login from './pages/Login'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -33,6 +34,7 @@ function App() {
       <Route path="/tasks" element={<ProtectedRoute><Tasks /></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
       <Route path="/agents" element={<ProtectedRoute><Agents /></ProtectedRoute>} />
+      <Route path="/leads" element={<ProtectedRoute><Leads /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

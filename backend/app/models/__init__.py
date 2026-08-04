@@ -9,3 +9,4 @@ from app.models.execution import AgentExecution
 from app.models.user_memory import UserMemory
 from app.models.setting import Setting
 from app.models.deliverable import Deliverable
+from app.modules.leadhunter.models import Lead

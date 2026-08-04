@@ -104,3 +104,13 @@ export const sprintsApi = {
   getAll: () => api.get('/api/v1/sprints/'),
   getById: (id: string) => api.get(`/api/v1/sprints/${id}`),
 }
+
+export const leadsApi = {
+  getAll: (params?: any) => api.get('/api/v1/leads/', { params }),
+  getById: (id: string) => api.get(`/api/v1/leads/${id}`),
+  create: (data: any) => api.post('/api/v1/leads/', data),
+  update: (id: string, data: any) => api.patch(`/api/v1/leads/${id}`, data),
+  delete: (id: string) => api.delete(`/api/v1/leads/${id}`),
+  stats: () => api.get('/api/v1/leads/stats'),
+  enrich: (id: string) => api.post(`/api/v1/leads/${id}/enrich`),
+}

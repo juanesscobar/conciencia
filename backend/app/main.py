@@ -12,6 +12,7 @@ from app.routers import system as system_router
 from app.routers import reports as reports_router
 from app.routers import sprints as sprints_router
 from app.modules.jobscout.router import router as jobscout_router
+from app.modules.leadhunter.router import router as leadhunter_router
 from app.config import get_cors_origins, ENVIRONMENT
 from app.services.system_logger import setup_logging
 from app.database import Base, engine
@@ -51,6 +52,7 @@ app.include_router(system_router.router)
 app.include_router(reports_router.router)
 app.include_router(sprints_router.router)
 app.include_router(jobscout_router)
+app.include_router(leadhunter_router)
 
 
 @app.middleware("http")
