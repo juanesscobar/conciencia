@@ -115,7 +115,7 @@ def create_lead(req: LeadCreate, db: Session = Depends(get_db)):
         segment=req.segment,
         status=req.status,
         notes=req.notes,
-        metadata=req.metadata,
+        meta=req.metadata,
     )
     lead.score = compute_score(
         company=lead.company,
@@ -124,7 +124,7 @@ def create_lead(req: LeadCreate, db: Session = Depends(get_db)):
         email=lead.email or "",
         phone=lead.phone or "",
         notes=lead.notes or "",
-        metadata=lead.metadata,
+        metadata=lead.meta,
     )
     db.add(lead)
     db.commit()
@@ -146,7 +146,7 @@ def intake_lead(req: LeadIntake, db: Session = Depends(get_db)):
         segment=req.segment,
         status=LeadStatus.NEW,
         notes=req.notes,
-        metadata=req.metadata,
+        meta=req.metadata,
     )
     if req.metadata and req.metadata.get("source"):
         lead.source = req.metadata["source"]
@@ -157,7 +157,7 @@ def intake_lead(req: LeadIntake, db: Session = Depends(get_db)):
         email=lead.email or "",
         phone=lead.phone or "",
         notes=lead.notes or "",
-        metadata=lead.metadata,
+        metadata=lead.meta,
     )
     db.add(lead)
     db.commit()
@@ -191,7 +191,7 @@ def update_lead(lead_id: str, req: LeadUpdate, db: Session = Depends(get_db)):
             email=lead.email or "",
             phone=lead.phone or "",
             notes=lead.notes or "",
-            metadata=lead.metadata,
+            metadata=lead.meta,
         )
     db.commit()
     db.refresh(lead)

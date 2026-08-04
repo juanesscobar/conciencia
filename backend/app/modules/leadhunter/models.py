@@ -42,7 +42,7 @@ class Lead(Base):
 
     # Notas y datos extra
     notes = Column(Text, nullable=True)
-    metadata = Column(JSON, nullable=True)  # payload del webhook / respuestas de diagnóstico
+    meta = Column(JSON, nullable=True)  # payload del webhook / respuestas de diagnóstico
 
     # Tracking
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -62,7 +62,7 @@ class Lead(Base):
             "status": self.status.value if hasattr(self.status, "value") else str(self.status),
             "score": self.score,
             "notes": self.notes,
-            "metadata": self.metadata,
+            "metadata": self.meta,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
