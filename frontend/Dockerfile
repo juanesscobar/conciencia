@@ -15,8 +15,8 @@ RUN npm install
 # Copy source
 COPY . .
 
-# API base URL (misma origin que nginx: /api se proxya al backend)
-ARG VITE_API_URL=http://46.62.196.151
+# API base URL (vacía = relativa, misma origin que nginx: /api se proxya al backend)
+ARG VITE_API_URL=
 ENV VITE_API_URL=${VITE_API_URL}
 
 # Build estático

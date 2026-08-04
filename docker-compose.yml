@@ -17,10 +17,11 @@ services:
     image: nginx:alpine
     ports:
       - "80:80"
-      # - "443:443"   # Activar cuando exista dominio + certificados (HTTPS)
+      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      # - ./nginx/certs:/etc/nginx/certs:ro   # fullchain.pem + privkey.pem
+      - ./nginx/certs:/etc/nginx/certs:ro   # fullchain.pem + privkey.pem (Let's Encrypt)
+      - ./certbot/www:/var/www/certbot:ro   # webroot para renovación ACME
     depends_on:
       - backend
       - frontend
@@ -76,7 +77,7 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://46.62.196.151}
+        VITE_API_URL: ${VITE_API_URL:-}   # vacío = relativa (misma origin)
     restart: unless-stopped
 
 volumes:
