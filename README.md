@@ -42,29 +42,44 @@
 git clone https://github.com/juanesscobar/mission-control.git
 cd mission-control
 
-cp backend/.env.example backend/.env
-# Editar backend/.env y agregar:
-#   DEEPSEEK_API_KEY=tu_key_aqui
-#   SECRET_KEY=genera_uno_fuerte_con_python3_-c_"import secrets;print(secrets.token_urlsafe(48))"
+cp .env.example .env
+# Editar .env y completar:
+#   POSTGRES_PASSWORD / REDIS_PASSWORD / SECRET_KEY (generar fuertes)
+#   GITHUB_TOKEN / DEEPSEEK_API_KEY (https://platform.deepseek.com)
 ```
 
-### 2. Levantar
+### 2. Levantar (producción)
 
 ```bash
 docker compose up -d --build
 ```
 
+> 🔒 Producción: solo nginx expone puertos (80). Postgres y Redis quedan en la red
+> interna de Docker, sin acceso desde internet. Backend corre con gunicorn
+> (ENVIRONMENT=production, sin `--reload`).
+
 ### 3. Acceder
 
 | Servicio | URL |
 |----------|-----|
-| Frontend | http://localhost:5173 |
+| Frontend + API | http://localhost |
+| API Docs | http://localhost/docs |
+
+### Desarrollo local con hot-reload
+
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+| Servicio | URL |
+|----------|-----|
+| Frontend (HMR) | http://localhost:5173 |
 | Backend API | http://localhost:8000 |
 | API Docs | http://localhost:8000/docs |
-| PostgreSQL | localhost:5432 |
 
-> **Nota:** en desarrollo el frontend apunta a `http://localhost:8000`. En producción
-> se configura `VITE_API_URL` apuntando al dominio/IP del backend.
+> ⚠️ El compose de dev expone puertos y usa credenciales default — nunca usarlo en producción.
+> En dev el frontend apunta a `http://localhost:8000`; en producción `VITE_API_URL` se
+> configura apuntando al dominio/IP.
 
 ---
 
@@ -223,7 +238,7 @@ MIT — uso libre con atribución.
 
 ---
 
-## M�dulo de Entregables + Reportes (v2, 2026-08-03)
+## M�dulo de Entregables + Reportes (v2, 2026-08-03)
 
 ### Endpoints nuevos
 
@@ -246,5 +261,16 @@ MIT — uso libre con atribución.
 - Reportes en /opt/mission-control/reports/daily_*.json
 - Log: /var/log/mission-control-autopilot.log
 
-### Deploy
-ssh -i ~/.ssh/hetzner_mc root@46.62.196.151 -> cd /opt/mission-control && git pull origin v2-refactor -> docker restart mission-control-backend-1
+### Deploy (servidor 46.62.196.151)
+
+```bash
+ssh -i ~/.ssh/hetzner_mc root@46.62.196.151
+cd /opt/mission-control
+git pull origin v2-refactor
+# Si cambió el .env (raíz): editar /opt/mission-control/.env
+docker compose up -d --build
+# Verificar:
+#   ss -tlnp            → solo 22 y 80 escuchando
+#   curl localhost/health
+#   docker logs mission-control-backend-1 --tail 50
+```

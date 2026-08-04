@@ -1,4 +1,8 @@
-FROM node:20-alpine
+# ============================================================
+# FRONTEND — BUILD DE PRODUCCIÓN (multi-stage)
+# Stage 1: compila con Vite → Stage 2: nginx sirve el estático
+# ============================================================
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
@@ -11,12 +15,18 @@ RUN npm install
 # Copy source
 COPY . .
 
-# Accept build args
-ARG VITE_API_URL=http://localhost:8000
+# API base URL (misma origin que nginx: /api se proxya al backend)
+ARG VITE_API_URL=http://46.62.196.151
 ENV VITE_API_URL=${VITE_API_URL}
 
-# Expose port
-EXPOSE 5173
+# Build estático
+RUN npm run build
 
-# Start dev server
-CMD ["npm", "run", "dev", "--", "--host"]
+# ---- Servidor estático ----
+FROM nginx:alpine
+
+COPY --from=build /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
