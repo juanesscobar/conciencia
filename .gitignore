@@ -35,3 +35,9 @@ backend/seed_*.py
 add_*.py
 patch_*.py
 test_api.py
+
+# Scripts de test con credenciales (nunca commitear)
+*_test.sh
+e2e_*.sh
+rotate_*.py
+reset_*.py
