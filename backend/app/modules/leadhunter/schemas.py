@@ -25,6 +25,7 @@ class LeadCreate(BaseModel):
     source: str = "manual"
     industry: Optional[str] = None
     segment: Optional[str] = None
+    region: Optional[str] = None
     status: LeadStatus = LeadStatus.NEW
     notes: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
@@ -39,6 +40,7 @@ class LeadUpdate(BaseModel):
     source: Optional[str] = None
     industry: Optional[str] = None
     segment: Optional[str] = None
+    region: Optional[str] = None
     status: Optional[LeadStatus] = None
     score: Optional[int] = Field(None, ge=0, le=100)
     notes: Optional[str] = None
@@ -54,6 +56,7 @@ class LeadIntake(BaseModel):
     website: Optional[str] = None
     industry: Optional[str] = None
     segment: Optional[str] = None
+    region: Optional[str] = None
     notes: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
@@ -68,10 +71,12 @@ class LeadResponse(BaseModel):
     source: str
     industry: Optional[str] = None
     segment: Optional[str] = None
+    region: Optional[str] = None
     status: str
     score: int
     notes: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    online_presence: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -132,3 +137,39 @@ class EnrichResult(BaseModel):
     phone: Optional[str] = None
     fetched: bool = False
     reason: Optional[str] = None
+
+
+class LeadEventResponse(BaseModel):
+    id: str
+    lead_id: str
+    event_type: str
+    description: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class LeadProposalCreate(BaseModel):
+    title: Optional[str] = None
+    content: str
+
+
+class LeadProposalResponse(BaseModel):
+    id: str
+    lead_id: str
+    title: Optional[str] = None
+    content: str
+    status: str
+    model: Optional[str] = None
+    created_at: Optional[str] = None
+    sent_at: Optional[str] = None
+
+
+class ActionRequest(BaseModel):
+    reason: Optional[str] = None
+    note: Optional[str] = None
+
+
+class ImportResult(BaseModel):
+    total: int
+    added: int
+    duplicates: int
+    errors: int = 0

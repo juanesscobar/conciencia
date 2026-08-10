@@ -1,11 +1,11 @@
 """
-LLM Service — Motor de agentes vía API DeepSeek (compatible con OpenAI SDK).
+LLM Service — Motor de agentes multi-proveedor (OpenAI-compatible).
 
-Cada agente usa su SOUL.md/AGENTS.md como system prompt y ejecuta tareas
-con la API de DeepSeek. La API key se resuelve en este orden:
-  1. Variable de entorno DEEPSEEK_API_KEY (seteada por el router de settings)
-  2. Setting persistente DEEPSEEK_API_KEY en la DB (tabla settings)
-  3. backend/.env
+Proveedores soportados: deepseek · openai · ollama · openrouter
+La configuración se resuelve en este orden:
+  1. Settings persistentes en DB (tabla settings: LLM_PROVIDER, LLM_API_KEY, LLM_MODEL, LLM_BASE_URL)
+  2. Variables de entorno (backend/.env)
+  3. Backward-compat: DEEPSEEK_API_KEY (env o DB) → provider deepseek
 """
 import os
 from typing import Optional
@@ -15,18 +15,24 @@ try:
 except ImportError:
     OpenAI = None
 
-DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+PROVIDER_DEFAULTS = {
+    "deepseek": {"base_url": "https://api.deepseek.com", "model": "deepseek-chat"},
+    "openai": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
+    "openrouter": {"base_url": "https://openrouter.ai/api/v1", "model": "deepseek/deepseek-chat"},
+    "ollama": {"base_url": "http://localhost:11434/v1", "model": "llama3.2"},
+}
+
+DEFAULT_PROVIDER = "deepseek"
 
 
-def _load_key_from_db() -> str:
-    """Intenta leer DEEPSEEK_API_KEY desde la tabla settings."""
+def _db_setting(key: str) -> str:
+    """Lee un setting persistente de la DB (tabla settings)."""
     try:
         from app.database import SessionLocal
         from app.models.setting import Setting
         db = SessionLocal()
         try:
-            setting = db.query(Setting).filter(Setting.key == "DEEPSEEK_API_KEY").first()
+            setting = db.query(Setting).filter(Setting.key == key).first()
             return setting.value if setting and setting.value else ""
         finally:
             db.close()
@@ -34,52 +40,116 @@ def _load_key_from_db() -> str:
         return ""
 
 
-def get_api_key() -> str:
-    key = os.getenv("DEEPSEEK_API_KEY", "")
-    if not key:
-        key = _load_key_from_db()
-    return key
+def get_config() -> dict:
+    """Resuelve la config activa del proveedor LLM."""
+    provider = os.getenv("LLM_PROVIDER") or _db_setting("LLM_PROVIDER") or DEFAULT_PROVIDER
+    provider = provider.strip().lower()
+
+    api_key = os.getenv("LLM_API_KEY") or _db_setting("LLM_API_KEY")
+    model = os.getenv("LLM_MODEL") or _db_setting("LLM_MODEL")
+    base_url = os.getenv("LLM_BASE_URL") or _db_setting("LLM_BASE_URL")
+
+    # Backward-compat con DEEPSEEK_API_KEY
+    if not api_key and provider == "deepseek":
+        api_key = os.getenv("DEEPSEEK_API_KEY") or _db_setting("DEEPSEEK_API_KEY")
+    if not api_key:
+        api_key = os.getenv("OPENAI_API_KEY") or _db_setting("OPENAI_API_KEY")
+
+    defaults = PROVIDER_DEFAULTS.get(provider, PROVIDER_DEFAULTS[DEFAULT_PROVIDER])
+    return {
+        "provider": provider,
+        "api_key": api_key or "",
+        "model": model or defaults["model"],
+        "base_url": base_url or defaults["base_url"],
+    }
 
 
 def is_configured() -> bool:
-    return bool(get_api_key()) and OpenAI is not None
+    cfg = get_config()
+    return bool(cfg["api_key"]) and OpenAI is not None
 
 
 def get_client():
+    cfg = get_config()
     if not is_configured():
         raise RuntimeError(
-            "DEEPSEEK_API_KEY no configurada. Agregala desde el Dashboard → Settings, "
-            "o en backend/.env (https://platform.deepseek.com)"
+            "LLM no configurado. Agregá tu API key desde Configuración → Integraciones "
+            "(proveedor: deepseek/openai/openrouter/ollama)."
         )
-    return OpenAI(api_key=get_api_key(), base_url=DEEPSEEK_BASE_URL)
+    return OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
+
+
+def test_connection(provider: Optional[str] = None, api_key: Optional[str] = None,
+                    model: Optional[str] = None, base_url: Optional[str] = None) -> dict:
+    """Prueba una conexión LLM con la config dada (o la activa). Devuelve resultado."""
+    import time
+
+    if provider:
+        provider = provider.strip().lower()
+    cfg = get_config()
+    provider = provider or cfg["provider"]
+    api_key = (api_key or cfg["api_key"]).strip()
+    model = model or cfg["model"]
+    base_url = (base_url or cfg["base_url"]).strip()
+
+    if not api_key and provider != "ollama":
+        return {"ok": False, "error": "Falta la API key del proveedor"}
+
+    defaults = PROVIDER_DEFAULTS.get(provider, PROVIDER_DEFAULTS[DEFAULT_PROVIDER])
+    base_url = base_url or defaults["base_url"]
+    model = model or defaults["model"]
+
+    if OpenAI is None:
+        return {"ok": False, "error": "openai SDK no instalado"}
+
+    try:
+        client = OpenAI(api_key=api_key or "ollama", base_url=base_url)
+        start = time.time()
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "Respondé solo: OK"}],
+            max_tokens=5,
+            temperature=0,
+        )
+        latency = int((time.time() - start) * 1000)
+        return {
+            "ok": True,
+            "provider": provider,
+            "model": resp.model or model,
+            "latency_ms": latency,
+            "reply": (resp.choices[0].message.content or "")[:40],
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "provider": provider, "model": model, "error": str(e)[:300]}
 
 
 def run_agent(agent_name: str, system_prompt: str, task: str, context: Optional[str] = None) -> dict:
     """
-    Ejecuta un agente contra DeepSeek.
-
-    Args:
-        agent_name: nombre del agente (para logging)
-        system_prompt: SOUL.md + AGENTS.md del agente
-        task: la tarea a ejecutar
-        context: contexto adicional (proyecto, historial, etc.)
+    Ejecuta un agente contra el proveedor LLM configurado.
 
     Returns:
-        dict con {output, usage, model}
+        dict con {output, usage, model, provider, simulated}
     """
+    cfg = get_config()
+
     if not is_configured():
         return {
             "output": (
-                "[MODO SIMULADO] DeepSeek no configurado. "
-                "Agregá tu DEEPSEEK_API_KEY desde el Dashboard → Settings (configuración de agentes).\n\n"
+                "[MODO SIMULADO] LLM no configurado. Agregá tu API key desde "
+                "Configuración → Integraciones (proveedor: deepseek/openai/openrouter/ollama).\n\n"
                 f"Agente: {agent_name}\nTarea recibida: {task[:200]}"
             ),
             "usage": None,
-            "model": DEEPSEEK_MODEL,
+            "model": cfg["model"],
+            "provider": cfg["provider"],
             "simulated": True,
         }
 
-    client = get_client()
+    try:
+        client = get_client()
+    except RuntimeError as e:
+        return {"output": None, "error": str(e), "model": cfg["model"], "provider": cfg["provider"], "simulated": False}
+
     messages = [
         {"role": "system", "content": system_prompt},
     ]
@@ -89,7 +159,7 @@ def run_agent(agent_name: str, system_prompt: str, task: str, context: Optional[
 
     try:
         response = client.chat.completions.create(
-            model=DEEPSEEK_MODEL,
+            model=cfg["model"],
             messages=messages,
             temperature=0.4,
             max_tokens=2000,
@@ -98,12 +168,14 @@ def run_agent(agent_name: str, system_prompt: str, task: str, context: Optional[
             "output": response.choices[0].message.content,
             "usage": response.usage.model_dump() if response.usage else None,
             "model": response.model,
+            "provider": cfg["provider"],
             "simulated": False,
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return {
             "output": None,
             "error": str(e),
-            "model": DEEPSEEK_MODEL,
+            "model": cfg["model"],
+            "provider": cfg["provider"],
             "simulated": False,
         }

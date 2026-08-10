@@ -233,6 +233,8 @@ grep -rIn "ghp_\|sk-\|BEGIN.*PRIVATE" . --exclude-dir=node_modules --exclude-dir
 - [x] **Motor DeepSeek** — ejecución de agentes con LLM
 - [x] **Memoria de usuario** — memorial por operador
 - [x] **Lead Hunter** — prospección automática (Overpass/OSM) + enriquecimiento web e IA
+- [x] **Pipeline end-to-end** — lead → contactar → calificar → propuesta IA → enviar → ganar/perder
+- [x] **Integraciones centralizadas** — GitHub + proveedor IA multi (DeepSeek/OpenAI/OpenRouter/Ollama) + config Lead Hunter
 - [ ] **Auth avanzada** — roles, rate limiting, 2FA
 - [ ] **Sprints y governance** — planificación, retrospectivas
 - [ ] **Deploys automatizados** — aprobación previa al push
@@ -287,6 +289,50 @@ Módulo que **caza leads B2B reales** del Gran Asunción (bancos, cooperativas, 
 ### Cómo agregar una fuente nueva
 
 Crear `backend/app/modules/leadhunter/sources/<nombre>.py` con una clase que herede `BaseLeadSource` (name, label, description, `fetch() -> list[dict]`) y decorarla con `@register_source`. El motor la toma automáticamente.
+
+### Pipeline end-to-end (lead → propuesta validada)
+
+Cada lead tiene timeline (eventos) y propuestas. El flujo completo:
+
+| Etapa | Endpoint | Qué hace |
+|-------|----------|----------|
+| Cazar | `POST /leads/hunt/run` · `POST /leads/import` | Descubrir (Overpass) o importar CSV con dedupe |
+| Enriquecer | `POST /leads/{id}/enrich-website` · `POST /leads/{id}/enrich` | Email/tel desde el sitio · análisis IA |
+| Contactar | `POST /leads/{id}/contact` | Marca contacted + evento en timeline |
+| Calificar | `POST /leads/{id}/qualify` | Valida el prospecto |
+| Propuesta | `POST /leads/{id}/proposal/generate` · `POST /leads/proposals/{id}/send` | Genera con IA (o manual) y marca enviada |
+| Cierre | `POST /leads/{id}/won` · `POST /leads/{id}/lost` | Gana/pierde con motivo |
+
+Otros: `GET /leads/{id}/events` (timeline), `GET /leads/{id}/proposals`, `POST /leads/{id}/note`, `DELETE /leads/{id}`, `GET /leads/regions`.
+
+### Filtros avanzados del listado
+
+`GET /api/v1/leads/?region=asuncion&segment=pyme&online=website&age_days=30&min_score=40&industry=salud&sort=score`
+
+- `region` — ciudad/departamento (normaliza acentos: `asuncion` matchea `Asunción`)
+- `segment` — pyme | mediana | corporativo (tamaño de empresa)
+- `online` — website | email | phone | any (presencia digital)
+- `age_days` — antigüedad en días
+- `min_score` / `max_score` — rango de score
+- `industry`, `source`, `status`, `search` + `sort` (newest|oldest|score|company)
+
+### Búsqueda no geográfica
+
+- **Scope país**: `LEADHUNTER_SCOPE=country` (Settings) busca en **todo Paraguay** vía Overpass, sin restricción por bbox.
+- **Import CSV**: subí listas propias (nombre, contacto, email, tel, web, sector, segmento, región) — se deduplican solas.
+- El motor es extensible: cualquier fuente nueva que herede `BaseLeadSource` se suma a la caza.
+
+---
+
+## 🔌 Integraciones (Settings → /settings)
+
+Todas las conexiones por API están agrupadas en **Configuración → Integraciones** (admin):
+
+- **GitHub** — token PAT + username, botón «Probar conexión» (valida contra la API real)
+- **Proveedor IA** — DeepSeek / OpenAI / OpenRouter / Ollama (local): provider + key + modelo + base URL, con test de conexión (latencia + modelo respondiendo). El motor de agentes y las propuestas usan el proveedor activo.
+- **Lead Hunter** — cron, bbox y scope (Gran Asunción / Todo Paraguay)
+
+API: `GET /api/v1/settings/integrations` (estado sin exponer keys) · `PUT/DELETE /api/v1/settings/{key}` · `POST /api/v1/settings/llm/test` · `POST /api/v1/settings/github/test`
 
 ---
 

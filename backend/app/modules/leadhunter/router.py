@@ -1,14 +1,22 @@
-"""Lead Hunter API router: CRUD, búsqueda (hunt), scoring, enriquecimiento y webhook de intake."""
+"""Lead Hunter API router: caza (hunt), pipeline, propuestas, import CSV y webhook."""
 
+import csv
+import io
+import os
+import re
+import unicodedata
+from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
 from app.database import get_db
+from app.models.user import User
+from app.services.auth import get_current_user
 
-from .models import Lead, LeadStatus, LeadHuntRun
+from .models import Lead, LeadStatus, LeadHuntRun, LeadEvent, LeadProposal
 from .schemas import (
     LeadCreate,
     LeadUpdate,
@@ -20,17 +28,55 @@ from .schemas import (
     HuntSummary,
     HuntRunResponse,
     EnrichResult,
+    LeadEventResponse,
+    LeadProposalCreate,
+    LeadProposalResponse,
+    ActionRequest,
+    ImportResult,
 )
 from .service import compute_score, enrich_with_ai
 from .sources import get_all_sources
-from .discovery import run_discovery
+from .discovery import run_discovery, add_event
 from .enrich import enrich_from_website
 
-router = APIRouter(prefix="/api/v1/leads", tags=["leadhunter"])
+router = APIRouter(prefix="/api/v1/leads", tags=["leadhunter"], dependencies=[Depends(get_current_user)])
+
+# Router público SOLO para el webhook de intake (lo usa la landing de Conciencia sin token)
+intake_router = APIRouter(prefix="/api/v1/leads", tags=["leadhunter-intake"])
+
+ONLINE_FILTERS = {"website", "email", "phone", "social", "any"}
+SORT_OPTIONS = {"newest", "score", "company", "oldest"}
+
+STREET_LIKE = re.compile(r"^(av|avda|avenida|calle|ruta|camino|autopista|acceso|km|pasaje|tacuara|azara|cnl|gral|san|sta|procer|eugenio|teniente)", re.I)
+
+
+def _norm(s: str) -> str:
+    """Normaliza para comparaciones: minúsculas, sin acentos."""
+    s = unicodedata.normalize("NFKD", s)
+    return "".join(c for c in s if not unicodedata.combining(c)).lower().strip()
 
 
 def _to_response(lead: Lead) -> LeadResponse:
     return LeadResponse(**lead.to_dict())
+
+
+def _get_lead_or_404(db: Session, lead_id: str) -> Lead:
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return lead
+
+
+def _recompute_score(lead: Lead) -> None:
+    lead.score = compute_score(
+        company=lead.company or "",
+        industry=lead.industry or "",
+        source=lead.source or "manual",
+        email=lead.email or "",
+        phone=lead.phone or "",
+        notes=lead.notes or "",
+        metadata=lead.meta,
+    )
 
 
 @router.get("/", response_model=LeadListResponse)
@@ -39,12 +85,18 @@ def list_leads(
     status: Optional[str] = None,
     source: Optional[str] = None,
     industry: Optional[str] = None,
+    segment: Optional[str] = None,
+    region: Optional[str] = None,
+    online: Optional[str] = None,       # website | email | phone | any
+    age_days: Optional[int] = Query(None, ge=0),   # creados en los últimos N días
     min_score: Optional[int] = Query(None, ge=0, le=100),
+    max_score: Optional[int] = Query(None, ge=0, le=100),
+    sort: str = Query("newest", regex="^(newest|oldest|score|company)$"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
-    """Lista de leads con filtros y paginación."""
+    """Lista de leads con filtros avanzados: región, tamaño, presencia online, antigüedad, score."""
     query = db.query(Lead)
 
     if status:
@@ -53,8 +105,32 @@ def list_leads(
         query = query.filter(Lead.source == source)
     if industry:
         query = query.filter(Lead.industry.ilike(f"%{industry}%"))
+    if segment:
+        query = query.filter(Lead.segment == segment)
+    if region:
+        # Normaliza acentos/case para matchear 'Asuncion' con 'Asunción'
+        norm_region = _norm(region)
+        pairs = db.query(Lead.id, Lead.region).filter(Lead.region.isnot(None)).all()
+        ids = [
+            lid for lid, reg in pairs
+            if any(norm_region in _norm(part) for part in reg.split(","))
+        ]
+        query = query.filter(Lead.id.in_(ids))
+    if online:
+        if online not in ONLINE_FILTERS:
+            raise HTTPException(status_code=400, detail=f"online debe ser uno de: {', '.join(sorted(ONLINE_FILTERS))}")
+        if online == "any":
+            query = query.filter(or_(Lead.website.isnot(None), Lead.email.isnot(None), Lead.phone.isnot(None)))
+        else:
+            col = {"website": Lead.website, "email": Lead.email, "phone": Lead.phone}[online]
+            query = query.filter(col.isnot(None))
+    if age_days is not None:
+        cutoff = datetime.utcnow() - timedelta(days=age_days)
+        query = query.filter(Lead.created_at >= cutoff)
     if min_score is not None:
         query = query.filter(Lead.score >= min_score)
+    if max_score is not None:
+        query = query.filter(Lead.score <= max_score)
     if search:
         like = f"%{search}%"
         query = query.filter(
@@ -64,11 +140,22 @@ def list_leads(
                 Lead.email.ilike(like),
                 Lead.phone.ilike(like),
                 Lead.notes.ilike(like),
+                Lead.region.ilike(like),
             )
         )
 
     total = query.count()
-    leads = query.order_by(Lead.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+
+    if sort == "score":
+        query = query.order_by(Lead.score.desc(), Lead.created_at.desc())
+    elif sort == "oldest":
+        query = query.order_by(Lead.created_at.asc())
+    elif sort == "company":
+        query = query.order_by(Lead.company.asc())
+    else:
+        query = query.order_by(Lead.created_at.desc())
+
+    leads = query.offset((page - 1) * page_size).limit(page_size).all()
 
     return LeadListResponse(
         items=[_to_response(l) for l in leads],
@@ -76,6 +163,24 @@ def list_leads(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/regions", response_model=list[str])
+def lead_regions(db: Session = Depends(get_db)):
+    """Regiones (ciudades) con leads, para el filtro (limpio, sin calles)."""
+    rows = db.query(Lead.region).filter(Lead.region.isnot(None)).distinct().all()
+    seen: set = set()
+    out = []
+    for (r,) in rows:
+        r = (r or "").strip()
+        if not r or STREET_LIKE.match(r) or len(r) < 3:
+            continue
+        key = _norm(r)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return sorted(out, key=lambda s: s.lower())
 
 
 @router.get("/stats", response_model=LeadStats)
@@ -107,7 +212,7 @@ def lead_stats(db: Session = Depends(get_db)):
     )
 
 
-# ================== HUNT (descubrimiento de leads) ==================
+# ================== HUNT (descubrimiento) ==================
 
 
 @router.get("/hunt/sources", response_model=list[HuntSourceInfo])
@@ -135,17 +240,220 @@ def hunt_runs(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)
     return [HuntRunResponse(**r.to_dict()) for r in runs]
 
 
-@router.post("/{lead_id}/enrich-website", response_model=EnrichResult)
-def enrich_lead_website(lead_id: str, db: Session = Depends(get_db)):
-    """Raspa el website del lead para completar email/teléfono."""
-    lead = db.query(Lead).filter(Lead.id == lead_id).first()
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
-    result = enrich_from_website(lead)
-    if result.get("changed"):
-        db.commit()
-        db.refresh(lead)
-    return EnrichResult(**result)
+# ================== PIPELINE (acciones) ==================
+
+
+@router.post("/{lead_id}/contact", response_model=LeadResponse)
+def contact_lead(lead_id: str, req: ActionRequest = ActionRequest(), db: Session = Depends(get_db)):
+    """Marca el lead como contactado (primer acercamiento)."""
+    lead = _get_lead_or_404(db, lead_id)
+    lead.status = LeadStatus.CONTACTED
+    db.add(add_event(db, lead.id, "contacted", req.reason or "Primer contacto realizado"))
+    db.commit()
+    db.refresh(lead)
+    return _to_response(lead)
+
+
+@router.post("/{lead_id}/qualify", response_model=LeadResponse)
+def qualify_lead(lead_id: str, req: ActionRequest = ActionRequest(), db: Session = Depends(get_db)):
+    """Califica el lead (validado como prospecto real)."""
+    lead = _get_lead_or_404(db, lead_id)
+    lead.status = LeadStatus.QUALIFIED
+    db.add(add_event(db, lead.id, "qualified", req.reason or "Lead calificado como prospecto"))
+    db.commit()
+    db.refresh(lead)
+    return _to_response(lead)
+
+
+@router.post("/{lead_id}/won", response_model=LeadResponse)
+def won_lead(lead_id: str, req: ActionRequest = ActionRequest(), db: Session = Depends(get_db)):
+    """Cierra el lead como ganado."""
+    lead = _get_lead_or_404(db, lead_id)
+    lead.status = LeadStatus.WON
+    db.add(add_event(db, lead.id, "won", req.reason or "Cliente ganado"))
+    db.commit()
+    db.refresh(lead)
+    return _to_response(lead)
+
+
+@router.post("/{lead_id}/lost", response_model=LeadResponse)
+def lost_lead(lead_id: str, req: ActionRequest = ActionRequest(), db: Session = Depends(get_db)):
+    """Cierra el lead como perdido (con motivo)."""
+    lead = _get_lead_or_404(db, lead_id)
+    lead.status = LeadStatus.LOST
+    db.add(add_event(db, lead.id, "lost", req.reason or "Lead perdido"))
+    db.commit()
+    db.refresh(lead)
+    return _to_response(lead)
+
+
+@router.post("/{lead_id}/note", response_model=LeadResponse)
+def add_note(lead_id: str, req: ActionRequest, db: Session = Depends(get_db)):
+    """Agrega una nota al lead (se guarda en el timeline)."""
+    if not req.note or not req.note.strip():
+        raise HTTPException(status_code=400, detail="note no puede estar vacía")
+    lead = _get_lead_or_404(db, lead_id)
+    db.add(add_event(db, lead.id, "note", req.note.strip()))
+    db.commit()
+    db.refresh(lead)
+    return _to_response(lead)
+
+
+# ================== TIMELINE ==================
+
+
+@router.get("/{lead_id}/events", response_model=list[LeadEventResponse])
+def lead_events(lead_id: str, db: Session = Depends(get_db)):
+    """Timeline de acciones del lead."""
+    _get_lead_or_404(db, lead_id)
+    events = db.query(LeadEvent).filter(LeadEvent.lead_id == lead_id).order_by(LeadEvent.created_at.desc()).all()
+    return [LeadEventResponse(**e.to_dict()) for e in events]
+
+
+# ================== PROPUESTAS ==================
+
+
+@router.get("/{lead_id}/proposals", response_model=list[LeadProposalResponse])
+def lead_proposals(lead_id: str, db: Session = Depends(get_db)):
+    """Propuestas del lead."""
+    _get_lead_or_404(db, lead_id)
+    props = db.query(LeadProposal).filter(LeadProposal.lead_id == lead_id).order_by(LeadProposal.created_at.desc()).all()
+    return [LeadProposalResponse(**p.to_dict()) for p in props]
+
+
+@router.post("/{lead_id}/proposal/generate", response_model=LeadProposalResponse)
+def generate_proposal(lead_id: str, db: Session = Depends(get_db)):
+    """Genera una propuesta comercial con IA para el lead (usa el LLM configurado)."""
+    lead = _get_lead_or_404(db, lead_id)
+    from app.services.llm import run_agent
+
+    task = (
+        f"Generá una propuesta comercial breve (en español, formato markdown) para esta empresa:\n"
+        f"- Empresa: {lead.company}\n"
+        f"- Sector: {lead.industry or 'no especificado'}\n"
+        f"- Segmento: {lead.segment or 'no especificado'}\n"
+        f"- Región: {lead.region or 'no especificada'}\n"
+        f"- Website: {lead.website or 'sin web'}\n"
+        f"- Contexto: {lead.notes or 'sin notas'}\n\n"
+        f"Estructura:\n"
+        f"1. Resumen ejecutivo (2-3 líneas)\n"
+        f"2. Problemas que resolvemos (software, IA, automatización, ciberseguridad)\n"
+        f"3. Solución propuesta y alcance inicial\n"
+        f"4. Inversión estimada (en USD, rango según segmento)\n"
+        f"5. Próximos pasos (reunión, diagnóstico, pilotaje)\n"
+        f"6. Cierre con llamado a la acción"
+    )
+    result = run_agent("LeadHunter", "Sos un consultor comercial senior de una software factory paraguaya.", task)
+
+    content = result.get("output") or "(sin respuesta del LLM)"
+    title = f"Propuesta — {lead.company}"
+    proposal = LeadProposal(lead_id=lead.id, title=title, content=content, status="draft")
+    model_tag = result.get("model")
+    if model_tag:
+        proposal.model = f"{result.get('provider', '?')}:{model_tag}"
+    db.add(proposal)
+    db.add(add_event(db, lead.id, "proposal_generated", f"Propuesta generada" + (f" ({proposal.model})" if proposal.model else "")))
+    db.commit()
+    db.refresh(proposal)
+    return LeadProposalResponse(**proposal.to_dict())
+
+
+@router.post("/{lead_id}/proposal", response_model=LeadProposalResponse)
+def create_proposal_manual(lead_id: str, req: LeadProposalCreate, db: Session = Depends(get_db)):
+    """Crea una propuesta manual (pegada por el usuario)."""
+    lead = _get_lead_or_404(db, lead_id)
+    proposal = LeadProposal(
+        lead_id=lead.id,
+        title=req.title or f"Propuesta — {lead.company}",
+        content=req.content,
+        status="draft",
+    )
+    db.add(proposal)
+    db.add(add_event(db, lead.id, "proposal_generated", "Propuesta cargada manualmente"))
+    db.commit()
+    db.refresh(proposal)
+    return LeadProposalResponse(**proposal.to_dict())
+
+
+@router.post("/proposals/{proposal_id}/send", response_model=LeadProposalResponse)
+def send_proposal(proposal_id: str, db: Session = Depends(get_db)):
+    """Marca la propuesta como enviada al prospecto y mueve el lead a 'proposal'."""
+    proposal = db.query(LeadProposal).filter(LeadProposal.id == proposal_id).first()
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    proposal.status = "sent"
+    proposal.sent_at = datetime.utcnow()
+    lead = db.query(Lead).filter(Lead.id == proposal.lead_id).first()
+    if lead:
+        lead.status = LeadStatus.PROPOSAL
+        db.add(add_event(db, lead.id, "proposal_sent", f"Propuesta enviada: {proposal.title}"))
+    db.commit()
+    db.refresh(proposal)
+    return LeadProposalResponse(**proposal.to_dict())
+
+
+# ================== IMPORT CSV ==================
+
+
+@router.post("/import", response_model=ImportResult)
+async def import_leads_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Importa leads desde un CSV (company requerida; contact_name, email, phone, website,
+    industry, segment, region, notes, source opcionales). Dedupe automático."""
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="El archivo debe ser .csv")
+
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV vacío o sin encabezados")
+
+    from .discovery import _is_duplicate
+
+    added = duplicates = errors = 0
+    total = 0
+    for row in reader:
+        total += 1
+        try:
+            company = (row.get("company") or row.get("empresa") or "").strip()
+            if not company:
+                errors += 1
+                continue
+            if _is_duplicate(db, company, row.get("website"), row.get("phone")):
+                duplicates += 1
+                continue
+
+            lead = Lead(
+                company=company,
+                contact_name=(row.get("contact_name") or row.get("contacto") or "").strip() or None,
+                email=(row.get("email") or "").strip() or None,
+                phone=(row.get("phone") or row.get("telefono") or "").strip() or None,
+                website=(row.get("website") or row.get("web") or "").strip() or None,
+                source=(row.get("source") or row.get("fuente") or "import").strip() or "import",
+                industry=(row.get("industry") or row.get("sector") or "").strip() or None,
+                segment=(row.get("segment") or "").strip() or None,
+                region=(row.get("region") or row.get("ciudad") or "").strip() or None,
+                status=LeadStatus.NEW,
+                notes=(row.get("notes") or row.get("notas") or "").strip() or None,
+                meta={"source_detail": "csv_import"},
+            )
+            _recompute_score(lead)
+            db.add(lead)
+            db.flush()
+            db.add(add_event(db, lead.id, "created", "Lead importado por CSV"))
+            added += 1
+        except Exception:  # noqa: BLE001
+            errors += 1
+
+    db.commit()
+    return ImportResult(total=total, added=added, duplicates=duplicates, errors=errors)
+
+
+# ================== CRUD básico ==================
 
 
 @router.post("/", response_model=LeadResponse, status_code=201)
@@ -160,26 +468,21 @@ def create_lead(req: LeadCreate, db: Session = Depends(get_db)):
         source=req.source or "manual",
         industry=req.industry,
         segment=req.segment,
+        region=req.region,
         status=req.status,
         notes=req.notes,
         meta=req.metadata,
     )
-    lead.score = compute_score(
-        company=lead.company,
-        industry=lead.industry or "",
-        source=lead.source,
-        email=lead.email or "",
-        phone=lead.phone or "",
-        notes=lead.notes or "",
-        metadata=lead.meta,
-    )
+    _recompute_score(lead)
     db.add(lead)
+    db.flush()
+    db.add(add_event(db, lead.id, "created", "Lead creado manualmente"))
     db.commit()
     db.refresh(lead)
     return _to_response(lead)
 
 
-@router.post("/intake", response_model=LeadResponse, status_code=201)
+@intake_router.post("/intake", response_model=LeadResponse, status_code=201)
 def intake_lead(req: LeadIntake, db: Session = Depends(get_db)):
     """Webhook público: captura leads desde landings/formularios (ej: conciencia-software)."""
     lead = Lead(
@@ -191,22 +494,17 @@ def intake_lead(req: LeadIntake, db: Session = Depends(get_db)):
         source="conciencia" if not req.metadata or req.metadata.get("source") is None else req.metadata["source"],
         industry=req.industry,
         segment=req.segment,
+        region=req.region,
         status=LeadStatus.NEW,
         notes=req.notes,
         meta=req.metadata,
     )
     if req.metadata and req.metadata.get("source"):
         lead.source = req.metadata["source"]
-    lead.score = compute_score(
-        company=lead.company,
-        industry=lead.industry or "",
-        source=lead.source,
-        email=lead.email or "",
-        phone=lead.phone or "",
-        notes=lead.notes or "",
-        metadata=lead.meta,
-    )
+    _recompute_score(lead)
     db.add(lead)
+    db.flush()
+    db.add(add_event(db, lead.id, "created", "Lead capturado por webhook (landing/formulario)"))
     db.commit()
     db.refresh(lead)
     return _to_response(lead)
@@ -214,32 +512,40 @@ def intake_lead(req: LeadIntake, db: Session = Depends(get_db)):
 
 @router.get("/{lead_id}", response_model=LeadResponse)
 def get_lead(lead_id: str, db: Session = Depends(get_db)):
-    lead = db.query(Lead).filter(Lead.id == lead_id).first()
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
+    lead = _get_lead_or_404(db, lead_id)
     return _to_response(lead)
 
 
 @router.patch("/{lead_id}", response_model=LeadResponse)
 def update_lead(lead_id: str, req: LeadUpdate, db: Session = Depends(get_db)):
-    lead = db.query(Lead).filter(Lead.id == lead_id).first()
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
+    lead = _get_lead_or_404(db, lead_id)
 
     data = req.model_dump(exclude_unset=True)
     for field, value in data.items():
         setattr(lead, field, value)
 
-    if req.status is not None or req.score is None:
-        lead.score = compute_score(
-            company=lead.company or "",
-            industry=lead.industry or "",
-            source=lead.source or "manual",
-            email=lead.email or "",
-            phone=lead.phone or "",
-            notes=lead.notes or "",
-            metadata=lead.meta,
-        )
+    _recompute_score(lead)
     db.commit()
     db.refresh(lead)
     return _to_response(lead)
+
+
+@router.delete("/{lead_id}", status_code=204)
+def delete_lead(lead_id: str, db: Session = Depends(get_db)):
+    lead = _get_lead_or_404(db, lead_id)
+    db.delete(lead)
+    db.commit()
+    return None
+
+
+@router.post("/{lead_id}/enrich-website", response_model=EnrichResult)
+def enrich_lead_website(lead_id: str, db: Session = Depends(get_db)):
+    """Raspa el website del lead para completar email/teléfono."""
+    lead = _get_lead_or_404(db, lead_id)
+    result = enrich_from_website(lead)
+    if result.get("changed"):
+        _recompute_score(lead)
+        db.add(add_event(db, lead.id, "enriched", f"Enriquecido desde website: email={result.get('email')} tel={result.get('phone')}"))
+        db.commit()
+        db.refresh(lead)
+    return EnrichResult(**result)

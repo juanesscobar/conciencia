@@ -21,6 +21,9 @@ OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
 ]
 
+# Área de Paraguay (relation 2870777) para búsqueda a nivel país (LEADHUNTER_SCOPE=country)
+PARAGUAY_AREA = 3602870777
+
 # Entes públicos / postas de salud / no-B2B que ensucian el pipeline
 EXCLUDE_NAME_RE = re.compile(
     r"^(ministerio|direcci|mspbs|senadis|inat|centro nacional|instituto nacional|"
@@ -113,6 +116,20 @@ def _build_query(bbox: str) -> str:
     )
 
 
+def _build_country_query(area_id: int) -> str:
+    """Query a nivel país (sin restricción geográfica local): usa el área de Paraguay."""
+    parts = []
+    for q, industry, segment in CATEGORIES:
+        q2 = q.replace("(", f"(area:{area_id})", 1)
+        parts.append(f"  {q2};")
+    body = "\n".join(parts)
+    return (
+        "[out:json][timeout:120];\n(\n"
+        + body
+        + "\n);\nout center tags;"
+    )
+
+
 @register_source
 class OverpassSource(BaseLeadSource):
     name = "overpass"
@@ -122,9 +139,13 @@ class OverpassSource(BaseLeadSource):
 
     def __init__(self):
         self.bbox = os.getenv("LEADHUNTER_BBOX", "-25.55,-57.75,-25.15,-57.40")
+        self.scope = os.getenv("LEADHUNTER_SCOPE", "bbox").strip().lower()
 
     def fetch(self, limit: Optional[int] = None) -> List[dict]:
-        query = _build_query(self.bbox)
+        if self.scope == "country":
+            query = _build_country_query(PARAGUAY_AREA)
+        else:
+            query = _build_query(self.bbox)
         last_error: Optional[Exception] = None
 
         for endpoint in OVERPASS_ENDPOINTS:
@@ -133,7 +154,7 @@ class OverpassSource(BaseLeadSource):
                     resp = httpx.post(
                         endpoint,
                         data={"data": query},
-                        timeout=150,
+                        timeout=150 if self.scope == "country" else 120,
                         headers={"User-Agent": "MissionControl-LeadHunter/2.0 (contact: juanesscobar)"},
                     )
                     resp.raise_for_status()
@@ -193,6 +214,13 @@ class OverpassSource(BaseLeadSource):
             ]
             address = ", ".join([p for p in addr_parts if p]).strip() or None
 
+            # Región: ciudad, luego suburbio, luego localidad del address
+            region = tags.get("addr:city") or tags.get("addr:suburb") or tags.get("addr:town") or None
+            if not region and address:
+                region = address.split(",")[-1].strip() or None
+            if region:
+                region = region[:80]
+
             industry = _industry_for(tags.get("industry") or "comercio")
             # Inferir industria por tags reales
             if tags.get("amenity") == "hospital":
@@ -218,6 +246,7 @@ class OverpassSource(BaseLeadSource):
                 "company": name,
                 "industry": industry,
                 "segment": segment,
+                "region": region,
                 "phone": phone,
                 "email": email,
                 "website": website,
@@ -229,6 +258,7 @@ class OverpassSource(BaseLeadSource):
                     "lat": lat,
                     "lon": lon,
                     "address": address,
+                    "region": region,
                 },
             })
 

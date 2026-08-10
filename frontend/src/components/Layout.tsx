@@ -13,6 +13,7 @@ const navigation = [
   { name: 'Reports', href: '/reports', icon: '▤' },
   { name: 'Agents', href: '/agents', icon: '◈' },
   { name: 'Leads', href: '/leads', icon: '◎' },
+  { name: 'Settings', href: '/settings', icon: '⚙' },
 ]
 
 function TerminalHeader() {

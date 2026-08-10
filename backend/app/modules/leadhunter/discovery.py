@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from .models import Lead, LeadHuntRun, LeadStatus
+from .models import Lead, LeadHuntRun, LeadStatus, LeadEvent
 from .sources import get_all_sources
 from .service import compute_score
 
@@ -54,6 +54,13 @@ def _is_duplicate(db: Session, company: str, website: Optional[str], phone: Opti
     return False
 
 
+def add_event(db: Session, lead_id: str, event_type: str, description: Optional[str] = None) -> LeadEvent:
+    """Registra un evento en el timeline del lead."""
+    event = LeadEvent(lead_id=lead_id, event_type=event_type, description=description)
+    db.add(event)
+    return event
+
+
 def run_discovery(db: Session, source: Optional[str] = None, limit: Optional[int] = None) -> dict:
     """Corre una (o todas) las fuentes y agrega leads nuevos. Devuelve resumen."""
     sources = get_all_sources()
@@ -93,6 +100,7 @@ def run_discovery(db: Session, source: Optional[str] = None, limit: Optional[int
                     source=name,
                     industry=item.get("industry"),
                     segment=item.get("segment"),
+                    region=item.get("region"),
                     status=LeadStatus.NEW,
                     notes=(item.get("address") or None),
                     meta=item.get("meta") or {},
@@ -107,6 +115,11 @@ def run_discovery(db: Session, source: Optional[str] = None, limit: Optional[int
                     metadata=lead.meta,
                 )
                 db.add(lead)
+                db.flush()  # para tener lead.id
+                add_event(
+                    db, lead.id, "created",
+                    f"Lead descubierto por fuente '{name}'" + (f" en {item.get('region')}" if item.get("region") else ""),
+                )
                 added += 1
 
             run.status = "completed"

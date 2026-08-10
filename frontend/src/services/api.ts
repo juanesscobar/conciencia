@@ -119,4 +119,25 @@ export const leadsApi = {
   huntRun: (source?: string) => api.post('/api/v1/leads/hunt/run', null, { params: source ? { source } : {} }),
   huntSources: () => api.get('/api/v1/leads/hunt/sources'),
   huntRuns: () => api.get('/api/v1/leads/hunt/runs', { params: { limit: 5 } }),
+  regions: () => api.get('/api/v1/leads/regions'),
+  importCsv: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post('/api/v1/leads/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+  },
+  action: (id: string, action: string, data?: any) => api.post(`/api/v1/leads/${id}/${action}`, data || {}),
+  events: (id: string) => api.get(`/api/v1/leads/${id}/events`),
+  proposals: (id: string) => api.get(`/api/v1/leads/${id}/proposals`),
+  proposalGenerate: (id: string) => api.post(`/api/v1/leads/${id}/proposal/generate`),
+  proposalCreate: (id: string, data: any) => api.post(`/api/v1/leads/${id}/proposal`, data),
+  proposalSend: (proposalId: string) => api.post(`/api/v1/leads/proposals/${proposalId}/send`),
+}
+
+export const settingsApi = {
+  integrations: () => api.get('/api/v1/settings/integrations'),
+  set: (key: string, value: string) => api.put(`/api/v1/settings/${key}`, { value }),
+  remove: (key: string) => api.delete(`/api/v1/settings/${key}`),
+  llmStatus: () => api.get('/api/v1/settings/llm'),
+  llmTest: (data: any) => api.post('/api/v1/settings/llm/test', data),
+  githubTest: () => api.post('/api/v1/settings/github/test'),
 }
