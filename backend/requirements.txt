@@ -22,6 +22,7 @@ openai==1.59.6  # compatible con httpx 0.28 (1.10.0 rompe con 'proxies')
 # Background tasks
 celery==5.3.6
 flower==2.0.1
+apscheduler==3.11.2
 
 # Utilities
 pydantic==2.10.4

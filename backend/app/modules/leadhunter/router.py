@@ -1,7 +1,6 @@
-"""Lead Hunter API router — CRUD, búsqueda, scoring y webhook de intake."""
+"""Lead Hunter API router: CRUD, búsqueda (hunt), scoring, enriquecimiento y webhook de intake."""
 
-from typing import List, Optional
-from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -9,7 +8,7 @@ from sqlalchemy import or_
 
 from app.database import get_db
 
-from .models import Lead, LeadStatus
+from .models import Lead, LeadStatus, LeadHuntRun
 from .schemas import (
     LeadCreate,
     LeadUpdate,
@@ -17,8 +16,15 @@ from .schemas import (
     LeadResponse,
     LeadListResponse,
     LeadStats,
+    HuntSourceInfo,
+    HuntSummary,
+    HuntRunResponse,
+    EnrichResult,
 )
 from .service import compute_score, enrich_with_ai
+from .sources import get_all_sources
+from .discovery import run_discovery
+from .enrich import enrich_from_website
 
 router = APIRouter(prefix="/api/v1/leads", tags=["leadhunter"])
 
@@ -101,6 +107,47 @@ def lead_stats(db: Session = Depends(get_db)):
     )
 
 
+# ================== HUNT (descubrimiento de leads) ==================
+
+
+@router.get("/hunt/sources", response_model=list[HuntSourceInfo])
+def hunt_sources():
+    """Fuentes de prospección disponibles."""
+    return [
+        HuntSourceInfo(name=s.name, label=s.label, description=s.description, enabled=s.enabled)
+        for s in get_all_sources().values()
+    ]
+
+
+@router.post("/hunt/run", response_model=HuntSummary)
+def hunt_run(source: Optional[str] = None, db: Session = Depends(get_db)):
+    """Ejecuta el descubrimiento ahora (todas las fuentes o una sola)."""
+    try:
+        return run_discovery(db, source=source)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/hunt/runs", response_model=list[HuntRunResponse])
+def hunt_runs(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)):
+    """Historial de corridas de descubrimiento."""
+    runs = db.query(LeadHuntRun).order_by(LeadHuntRun.started_at.desc()).limit(limit).all()
+    return [HuntRunResponse(**r.to_dict()) for r in runs]
+
+
+@router.post("/{lead_id}/enrich-website", response_model=EnrichResult)
+def enrich_lead_website(lead_id: str, db: Session = Depends(get_db)):
+    """Raspa el website del lead para completar email/teléfono."""
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    result = enrich_from_website(lead)
+    if result.get("changed"):
+        db.commit()
+        db.refresh(lead)
+    return EnrichResult(**result)
+
+
 @router.post("/", response_model=LeadResponse, status_code=201)
 def create_lead(req: LeadCreate, db: Session = Depends(get_db)):
     """Crea un lead manual y calcula su score."""
@@ -134,7 +181,7 @@ def create_lead(req: LeadCreate, db: Session = Depends(get_db)):
 
 @router.post("/intake", response_model=LeadResponse, status_code=201)
 def intake_lead(req: LeadIntake, db: Session = Depends(get_db)):
-    """Webhook público — captura leads desde landings/formularios (ej: conciencia-software)."""
+    """Webhook público: captura leads desde landings/formularios (ej: conciencia-software)."""
     lead = Lead(
         company=req.company.strip(),
         contact_name=req.contact_name,
@@ -196,29 +243,3 @@ def update_lead(lead_id: str, req: LeadUpdate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(lead)
     return _to_response(lead)
-
-
-@router.post("/{lead_id}/enrich", response_model=LeadResponse)
-def enrich_lead(lead_id: str, db: Session = Depends(get_db)):
-    """Enriquece el lead con DeepSeek (si está configurado)."""
-    lead = db.query(Lead).filter(Lead.id == lead_id).first()
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
-
-    output = enrich_with_ai(lead)
-    if output:
-        lead.notes = (lead.notes or "") + f"\n\n--- IA ({datetime.utcnow().isoformat()}) ---\n{output}"
-        lead.score = min(100, (lead.score or 0) + 5)
-        db.commit()
-        db.refresh(lead)
-    return _to_response(lead)
-
-
-@router.delete("/{lead_id}", status_code=204)
-def delete_lead(lead_id: str, db: Session = Depends(get_db)):
-    lead = db.query(Lead).filter(Lead.id == lead_id).first()
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
-    db.delete(lead)
-    db.commit()
-    return None

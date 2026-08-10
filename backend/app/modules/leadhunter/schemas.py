@@ -89,3 +89,46 @@ class LeadStats(BaseModel):
     by_source: Dict[str, int]
     avg_score: float
     top_sources: List[Dict[str, Any]]
+
+
+class HuntSourceInfo(BaseModel):
+    name: str
+    label: str
+    description: str
+    enabled: bool
+
+
+class HuntRunResult(BaseModel):
+    source: str
+    found: int = 0
+    added: int = 0
+    duplicates: int = 0
+    status: str = "completed"
+    error: Optional[str] = None
+
+
+class HuntSummary(BaseModel):
+    results: List[HuntRunResult]
+    total_found: int
+    total_added: int
+    total_duplicates: int
+
+
+class HuntRunResponse(BaseModel):
+    id: str
+    source: str
+    status: str
+    found: int = 0
+    added: int = 0
+    duplicates: int = 0
+    error: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+
+
+class EnrichResult(BaseModel):
+    changed: bool
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    fetched: bool = False
+    reason: Optional[str] = None

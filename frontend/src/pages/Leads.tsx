@@ -48,6 +48,7 @@ const sourceLabels: Record<string, string> = {
   referral: 'referral',
   web: 'web',
   linkedin: 'linkedin',
+  overpass: '🗺️ OSM',
   other: 'otro',
 }
 
@@ -57,9 +58,34 @@ function scoreColor(score: number): string {
   return 'text-gray-400 border-gray-500/40'
 }
 
-function fmtDate(d: string | null): string {
+interface HuntSource {
+  name: string
+  label: string
+  description: string
+  enabled: boolean
+}
+
+interface HuntRun {
+  id: string
+  source: string
+  status: string
+  found: number
+  added: number
+  duplicates: number
+  error: string | null
+  started_at: string | null
+}
+
+interface HuntSummary {
+  results: { source: string; found: number; added: number; duplicates: number; status: string; error?: string | null }[]
+  total_found: number
+  total_added: number
+  total_duplicates: number
+}
+
+function fmtDateTime(d: string | null): string {
   if (!d) return '—'
-  return new Date(d).toLocaleDateString('es-PY')
+  return new Date(d).toLocaleString('es-PY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 export default function Leads() {
@@ -94,6 +120,28 @@ export default function Leads() {
     },
   })
 
+  const { data: huntSources } = useQuery<HuntSource[]>({
+    queryKey: ['hunt-sources'],
+    queryFn: () => leadsApi.huntSources().then(res => res.data),
+  })
+
+  const { data: huntRuns } = useQuery<HuntRun[]>({
+    queryKey: ['hunt-runs'],
+    queryFn: () => leadsApi.huntRuns().then(res => res.data),
+  })
+
+  const [huntResult, setHuntResult] = useState<HuntSummary | null>(null)
+
+  const huntRun = useMutation({
+    mutationFn: () => leadsApi.huntRun(),
+    onSuccess: (res) => {
+      setHuntResult(res.data)
+      queryClient.invalidateQueries({ queryKey: ['leads'] })
+      queryClient.invalidateQueries({ queryKey: ['lead-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['hunt-runs'] })
+    },
+  })
+
   const updateStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       leadsApi.update(id, { status }),
@@ -105,6 +153,13 @@ export default function Leads() {
 
   const enrichLead = useMutation({
     mutationFn: (id: string) => leadsApi.enrich(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] })
+    },
+  })
+
+  const enrichWebsite = useMutation({
+    mutationFn: (id: string) => leadsApi.enrichWebsite(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['leads'] })
     },
@@ -126,6 +181,40 @@ export default function Leads() {
         >
           + Nuevo lead
         </button>
+      </div>
+
+      {/* Hunt panel */}
+      <div className="bg-bg-900 border border-bg-700 rounded-lg p-4 mb-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+          <div>
+            <h2 className="text-sm font-bold text-primary-400 tracking-wider">// PROSPECCIÓN AUTOMÁTICA</h2>
+            <p className="text-xs text-gray-500 mt-1">
+              {huntSources?.map(s => s.label).join(' · ') || 'Cargando fuentes...'}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {huntRuns && huntRuns.length > 0 && (
+              <span className="text-xs text-gray-500">
+                último: {fmtDateTime(huntRuns[0].started_at)} · {huntRuns[0].found} encontrados / {huntRuns[0].added} nuevos
+              </span>
+            )}
+            <button
+              onClick={() => huntRun.mutate()}
+              disabled={huntRun.isPending}
+              className="px-4 py-2 bg-primary-500/10 text-primary-400 border border-primary-500/40 rounded-lg hover:bg-primary-500/20 transition-all shadow-neon disabled:opacity-40 disabled:cursor-wait"
+            >
+              {huntRun.isPending ? '⌛ Cazando...' : '🔎 Cazar leads ahora'}
+            </button>
+          </div>
+        </div>
+        {huntResult && (
+          <div className="mt-3 pt-3 border-t border-bg-700 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div><span className="text-gray-500">Encontrados: </span><span className="text-primary-400 font-mono">{huntResult.total_found}</span></div>
+            <div><span className="text-gray-500">Nuevos: </span><span className="text-primary-400 font-mono">{huntResult.total_added}</span></div>
+            <div><span className="text-gray-500">Duplicados: </span><span className="text-yellow-400 font-mono">{huntResult.total_duplicates}</span></div>
+            <div><span className="text-gray-500">Errores: </span><span className="text-alert-400 font-mono">{huntResult.results.filter(r => r.status === 'error').length}</span></div>
+          </div>
+        )}
       </div>
 
       {/* Stats */}
@@ -187,6 +276,7 @@ export default function Leads() {
           <option value="referral">referral</option>
           <option value="web">web</option>
           <option value="linkedin">linkedin</option>
+          <option value="overpass">OSM (overpass)</option>
         </select>
       </div>
 
@@ -213,7 +303,7 @@ export default function Leads() {
                 {leads.length === 0 && (
                   <tr>
                     <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                      Sin leads todavía — agregá uno o conectá la landing de Conciencia
+                      Sin leads todavía — apretá «Cazar leads ahora» o agregá uno manual
                     </td>
                   </tr>
                 )}
@@ -256,16 +346,26 @@ export default function Leads() {
                         <option value="lost">lost</option>
                       </select>
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">{fmtDate(lead.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{fmtDateTime(lead.created_at)}</td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => enrichLead.mutate(lead.id)}
-                        disabled={enrichLead.isPending}
-                        title="Enriquecer con IA (DeepSeek)"
-                        className="text-xs px-2 py-1 rounded border border-bg-600 text-primary-400 hover:border-primary-500/50 hover:text-primary-300 transition-colors disabled:opacity-40"
-                      >
-                        ✦ IA
-                      </button>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => enrichWebsite.mutate(lead.id)}
+                          disabled={enrichWebsite.isPending || !lead.website}
+                          title="Rastrear website (email/tel)"
+                          className="text-xs px-2 py-1 rounded border border-bg-600 text-primary-400 hover:border-primary-500/50 hover:text-primary-300 transition-colors disabled:opacity-30"
+                        >
+                          🌐
+                        </button>
+                        <button
+                          onClick={() => enrichLead.mutate(lead.id)}
+                          disabled={enrichLead.isPending}
+                          title="Enriquecer con IA (DeepSeek)"
+                          className="text-xs px-2 py-1 rounded border border-bg-600 text-primary-400 hover:border-primary-500/50 hover:text-primary-300 transition-colors disabled:opacity-40"
+                        >
+                          ✦ IA
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

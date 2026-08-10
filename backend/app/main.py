@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 import uvicorn
 from app.routers import projects, tasks, activities
 from app.routers import github as github_router
@@ -13,6 +14,7 @@ from app.routers import reports as reports_router
 from app.routers import sprints as sprints_router
 from app.modules.jobscout.router import router as jobscout_router
 from app.modules.leadhunter.router import router as leadhunter_router
+from app.modules.leadhunter.scheduler import start_scheduler, stop_scheduler
 from app.config import get_cors_origins, ENVIRONMENT
 from app.services.system_logger import setup_logging
 from app.database import Base, engine
@@ -21,10 +23,19 @@ from app.database import Base, engine
 from app import models  # noqa: F401  (registra todos los modelos en Base.metadata)
 Base.metadata.create_all(bind=engine)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    start_scheduler()
+    yield
+    stop_scheduler()
+
+
 app = FastAPI(
     title="Mission Control",
     description="Software Factory + Project Governance System",
-    version="2.0.0-alpha"
+    version="2.0.0-alpha",
+    lifespan=lifespan,
 )
 
 # Logging del sistema

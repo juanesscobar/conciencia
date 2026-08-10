@@ -44,3 +44,6 @@ reset_*.py
 
 check_*.sh
 
+
+# Seeds de admin local (contienen passwords)
+backend/scripts/seed_*.py

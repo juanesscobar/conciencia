@@ -66,3 +66,32 @@ class Lead(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class LeadHuntRun(Base):
+    """Registro de cada corrida de descubrimiento (qué fuente, cuántos leads)."""
+
+    __tablename__ = "lead_hunt_runs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    source = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False, default="running")  # running | completed | error
+    found = Column(Integer, nullable=False, default=0)
+    added = Column(Integer, nullable=False, default=0)
+    duplicates = Column(Integer, nullable=False, default=0)
+    error = Column(Text, nullable=True)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "source": self.source,
+            "status": self.status,
+            "found": self.found,
+            "added": self.added,
+            "duplicates": self.duplicates,
+            "error": self.error,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+        }

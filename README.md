@@ -81,6 +81,25 @@ docker compose -f docker-compose.dev.yml up
 > En dev el frontend apunta a `http://localhost:8000`; en producción `VITE_API_URL` se
 > configura apuntando al dominio/IP.
 
+### Desarrollo 100% local sin Docker (recomendado para iterar rápido)
+
+```bash
+# Backend (usa SQLite automáticamente si DATABASE_URL apunta a sqlite en backend/.env)
+cd backend
+python -m venv .venv && .venv\Scripts\activate   # (Windows) / source .venv/bin/activate (Linux)
+pip install -r requirements.txt
+python scripts/seed_local_admin.py               # crea/resetea el admin local
+python -m uvicorn app.main:app --reload --port 8000
+
+# Frontend (otra terminal)
+cd frontend
+npm install
+npm run dev                                      # http://localhost:5173
+```
+
+- Login local: `admin` / `MC-Admin#2026!` (se cambia con `LOCAL_ADMIN_PASSWORD`)
+- El backend arranca con SQLite (`backend/missioncontrol.db`) si `DATABASE_URL` es `sqlite:///./missioncontrol.db` — sin Postgres ni Redis necesarios.
+
 ---
 
 ## 🤖 Motor de Agentes
@@ -213,6 +232,7 @@ grep -rIn "ghp_\|sk-\|BEGIN.*PRIVATE" . --exclude-dir=node_modules --exclude-dir
 - [x] **Dark hacker theme** — UI estilo terminal
 - [x] **Motor DeepSeek** — ejecución de agentes con LLM
 - [x] **Memoria de usuario** — memorial por operador
+- [x] **Lead Hunter** — prospección automática (Overpass/OSM) + enriquecimiento web e IA
 - [ ] **Auth avanzada** — roles, rate limiting, 2FA
 - [ ] **Sprints y governance** — planificación, retrospectivas
 - [ ] **Deploys automatizados** — aprobación previa al push
@@ -238,7 +258,39 @@ MIT — uso libre con atribución.
 
 ---
 
-## M�dulo de Entregables + Reportes (v2, 2026-08-03)
+## 🔎 Lead Hunter — prospección automática de clientes (v2, 2026-08-10)
+
+Módulo que **caza leads B2B reales** del Gran Asunción (bancos, cooperativas, farmacias, hospitales, distribuidoras, supermercados) y los mete al pipeline de ventas con score automático.
+
+### Qué hace
+
+- 🗺️ **Fuente Overpass (OpenStreetMap)** — sin API key, consulta pública gratuita. Busca por categoría dentro de un bounding box (default: Gran Asunción, configurable con `LEADHUNTER_BBOX`).
+- 🔁 **Dedupe automático** — por nombre normalizado (sin acentos/sufijos legales), dominio web y últimos 8 dígitos del teléfono. Correr dos veces no duplica.
+- 🧮 **Scoring heurístico 0-100** — sector objetivo (cooperativa 25, hospital 20...), completitud (email 20, tel 15), fuente.
+- 🌐 **Enriquecimiento web** — raspa el website del lead y extrae email + teléfono reales (con validación anti-junk).
+- ✦ **Enriquecimiento IA (DeepSeek)** — análisis del lead, score sugerido, preguntas para primera llamada (opcional, requiere key).
+- ⏰ **Scheduler automático** — corre el descubrimiento con cron configurable (`LEADHUNTER_CRON`, default lunes 09:00, vacío = off).
+- 📋 **Historial de corridas** — cuántos encontrados/nuevos/duplicados por fuente.
+
+### Endpoints
+
+| Endpoint | Descripción |
+|----------|-------------|
+| `GET /api/v1/leads/` | CRUD de leads con filtros y paginación |
+| `POST /api/v1/leads/hunt/run` | Ejecuta la caza ahora (`?source=overpass` para una sola) |
+| `GET /api/v1/leads/hunt/sources` | Fuentes disponibles |
+| `GET /api/v1/leads/hunt/runs` | Historial de corridas |
+| `POST /api/v1/leads/{id}/enrich-website` | Raspa el sitio del lead (email/tel) |
+| `POST /api/v1/leads/{id}/enrich` | Enriquecimiento IA DeepSeek |
+| `POST /api/v1/leads/intake` | Webhook público para landings (ej: conciencia-software) |
+
+### Cómo agregar una fuente nueva
+
+Crear `backend/app/modules/leadhunter/sources/<nombre>.py` con una clase que herede `BaseLeadSource` (name, label, description, `fetch() -> list[dict]`) y decorarla con `@register_source`. El motor la toma automáticamente.
+
+---
+
+## Módulo de Entregables + Reportes (v2, 2026-08-03)
 
 ### Endpoints nuevos
 

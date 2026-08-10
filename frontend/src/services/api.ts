@@ -115,4 +115,8 @@ export const leadsApi = {
   delete: (id: string) => api.delete(`/api/v1/leads/${id}`),
   stats: () => api.get('/api/v1/leads/stats'),
   enrich: (id: string) => api.post(`/api/v1/leads/${id}/enrich`),
+  enrichWebsite: (id: string) => api.post(`/api/v1/leads/${id}/enrich-website`),
+  huntRun: (source?: string) => api.post('/api/v1/leads/hunt/run', null, { params: source ? { source } : {} }),
+  huntSources: () => api.get('/api/v1/leads/hunt/sources'),
+  huntRuns: () => api.get('/api/v1/leads/hunt/runs', { params: { limit: 5 } }),
 }
