@@ -33,6 +33,7 @@ from .schemas import (
     LeadProposalResponse,
     ActionRequest,
     ImportResult,
+    SendProposalRequest,
 )
 from .service import compute_score, enrich_with_ai
 from .sources import get_all_sources
@@ -313,6 +314,24 @@ def lead_events(lead_id: str, db: Session = Depends(get_db)):
 # ================== PROPUESTAS ==================
 
 
+def _send_whatsapp(wa: dict) -> dict:
+    """Envía por WhatsApp real si el bridge está conectado; si no, deep link wa.me."""
+    try:
+        from app.modules.whatsapp.bridge import get_status, send_message
+        status = get_status()
+        if status.get("state") == "connected":
+            res = send_message(wa["to"], wa["text"])
+            return {"sent": bool(res.get("ok")), "method": "whatsapp_api", **res}
+    except Exception as e:  # noqa: BLE001
+        return {"sent": False, "method": "whatsapp_api", "ok": False, "error": str(e)[:200]}
+    return {
+        "sent": False,
+        "method": "whatsapp_link",
+        "url": wa["url"],
+        "reason": "WhatsApp no conectado — se generó el link wa.me",
+    }
+
+
 @router.get("/{lead_id}/proposals", response_model=list[LeadProposalResponse])
 def lead_proposals(lead_id: str, db: Session = Depends(get_db)):
     """Propuestas del lead."""
@@ -322,37 +341,38 @@ def lead_proposals(lead_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{lead_id}/proposal/generate", response_model=LeadProposalResponse)
-def generate_proposal(lead_id: str, db: Session = Depends(get_db)):
-    """Genera una propuesta comercial con IA para el lead (usa el LLM configurado)."""
+def generate_proposal(lead_id: str, mode: str = Query("squad", regex="^(squad|quick)$"), db: Session = Depends(get_db)):
+    """Genera una propuesta comercial con IA usando el sales squad (pm→rd→fin→comms).
+
+    - mode=squad: 4 agentes encadenados (default).
+    - mode=quick: solo el agente Comms (1 llamada).
+    Si el LLM no está configurado devuelve 409 con instrucciones, sin guardar basura.
+    """
+    from .proposal import generate_sales_proposal
+
     lead = _get_lead_or_404(db, lead_id)
-    from app.services.llm import run_agent
+    result = generate_sales_proposal(lead, mode=mode)
 
-    task = (
-        f"Generá una propuesta comercial breve (en español, formato markdown) para esta empresa:\n"
-        f"- Empresa: {lead.company}\n"
-        f"- Sector: {lead.industry or 'no especificado'}\n"
-        f"- Segmento: {lead.segment or 'no especificado'}\n"
-        f"- Región: {lead.region or 'no especificada'}\n"
-        f"- Website: {lead.website or 'sin web'}\n"
-        f"- Contexto: {lead.notes or 'sin notas'}\n\n"
-        f"Estructura:\n"
-        f"1. Resumen ejecutivo (2-3 líneas)\n"
-        f"2. Problemas que resolvemos (software, IA, automatización, ciberseguridad)\n"
-        f"3. Solución propuesta y alcance inicial\n"
-        f"4. Inversión estimada (en USD, rango según segmento)\n"
-        f"5. Próximos pasos (reunión, diagnóstico, pilotaje)\n"
-        f"6. Cierre con llamado a la acción"
-    )
-    result = run_agent("LeadHunter", "Sos un consultor comercial senior de una software factory paraguaya.", task)
+    if not result.get("ok"):
+        if result.get("reason") == "llm_not_configured":
+            raise HTTPException(status_code=409, detail=result["detail"])
+        raise HTTPException(status_code=502, detail=result.get("detail", "El squad no pudo generar la propuesta"))
 
-    content = result.get("output") or "(sin respuesta del LLM)"
     title = f"Propuesta — {lead.company}"
-    proposal = LeadProposal(lead_id=lead.id, title=title, content=content, status="draft")
-    model_tag = result.get("model")
-    if model_tag:
-        proposal.model = f"{result.get('provider', '?')}:{model_tag}"
+    proposal = LeadProposal(
+        lead_id=lead.id,
+        title=title,
+        content=result["content"],
+        status="draft",
+        model=(f"{result.get('provider', '?')}:{result['model']}" if result.get("model") else None),
+        meta={
+            "squad": result.get("agents", []),
+            "sections": {k: v[:400] for k, v in result.get("sections", {}).items()},
+            "mode": mode,
+        },
+    )
     db.add(proposal)
-    db.add(add_event(db, lead.id, "proposal_generated", f"Propuesta generada" + (f" ({proposal.model})" if proposal.model else "")))
+    db.add(add_event(db, lead.id, "proposal_generated", "Propuesta generada con IA (sales squad)"))
     db.commit()
     db.refresh(proposal)
     return LeadProposalResponse(**proposal.to_dict())
@@ -375,21 +395,61 @@ def create_proposal_manual(lead_id: str, req: LeadProposalCreate, db: Session = 
     return LeadProposalResponse(**proposal.to_dict())
 
 
-@router.post("/proposals/{proposal_id}/send", response_model=LeadProposalResponse)
-def send_proposal(proposal_id: str, db: Session = Depends(get_db)):
-    """Marca la propuesta como enviada al prospecto y mueve el lead a 'proposal'."""
+@router.post("/proposals/{proposal_id}/send", response_model=dict)
+def send_proposal(proposal_id: str, req: SendProposalRequest = SendProposalRequest(), db: Session = Depends(get_db)):
+    """Marca la propuesta como enviada y la entrega por el canal pedido:
+    - channel=email → SMTP si está configurado, si no mailto
+    - channel=whatsapp → deep link wa.me con el contenido
+    - channel=link o vacío → solo marca enviada y devuelve los links"""
+    from .delivery import build_delivery_links, send_email
+
     proposal = db.query(LeadProposal).filter(LeadProposal.id == proposal_id).first()
     if not proposal:
         raise HTTPException(status_code=404, detail="Proposal not found")
+    lead = db.query(Lead).filter(Lead.id == proposal.lead_id).first()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    delivery = build_delivery_links(proposal, lead)
+    channel = (req.channel or "link").strip().lower()
+    result = {"proposal_id": proposal.id, "channel": channel, "delivery": delivery}
+
+    if channel == "email":
+        to = (req.to_email or lead.email or "").strip()
+        if not to:
+            raise HTTPException(status_code=400, detail="El lead no tiene email. Editalo o elegí otro canal.")
+        email_res = send_email(to, delivery["subject"], delivery["body"])
+        result["send_result"] = email_res
+    elif channel == "whatsapp":
+        wa = delivery["channels"].get("whatsapp")
+        if not wa:
+            raise HTTPException(status_code=400, detail="El lead no tiene teléfono para WhatsApp.")
+        result["send_result"] = _send_whatsapp(wa)
+
+    # Marcar enviada + mover lead a proposal + evento
     proposal.status = "sent"
     proposal.sent_at = datetime.utcnow()
-    lead = db.query(Lead).filter(Lead.id == proposal.lead_id).first()
-    if lead:
+    if lead.status != LeadStatus.PROPOSAL:
         lead.status = LeadStatus.PROPOSAL
-        db.add(add_event(db, lead.id, "proposal_sent", f"Propuesta enviada: {proposal.title}"))
+    db.add(add_event(db, lead.id, "proposal_sent", f"Propuesta enviada por {channel}: {proposal.title or lead.company}"))
     db.commit()
-    db.refresh(proposal)
-    return LeadProposalResponse(**proposal.to_dict())
+    result["status"] = "sent"
+    result["lead_status"] = lead.status.value
+    return result
+
+
+@router.get("/proposals/{proposal_id}/deliver", response_model=dict)
+def proposal_delivery_links(proposal_id: str, db: Session = Depends(get_db)):
+    """Devuelve los canales disponibles (email/whatsapp) con sus links, sin marcar nada."""
+    from .delivery import build_delivery_links
+
+    proposal = db.query(LeadProposal).filter(LeadProposal.id == proposal_id).first()
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    lead = db.query(Lead).filter(Lead.id == proposal.lead_id).first()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return {"proposal_id": proposal.id, "lead_company": lead.company, **build_delivery_links(proposal, lead)}
 
 
 # ================== IMPORT CSV ==================

@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import { api } from '../services/api'
 import AgentOffice from '../components/AgentOffice'
 import UserMemory from '../components/UserMemory'
-import DeepSeekSettings from '../components/DeepSeekSettings'
 import SystemLogs from '../components/SystemLogs'
 
 interface Metric {
@@ -74,11 +73,6 @@ export default function Dashboard() {
         <StatCardLink title="TOTAL_TASKS" value={totalTasks} icon="☑" color="cyan" to="/tasks" />
         <StatCardLink title="COMPLETED" value={completedTasks} icon="✓" color="purple" to="/tasks" />
         <StatCardLink title="OPEN_TASKS" value={openTasks} icon="◌" color="orange" to="/tasks" />
-      </div>
-
-      {/* ⚙️ CONFIGURACIÓN DEL MOTOR IA */}
-      <div className="mb-8">
-        <DeepSeekSettings />
       </div>
 
       {/* 🏢 OFICINA VIRTUAL - Agentes trabajando */}

@@ -27,11 +27,12 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 SENSITIVE_KEYS = {
-    "LLM_API_KEY", "DEEPSEEK_API_KEY", "GITHUB_TOKEN", "OPENAI_API_KEY", "RESEND_API_KEY",
+    "LLM_API_KEY", "DEEPSEEK_API_KEY", "GITHUB_TOKEN", "OPENAI_API_KEY", "RESEND_API_KEY", "SMTP_PASS",
 }
 VISIBLE_KEYS = {
     "LLM_PROVIDER", "LLM_MODEL", "LLM_BASE_URL", "GITHUB_USERNAME",
     "LEADHUNTER_CRON", "LEADHUNTER_BBOX", "LEADHUNTER_SCOPE",
+    "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_FROM",
 }
 
 
@@ -44,6 +45,10 @@ class LLMConfigUpdate(BaseModel):
     api_key: Optional[str] = None
     model: Optional[str] = None
     base_url: Optional[str] = None
+
+
+class EmailTestRequest(BaseModel):
+    to_email: Optional[str] = None
 
 
 class SettingResponse(BaseModel):
@@ -72,11 +77,9 @@ def _upsert(db: Session, key: str, value: str) -> Setting:
         db.add(setting)
     db.commit()
     db.refresh(setting)
-    # Aplicar en runtime
-    os_key = key if key in ("LLM_API_KEY", "LLM_PROVIDER", "LLM_MODEL", "LLM_BASE_URL", "DEEPSEEK_API_KEY", "GITHUB_TOKEN", "GITHUB_USERNAME") else None
-    if os_key:
-        import os
-        os.environ[os_key] = value
+    # Aplicar en runtime (las claves de setting son también nombres de env var)
+    import os
+    os.environ[key] = value
     return setting
 
 
@@ -126,6 +129,11 @@ def get_integrations(
             "cron": os.getenv("LEADHUNTER_CRON", LEADHUNTER_CRON),
             "bbox": os.getenv("LEADHUNTER_BBOX", LEADHUNTER_BBOX),
             "scope": os.getenv("LEADHUNTER_SCOPE", "bbox"),
+        },
+        "email": {
+            "smtp_configured": bool(os.getenv("SMTP_HOST") or _db_setting("SMTP_HOST")),
+            "host": os.getenv("SMTP_HOST") or _db_setting("SMTP_HOST") or None,
+            "from": os.getenv("SMTP_FROM") or _db_setting("SMTP_FROM") or None,
         },
     }
 
@@ -192,6 +200,35 @@ def test_llm(
         api_key=req.api_key,
         model=req.model,
         base_url=req.base_url,
+    )
+    return result
+
+
+@router.post("/email/test")
+def test_email(
+    req: EmailTestRequest = EmailTestRequest(),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Envía un email de prueba por SMTP con la config guardada. No persiste nada."""
+    from app.modules.leadhunter.delivery import send_email
+    import os
+
+    to = (req.to_email or "").strip()
+    if not to:
+        to = (os.getenv("SMTP_FROM") or _db_setting("SMTP_FROM") or os.getenv("SMTP_USER") or _db_setting("SMTP_USER") or "").strip()
+    if not to:
+        raise HTTPException(status_code=400, detail="No hay destinatario: configurá SMTP_FROM/SMTP_USER o pasá to_email")
+
+    result = send_email(
+        to_email=to,
+        subject="🧪 Test de conexión — Mission Control",
+        body=(
+            "Hola! 👋\n\n"
+            "Este es un email de prueba desde Mission Control.\n"
+            "Si lo estás viendo, la integración de correo (SMTP) funciona correctamente.\n\n"
+            "— Mission Control"
+        ),
     )
     return result
 

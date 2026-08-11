@@ -15,6 +15,7 @@ from app.routers import sprints as sprints_router
 from app.modules.jobscout.router import router as jobscout_router
 from app.modules.leadhunter.router import router as leadhunter_router, intake_router as leadhunter_intake_router
 from app.modules.leadhunter.scheduler import start_scheduler, stop_scheduler
+from app.modules.whatsapp.router import router as whatsapp_router
 from app.config import get_cors_origins, ENVIRONMENT
 from app.services.system_logger import setup_logging
 from app.database import Base, engine
@@ -23,23 +24,8 @@ from app.database import Base, engine
 from app import models  # noqa: F401  (registra todos los modelos en Base.metadata)
 Base.metadata.create_all(bind=engine)
 
-
-def _ensure_columns():
-    """Mini-migración idempotente: agrega columnas nuevas a tablas existentes.
-    create_all no altera tablas; esto cubre leads.region para deploys sobre DBs viejas."""
-    from sqlalchemy import inspect, text
-    try:
-        insp = inspect(engine)
-        if "leads" in insp.get_table_names():
-            cols = {c["name"] for c in insp.get_columns("leads")}
-            with engine.begin() as conn:
-                if "region" not in cols:
-                    conn.execute(text("ALTER TABLE leads ADD COLUMN region VARCHAR(80)"))
-    except Exception:  # noqa: BLE001
-        pass
-
-
-_ensure_columns()
+from app.db_sync import sync_schema
+sync_schema(engine, Base)
 
 
 @asynccontextmanager
@@ -83,6 +69,7 @@ app.include_router(sprints_router.router)
 app.include_router(jobscout_router)
 app.include_router(leadhunter_router)
 app.include_router(leadhunter_intake_router)
+app.include_router(whatsapp_router)
 
 
 @app.middleware("http")

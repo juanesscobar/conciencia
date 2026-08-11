@@ -159,6 +159,7 @@ class LeadProposalResponse(BaseModel):
     content: str
     status: str
     model: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     sent_at: Optional[str] = None
 
@@ -173,3 +174,8 @@ class ImportResult(BaseModel):
     added: int
     duplicates: int
     errors: int = 0
+
+
+class SendProposalRequest(BaseModel):
+    channel: Optional[str] = None  # email | whatsapp | link
+    to_email: Optional[str] = None

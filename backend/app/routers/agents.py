@@ -1,18 +1,32 @@
-from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.task import Task
 from app.models.execution import AgentExecution, ExecutionStatus
+from app.services.auth import get_current_user
 from uuid import UUID
 from pydantic import BaseModel
 from datetime import datetime
 import os
 
-AGENTS_DIR = os.getenv("AGENTS_DIR", "/app/agents")
 
-router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
+router = APIRouter(prefix="/api/v1/agents", tags=["agents"], dependencies=[Depends(get_current_user)])
+
+
+def _default_agents_dir() -> str:
+    """Resuelve el directorio de identidad de los agentes: repo local en dev, /app en Docker."""
+    local = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+        "agents",
+    )
+    if os.path.isdir(local):
+        return local
+    return "/app/agents"
+
+
+AGENTS_DIR = os.getenv("AGENTS_DIR") or _default_agents_dir()
 
 
 class AgentResponse(BaseModel):
@@ -84,7 +98,7 @@ def get_agent_files(agent_id: UUID, db: Session = Depends(get_db)):
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    agent_dir = os.path.join(AGENTS_DIR, agent.role)
+    agent_dir = os.path.join(AGENTS_DIR, agent.role.value)
     if not os.path.isdir(agent_dir):
         return []
 
@@ -145,28 +159,14 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="task_text or task_id required")
 
     # Leer archivos del agente (SOUL.md, AGENTS.md, etc.)
-    agent_dir = os.path.join(AGENTS_DIR, agent.role)
-    system_prompt_parts = []
-    if os.path.isdir(agent_dir):
-        for fname in sorted(os.listdir(agent_dir)):
-            if fname.endswith(".md"):
-                fpath = os.path.join(agent_dir, fname)
-                try:
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        system_prompt_parts.append(
-                            f"===== {fname} =====\n{f.read()}\n"
-                        )
-                except Exception:
-                    continue
-
-    if not system_prompt_parts:
+    from app.services.agent_soul import load_agent_persona
+    system_prompt = load_agent_persona(agent.role.value)
+    if not system_prompt:
         # Fallback: usar personality/system_prompt de la DB
         base = agent.system_prompt or agent.personality or ""
-        system_prompt_parts = [f"===== SOUL.md (DB) =====\n{base}\n"]
+        system_prompt = f"===== SOUL.md (DB) =====\n{base}\n"
 
-    system_prompt = "\n".join(system_prompt_parts)
-
-    # Registrar ejecución (task_id puede ser None)
+    # Registrar ejecuciÃ³n (task_id puede ser None)
     execution = AgentExecution(
         agent_id=agent.id,
         task_id=req.task_id,  # None si no hay tarea asociada
@@ -213,7 +213,7 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
             from app.models.activity import Activity
             activity = Activity(
                 type="agent_action",
-                description=f"🤖 {agent.name} ejecutó tarea: {task_text[:80]}",
+                description=f"ðŸ¤– {agent.name} ejecutÃ³ tarea: {task_text[:80]}",
                 agent_id=agent.id,
             )
             db.add(activity)
@@ -245,3 +245,4 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
             error=str(e),
             simulated=False,
         )
+

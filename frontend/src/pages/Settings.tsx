@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { settingsApi } from '../services/api'
+import { settingsApi, whatsappApi } from '../services/api'
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -99,9 +99,59 @@ export default function Settings() {
     onError: (e: any) => { setLhMsg(e.response?.data?.detail || 'Error al guardar'); setTimeout(() => setLhMsg(''), 5000) },
   })
 
+  // ---- Email (SMTP) ----
+  const [smtpHost, setSmtpHost] = useState('')
+  const [smtpPort, setSmtpPort] = useState('')
+  const [smtpUser, setSmtpUser] = useState('')
+  const [smtpPass, setSmtpPass] = useState('')
+  const [smtpFrom, setSmtpFrom] = useState('')
+  const [smtpMsg, setSmtpMsg] = useState('')
+  const [smtpTestResult, setSmtpTestResult] = useState<any>(null)
+
+  const saveSmtp = useMutation({
+    mutationFn: () => Promise.all([
+      settingsApi.set('SMTP_HOST', smtpHost.trim()),
+      settingsApi.set('SMTP_PORT', smtpPort.trim() || '587'),
+      settingsApi.set('SMTP_USER', smtpUser.trim()),
+      settingsApi.set('SMTP_FROM', smtpFrom.trim()),
+      ...(smtpPass.trim() ? [settingsApi.set('SMTP_PASS', smtpPass.trim())] : []),
+    ]),
+    onSuccess: () => { setSmtpPass(''); setSmtpMsg('Configuración de email guardada'); queryClient.invalidateQueries({ queryKey: ['integrations'] }); setTimeout(() => setSmtpMsg(''), 4000) },
+    onError: (e: any) => { setSmtpMsg(e.response?.data?.detail || 'Error al guardar'); setTimeout(() => setSmtpMsg(''), 5000) },
+  })
+
+  const testSmtp = useMutation({
+    mutationFn: () => settingsApi.emailTest({ to_email: smtpFrom.trim() || undefined }),
+    onSuccess: (r: any) => setSmtpTestResult(r.data),
+    onError: (e: any) => setSmtpTestResult({ sent: false, error: e.response?.data?.detail || 'Error al probar' }),
+  })
+
+  // ---- WhatsApp Business ----
+  const [waModal, setWaModal] = useState(false)
+  const [waMsg, setWaMsg] = useState('')
+  const { data: wa, refetch: waRefetch } = useQuery({
+    queryKey: ['wa-status'],
+    queryFn: () => whatsappApi.status().then(res => res.data),
+    refetchInterval: waModal ? 2500 : 8000,
+  })
+
+  const waConnect = useMutation({
+    mutationFn: () => whatsappApi.connect(),
+    onSuccess: (r: any) => {
+      if (r.data?.ok) { setWaModal(true); waRefetch() }
+      else setWaMsg(r.data?.error || 'Error al conectar')
+    },
+  })
+
+  const waDisconnect = useMutation({
+    mutationFn: () => whatsappApi.disconnect(),
+    onSuccess: () => { setWaModal(false); waRefetch() },
+  })
+
   const gh = integrations?.github
   const llm = integrations?.llm
   const lh = integrations?.leadhunter
+  const email = integrations?.email
 
   return (
     <div>
@@ -200,6 +250,100 @@ export default function Settings() {
           {llmMsg && <p className="text-xs text-gray-400 mt-2">{llmMsg}</p>}
         </Card>
 
+        {/* Email (SMTP) */}
+        <Card title="EMAIL (SMTP)" subtitle="Envía propuestas por correo real desde tu cuenta">
+          <div className="flex items-center justify-between mb-4">
+            <StatusBadge ok={!!email?.smtp_configured} label={email?.smtp_configured ? `Conectado · ${email?.host}` : 'Sin configurar'} />
+            <button
+              onClick={() => testSmtp.mutate()}
+              disabled={testSmtp.isPending || !isAdmin}
+              className="text-xs px-3 py-1.5 rounded border border-bg-600 text-primary-400 hover:border-primary-500/50 transition-colors disabled:opacity-40"
+            >
+              {testSmtp.isPending ? 'Enviando test...' : 'Enviar email de prueba'}
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="md:col-span-2">
+              <label className="text-xs text-gray-500 uppercase tracking-wider">Host SMTP</label>
+              <input value={smtpHost} onChange={e => setSmtpHost(e.target.value)} placeholder={email?.host || 'smtp.gmail.com'} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 uppercase tracking-wider">Puerto</label>
+              <input value={smtpPort} onChange={e => setSmtpPort(e.target.value)} placeholder="587" className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-xs text-gray-500 uppercase tracking-wider">Usuario</label>
+              <input value={smtpUser} onChange={e => setSmtpUser(e.target.value)} placeholder="tu@email.com" className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 uppercase tracking-wider">Contraseña / App password</label>
+              <input type="password" value={smtpPass} onChange={e => setSmtpPass(e.target.value)} placeholder="••••••••" className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+            </div>
+            <div className="md:col-span-3">
+              <label className="text-xs text-gray-500 uppercase tracking-wider">Remitente (From)</label>
+              <input value={smtpFrom} onChange={e => setSmtpFrom(e.target.value)} placeholder={email?.from || 'tu@email.com'} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+            </div>
+          </div>
+          <div className="flex justify-end mt-3">
+            <button
+              onClick={() => saveSmtp.mutate()}
+              disabled={!smtpHost.trim() || saveSmtp.isPending || !isAdmin}
+              className="px-4 py-2 text-sm bg-primary-500/10 text-primary-400 border border-primary-500/40 rounded-lg hover:bg-primary-500/20 transition-all disabled:opacity-40"
+            >
+              Guardar
+            </button>
+          </div>
+          {smtpTestResult && (
+            <div className={`mt-3 p-3 rounded-lg border text-xs font-mono ${smtpTestResult.sent ? 'text-primary-400 border-primary-500/40 bg-primary-500/5' : 'text-alert-400 border-alert-500/40 bg-alert-500/5'}`}>
+              {smtpTestResult.sent
+                ? `✓ Email enviado por SMTP a ${smtpTestResult.to}`
+                : `✗ ${smtpTestResult.error || 'SMTP no configurado — revisá host/usuario/contraseña'}`}
+            </div>
+          )}
+          {smtpMsg && <p className="text-xs text-gray-400 mt-2">{smtpMsg}</p>}
+          <p className="text-xs text-gray-600 mt-3">
+            💡 Gmail: usá una <span className="text-gray-400">App password</span> (2FA activado). Cuando no hay SMTP, las propuestas se envían vía mailto.
+          </p>
+        </Card>
+
+        {/* WhatsApp Business */}
+        <Card title="WHATSAPP BUSINESS" subtitle="Conectá tu número escaneando un QR y enviá propuestas por chat">
+          <div className="flex items-center justify-between mb-4">
+            <StatusBadge ok={wa?.state === 'connected'} label={
+              wa?.state === 'connected' ? `Conectado · ${wa?.phone ? `+${wa.phone}` : 'WhatsApp'}`
+                : wa?.state === 'qr' ? 'Escaneá el QR para conectar'
+                : wa?.state === 'error' ? 'Error de conexión'
+                : 'Desconectado'
+            } />
+            <div className="flex gap-2">
+              {wa?.state === 'connected' ? (
+                <button
+                  onClick={() => { if (confirm('¿Cerrar sesión de WhatsApp?')) waDisconnect.mutate() }}
+                  disabled={waDisconnect.isPending || !isAdmin}
+                  className="text-xs px-3 py-1.5 rounded border border-alert-500/40 text-alert-400 hover:bg-alert-500/10 transition-colors disabled:opacity-40"
+                >
+                  Desconectar
+                </button>
+              ) : (
+                <button
+                  onClick={() => waConnect.mutate()}
+                  disabled={waConnect.isPending || !isAdmin}
+                  className="text-xs px-3 py-1.5 rounded border border-primary-500/40 text-primary-400 hover:bg-primary-500/10 transition-colors disabled:opacity-40"
+                >
+                  {waConnect.isPending ? 'Conectando...' : wa?.state === 'qr' ? 'Ver QR' : 'Conectar con QR'}
+                </button>
+              )}
+            </div>
+          </div>
+          {wa?.state === 'error' && wa?.error && (
+            <p className="text-xs text-alert-400 mb-3">⚠️ {wa.error}</p>
+          )}
+          {waMsg && <p className="text-xs text-gray-400 mb-2">{waMsg}</p>}
+          <p className="text-xs text-gray-600">
+            💡 Se conecta a <span className="text-gray-400">WhatsApp Web</span> (multi-dispositivo) con whatsapp-web.js. Si tu número es una cuenta Business, esta es tu vía oficial. La sesión queda guardada localmente.
+          </p>
+        </Card>
+
         {/* Lead Hunter */}
         <Card title="LEAD HUNTER" subtitle="Configuración del descubrimiento automático de leads">
           <div className="flex items-center gap-2 mb-4">
@@ -258,6 +402,35 @@ export default function Settings() {
           </ol>
         </Card>
       </div>
+
+      {/* Modal QR WhatsApp */}
+      {waModal && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setWaModal(false)}>
+          <div className="bg-bg-900 border border-bg-700 rounded-lg p-6 w-full max-w-sm text-center shadow-neon" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-primary-400 tracking-wider mb-1">// CONECTAR WHATSAPP</h3>
+            <p className="text-xs text-gray-500 mb-4">Escaneá el QR con WhatsApp → Dispositivos vinculados → Vincular dispositivo</p>
+            <div className="flex justify-center mb-4">
+              {wa?.state === 'qr' && wa?.qr ? (
+                <img src={wa.qr} alt="QR WhatsApp" className="w-56 h-56 rounded-lg bg-white p-2" />
+              ) : wa?.state === 'connected' ? (
+                <div className="text-primary-400 text-5xl py-10">✓</div>
+              ) : wa?.state === 'error' ? (
+                <div className="text-alert-400 text-sm py-10 px-6">{wa?.error || 'Error de conexión'}</div>
+              ) : (
+                <div className="text-gray-500 text-sm py-10 animate-blink">Conectando…</div>
+              )}
+            </div>
+            <p className="text-xs text-gray-600 mb-4">
+              {wa?.state === 'qr' && 'El QR se actualiza solo. Esperá a que diga «Conectado».'}
+              {wa?.state === 'connected' && `Listo ✅ Número conectado: +${wa?.phone || ''}`}
+              {wa?.state === 'starting' && 'Iniciando el cliente de WhatsApp…'}
+            </p>
+            <button onClick={() => setWaModal(false)} className="px-4 py-2 text-xs rounded-lg border border-bg-600 text-gray-300 hover:text-primary-300 transition-colors">
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

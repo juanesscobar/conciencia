@@ -119,6 +119,7 @@ class LeadProposal(Base):
     content = Column(Text, nullable=False)
     status = Column(String, nullable=False, default="draft")  # draft | sent
     model = Column(String, nullable=True)  # proveedor/modelo que la generó
+    meta = Column(JSON, nullable=True)  # sections del squad, agentes, canal de envío
     created_at = Column(DateTime, default=datetime.utcnow)
     sent_at = Column(DateTime, nullable=True)
 
@@ -132,6 +133,7 @@ class LeadProposal(Base):
             "content": self.content,
             "status": self.status,
             "model": self.model,
+            "meta": self.meta,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "sent_at": self.sent_at.isoformat() if self.sent_at else None,
         }

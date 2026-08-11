@@ -13,6 +13,9 @@ class ActivityType(str, enum.Enum):
     COMMENT = "comment"
     TASK_CHANGE = "task_change"
     AGENT_ACTION = "agent_action"
+    PROJECT_CREATED = "project_created"
+    PROJECT_UPDATED = "project_updated"
+    LEAD_CONVERTED = "lead_converted"
 
 class Activity(Base):
     __tablename__ = "activities"

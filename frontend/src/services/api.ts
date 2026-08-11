@@ -28,6 +28,8 @@ export const projectsApi = {
   getAll: () => api.get('/api/v1/projects/'),
   getById: (id: string) => api.get(`/api/v1/projects/${id}`),
   create: (data: any) => api.post('/api/v1/projects/', data),
+  fromGithub: (fullName: string) => api.post('/api/v1/projects/from-github', null, { params: { full_name: fullName } }),
+  fromLead: (leadId: string) => api.post(`/api/v1/projects/from-lead/${leadId}`),
   update: (id: string, data: any) => api.patch(`/api/v1/projects/${id}`, data),
   delete: (id: string) => api.delete(`/api/v1/projects/${id}`),
 }
@@ -130,7 +132,8 @@ export const leadsApi = {
   proposals: (id: string) => api.get(`/api/v1/leads/${id}/proposals`),
   proposalGenerate: (id: string) => api.post(`/api/v1/leads/${id}/proposal/generate`),
   proposalCreate: (id: string, data: any) => api.post(`/api/v1/leads/${id}/proposal`, data),
-  proposalSend: (proposalId: string) => api.post(`/api/v1/leads/proposals/${proposalId}/send`),
+  proposalSend: (proposalId: string, data?: any) => api.post(`/api/v1/leads/proposals/${proposalId}/send`, data || {}),
+  proposalDeliver: (proposalId: string) => api.get(`/api/v1/leads/proposals/${proposalId}/deliver`),
 }
 
 export const settingsApi = {
@@ -140,4 +143,12 @@ export const settingsApi = {
   llmStatus: () => api.get('/api/v1/settings/llm'),
   llmTest: (data: any) => api.post('/api/v1/settings/llm/test', data),
   githubTest: () => api.post('/api/v1/settings/github/test'),
+  emailTest: (data?: any) => api.post('/api/v1/settings/email/test', data || {}),
+}
+
+export const whatsappApi = {
+  status: () => api.get('/api/v1/whatsapp/status'),
+  connect: () => api.post('/api/v1/whatsapp/connect'),
+  disconnect: () => api.post('/api/v1/whatsapp/disconnect'),
+  send: (to: string, message: string) => api.post('/api/v1/whatsapp/send', { to, message }),
 }

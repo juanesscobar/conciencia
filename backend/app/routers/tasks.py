@@ -4,9 +4,11 @@ from typing import List
 from app.database import get_db
 from app.models import Task
 from app.schemas import Task as TaskSchema, TaskCreate, TaskUpdate
+from app.models.user import User
+from app.services.auth import get_current_user
 from uuid import UUID
 
-router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
+router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"], dependencies=[Depends(get_current_user)])
 
 @router.get("/", response_model=List[TaskSchema])
 def get_tasks(db: Session = Depends(get_db), skip: int = 0, limit: int = 100, project_id: UUID = None):

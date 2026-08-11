@@ -1,0 +1,15 @@
+{
+  "name": "wa-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sidecar de WhatsApp Web para Mission Control (whatsapp-web.js)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "qrcode": "^1.5.3",
+    "whatsapp-web.js": "^1.26.1"
+  }
+}

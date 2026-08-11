@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { leadsApi } from '../services/api'
 import { useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 interface Lead {
   id: string
@@ -597,6 +598,8 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
   const [propContent, setPropContent] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [setupCta, setSetupCta] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   const { data: events } = useQuery<LeadEvent[]>({
     queryKey: ['lead-events', lead.id],
@@ -639,13 +642,20 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
 
   const generateProposal = async () => {
     setBusy(true)
+    setMsg('🤖 Generando con el squad PM → R&D → Fin → Comms...')
+    setSetupCta(null)
     try {
       await leadsApi.proposalGenerate(current.id)
       onAction(current.id)
       setMsg('📄 Propuesta generada con IA')
-      setTimeout(() => setMsg(''), 4000)
+      setTimeout(() => setMsg(''), 5000)
     } catch (e: any) {
-      setMsg(`Error: ${e.response?.data?.detail || e.message}`)
+      if (e.response?.status === 409) {
+        setMsg(e.response?.data?.detail || 'IA no configurada')
+        setSetupCta('/settings')
+      } else {
+        setMsg(`Error: ${e.response?.data?.detail || e.message}`)
+      }
     } finally {
       setBusy(false)
     }
@@ -666,13 +676,26 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
     }
   }
 
-  const sendProposal = async (pid: string) => {
+  const sendProposal = async (pid: string, channel?: 'email' | 'whatsapp') => {
     setBusy(true)
     try {
-      await leadsApi.proposalSend(pid)
+      const res = await leadsApi.proposalSend(pid, channel ? { channel } : {})
       onAction(current.id)
-      setMsg('✉️ Propuesta marcada como enviada')
-      setTimeout(() => setMsg(''), 4000)
+      const sr = res.data?.send_result
+      if (sr?.method === 'whatsapp_link' && sr?.url) {
+        setMsg('🔗 WhatsApp no conectado — abriendo link wa.me')
+        window.open(sr.url, '_blank')
+      } else if (sr?.method === 'whatsapp_api' && sr?.sent) {
+        setMsg('✅ Propuesta enviada por WhatsApp')
+      } else if (sr?.method === 'smtp' && sr?.sent) {
+        setMsg(`✅ Propuesta enviada por email a ${sr.to}`)
+      } else if (sr?.method === 'mailto') {
+        setMsg('📧 SMTP no configurado — se abrió tu cliente de correo')
+        if (sr?.url) window.open(sr.url, '_blank')
+      } else {
+        setMsg('✉️ Propuesta marcada como enviada')
+      }
+      setTimeout(() => setMsg(''), 5000)
     } catch (e: any) {
       setMsg(`Error: ${e.response?.data?.detail || e.message}`)
     } finally {
@@ -765,7 +788,16 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
                 />
                 <button onClick={addNote} disabled={!noteText.trim() || busy} className="px-3 py-2 text-xs rounded-lg border border-bg-600 text-gray-300 hover:text-primary-300 transition-colors disabled:opacity-40">Agregar</button>
               </div>
-              {msg && <p className="text-xs text-primary-400 mt-2">{msg}</p>}
+              {msg && (
+                <p className="text-xs text-primary-400 mt-2">
+                  {msg}
+                  {setupCta && (
+                    <button onClick={() => navigate(setupCta)} className="underline text-primary-300 hover:text-primary-200 ml-1">
+                      → Configurar en Integraciones
+                    </button>
+                  )}
+                </p>
+              )}
             </div>
           </div>
 
@@ -802,7 +834,11 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
                         {p.model && <span className="text-[10px] text-gray-600">{p.model}</span>}
                         <span className={`text-[10px] px-1.5 py-0.5 rounded border ${p.status === 'sent' ? 'text-primary-400 border-primary-500/40' : 'text-gray-500 border-bg-600'}`}>{p.status}</span>
                         {p.status !== 'sent' && (
-                          <button onClick={() => sendProposal(p.id)} disabled={busy} className="text-[10px] px-2 py-1 rounded border border-primary-500/40 text-primary-400 hover:bg-primary-500/10 transition-colors disabled:opacity-40">✉️ Enviar</button>
+                          <div className="flex gap-1">
+                            <button onClick={() => sendProposal(p.id, 'email')} disabled={busy} title="Enviar por email (SMTP)" className="text-[10px] px-1.5 py-1 rounded border border-primary-500/40 text-primary-400 hover:bg-primary-500/10 transition-colors disabled:opacity-40">📧</button>
+                            <button onClick={() => sendProposal(p.id, 'whatsapp')} disabled={busy} title="Enviar por WhatsApp" className="text-[10px] px-1.5 py-1 rounded border border-primary-500/40 text-primary-400 hover:bg-primary-500/10 transition-colors disabled:opacity-40">🟢</button>
+                            <button onClick={() => sendProposal(p.id)} disabled={busy} title="Marcar enviada" className="text-[10px] px-1.5 py-1 rounded border border-bg-600 text-gray-400 hover:text-primary-300 transition-colors disabled:opacity-40">✓</button>
+                          </div>
                         )}
                       </div>
                     </div>
