@@ -58,7 +58,7 @@ class SettingResponse(BaseModel):
 
 
 def require_admin(user: User):
-    if user.role not in ("admin", "owner"):
+    if user.role not in ("admin", "owner", "ceo"):
         raise HTTPException(status_code=403, detail="Admin privileges required")
     return user
 
