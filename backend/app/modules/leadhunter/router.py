@@ -418,7 +418,35 @@ def send_proposal(proposal_id: str, req: SendProposalRequest = SendProposalReque
         to = (req.to_email or lead.email or "").strip()
         if not to:
             raise HTTPException(status_code=400, detail="El lead no tiene email. Editalo o elegí otro canal.")
-        email_res = send_email(to, delivery["subject"], delivery["body"])
+        # Adjunta el PDF de la propuesta si se puede generar
+        pdf_bytes = None
+        pdf_filename = None
+        try:
+            from .pdfgen import render_proposal_pdf
+
+            pdf_bytes = render_proposal_pdf(
+                company=lead.company,
+                contact_name=lead.contact_name,
+                email=lead.email,
+                phone=lead.phone,
+                title=proposal.title or f"Propuesta — {lead.company}",
+                content=proposal.content,
+                model=proposal.model,
+                generated_at=proposal.created_at.isoformat() if proposal.created_at else None,
+                proposal_status=proposal.status,
+            )
+            import re as _re
+            import unicodedata as _u
+
+            fname = _u.normalize("NFKD", lead.company or "propuesta")
+            fname = "".join(c for c in fname if not _u.combining(c))
+            fname = _re.sub(r"[^a-zA-Z0-9\-_\.]+", "-", fname.lower()).strip("-")
+            pdf_filename = f"propuesta-{fname or 'comercial'}.pdf"
+        except Exception:  # noqa: BLE001
+            pdf_bytes = None
+        email_res = send_email(to, delivery["subject"], delivery["body"], pdf_bytes=pdf_bytes, pdf_filename=pdf_filename)
+        if pdf_bytes:
+            email_res["pdf_attached"] = True
         result["send_result"] = email_res
     elif channel == "whatsapp":
         wa = delivery["channels"].get("whatsapp")
@@ -450,6 +478,51 @@ def proposal_delivery_links(proposal_id: str, db: Session = Depends(get_db)):
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     return {"proposal_id": proposal.id, "lead_company": lead.company, **build_delivery_links(proposal, lead)}
+
+
+@router.get("/proposals/{proposal_id}/pdf")
+def proposal_pdf(proposal_id: str, db: Session = Depends(get_db)):
+    """Genera y devuelve la propuesta como PDF descargable (fpdf2, sin dependencias nativas)."""
+    from .pdfgen import render_proposal_pdf
+    from fastapi.responses import Response
+    from urllib.parse import quote
+
+    proposal = db.query(LeadProposal).filter(LeadProposal.id == proposal_id).first()
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    lead = db.query(Lead).filter(Lead.id == proposal.lead_id).first()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    try:
+        pdf_bytes = render_proposal_pdf(
+            company=lead.company,
+            contact_name=lead.contact_name,
+            email=lead.email,
+            phone=lead.phone,
+            title=proposal.title or f"Propuesta — {lead.company}",
+            content=proposal.content,
+            model=proposal.model,
+            generated_at=proposal.created_at.isoformat() if proposal.created_at else None,
+            proposal_status=proposal.status,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Error generando PDF: {str(e)[:200]}")
+
+    filename = f"propuesta-{_slug(lead.company)}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename*=UTF-8\'\'{quote(filename)}'},
+    )
+
+
+def _slug(text: str) -> str:
+    import unicodedata as _u
+    t = _u.normalize("NFKD", text or "propuesta")
+    t = "".join(c for c in t if not _u.combining(c))
+    t = re.sub(r"[^a-zA-Z0-9\-_\.]+", "-", t.lower()).strip("-")
+    return t or "propuesta"
 
 
 # ================== IMPORT CSV ==================

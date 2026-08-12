@@ -130,6 +130,7 @@ export default function Leads() {
   const [showFilters, setShowFilters] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
+  const [viewMode, setViewMode] = useState<'table' | 'pipeline'>('table')
   const [huntResult, setHuntResult] = useState<HuntSummary | null>(null)
   const [importMsg, setImportMsg] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -249,6 +250,20 @@ export default function Leads() {
           <p className="text-sm text-gray-500 mt-1">Caza, filtra y ejecuta el pipeline completo hasta la propuesta</p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex rounded-lg border border-bg-600 overflow-hidden">
+            <button
+              onClick={() => setViewMode('table')}
+              className={`px-3 py-2 text-xs font-medium transition-colors ${viewMode === 'table' ? 'bg-primary-500/15 text-primary-400' : 'text-gray-400 hover:text-gray-200'}`}
+            >
+              ☰ Tabla
+            </button>
+            <button
+              onClick={() => setViewMode('pipeline')}
+              className={`px-3 py-2 text-xs font-medium transition-colors ${viewMode === 'pipeline' ? 'bg-primary-500/15 text-primary-400' : 'text-gray-400 hover:text-gray-200'}`}
+            >
+              🗂 Pipeline
+            </button>
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -452,9 +467,16 @@ export default function Leads() {
         )}
       </div>
 
-      {/* Tabla */}
+      {/* Tabla / Pipeline */}
       {isLoading ? (
         <div className="text-primary-400 animate-blink">Loading leads...</div>
+      ) : viewMode === 'pipeline' ? (
+        <PipelineBoard
+          leads={leads}
+          onSelect={setSelectedLead}
+          onMove={(id, status) => leadsApi.action(id, status).then(() => refreshAfterAction(id))}
+          busy={!!(enrichWebsite.isPending || enrichAi.isPending)}
+        />
       ) : (
         <div className="bg-bg-900 border border-bg-700 rounded-lg overflow-hidden">
           <div className="overflow-x-auto">
@@ -578,6 +600,95 @@ export default function Leads() {
           onEnrichAi={(id) => enrichAi.mutate(id)}
         />
       )}
+    </div>
+  )
+}
+
+/* ================= Pipeline (mini CRM kanban) ================= */
+
+const PIPELINE_COLUMNS: { status: string; label: string; emoji: string }[] = [
+  { status: 'new', label: 'Nuevos', emoji: '🆕' },
+  { status: 'contacted', label: 'Contactados', emoji: '📞' },
+  { status: 'qualified', label: 'Calificados', emoji: '✔️' },
+  { status: 'proposal', label: 'Propuesta', emoji: '📄' },
+  { status: 'won', label: 'Ganados', emoji: '🏆' },
+  { status: 'lost', label: 'Perdidos', emoji: '❌' },
+]
+
+const PIPELINE_STYLES: Record<string, { header: string; card: string }> = {
+  new: { header: 'border-blue-500/40 text-blue-400', card: 'border-blue-500/20 hover:border-blue-500/50' },
+  contacted: { header: 'border-yellow-500/40 text-yellow-400', card: 'border-yellow-500/20 hover:border-yellow-500/50' },
+  qualified: { header: 'border-purple-500/40 text-purple-400', card: 'border-purple-500/20 hover:border-purple-500/50' },
+  proposal: { header: 'border-orange-500/40 text-orange-400', card: 'border-orange-500/20 hover:border-orange-500/50' },
+  won: { header: 'border-primary-500/40 text-primary-400', card: 'border-primary-500/20 hover:border-primary-500/50' },
+  lost: { header: 'border-alert-500/40 text-alert-400', card: 'border-alert-500/20 hover:border-alert-500/50' },
+}
+
+function PipelineBoard({ leads, onSelect, onMove, busy }: {
+  leads: Lead[]
+  onSelect: (lead: Lead) => void
+  onMove: (id: string, status: string) => void
+  busy: boolean
+}) {
+  const byStatus = (s: string) => leads.filter(l => l.status === s)
+
+  const move = (lead: Lead, status: string) => {
+    if (status === lead.status) return
+    onMove(lead.id, status)
+  }
+
+  return (
+    <div className="overflow-x-auto pb-2 -mx-1 px-1">
+      <div className="flex gap-3 min-w-[900px]">
+        {PIPELINE_COLUMNS.map(col => {
+          const items = byStatus(col.status)
+          const st = PIPELINE_STYLES[col.status] || PIPELINE_STYLES.new
+          return (
+            <div key={col.status} className="flex-1 min-w-[140px] bg-bg-950/60 border border-bg-700 rounded-lg flex flex-col">
+              <div className={`px-3 py-2 border-b ${st.header} flex items-center justify-between`}>
+                <span className="text-xs font-bold uppercase tracking-wider">{col.emoji} {col.label}</span>
+                <span className="text-xs font-mono text-gray-500">{items.length}</span>
+              </div>
+              <div className="p-2 space-y-2 flex-1">
+                {items.length === 0 && (
+                  <p className="text-[10px] text-gray-700 text-center py-4">vacío</p>
+                )}
+                {items.map(lead => (
+                  <div
+                    key={lead.id}
+                    onClick={() => onSelect(lead)}
+                    className={`bg-bg-900 border rounded-lg p-2.5 cursor-pointer transition-all group ${st.card}`}
+                  >
+                    <p className="text-xs font-medium text-gray-200 leading-tight group-hover:text-primary-300 transition-colors">{lead.company}</p>
+                    {lead.contact_name && <p className="text-[10px] text-gray-500 mt-1">👤 {lead.contact_name}</p>}
+                    {(lead.region || lead.industry) && (
+                      <p className="text-[10px] text-gray-600 mt-0.5">
+                        {[lead.region && `📍 ${lead.region}`, lead.industry].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                    <div className="flex items-center justify-between mt-2">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${scoreColor(lead.score)}`}>{lead.score}</span>
+                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                        {PIPELINE_COLUMNS.filter(c => c.status !== lead.status).map(c => (
+                          <button
+                            key={c.status}
+                            disabled={busy}
+                            onClick={() => move(lead, c.status)}
+                            title={`Mover a ${c.label}`}
+                            className="text-[10px] px-1.5 py-0.5 rounded border border-bg-600 text-gray-500 hover:text-primary-300 hover:border-primary-500/40 transition-colors disabled:opacity-30"
+                          >
+                            {c.emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -716,6 +827,28 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
     }
   }
 
+  const downloadProposalPdf = async (pid: string) => {
+    setBusy(true)
+    try {
+      const res = await leadsApi.proposalPdf(pid)
+      const blob = new Blob([res.data], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `propuesta-${current.company.replace(/[^a-zA-Z0-9-_]+/g, '-').toLowerCase()}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      setMsg('📄 PDF descargado')
+      setTimeout(() => setMsg(''), 4000)
+    } catch (e: any) {
+      setMsg(`Error generando PDF: ${e.response?.data?.detail || e.message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const op = current.online_presence
 
   return (
@@ -840,6 +973,7 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
                             <button onClick={() => sendProposal(p.id)} disabled={busy} title="Marcar enviada" className="text-[10px] px-1.5 py-1 rounded border border-bg-600 text-gray-400 hover:text-primary-300 transition-colors disabled:opacity-40">✓</button>
                           </div>
                         )}
+                        <button onClick={() => downloadProposalPdf(p.id)} disabled={busy} title="Descargar PDF" className="text-[10px] px-1.5 py-1 rounded border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 transition-colors disabled:opacity-40">⬇ PDF</button>
                       </div>
                     </div>
                     <pre className="mt-2 text-[11px] text-gray-400 whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">{p.content}</pre>

@@ -76,7 +76,7 @@ def build_delivery_links(proposal, lead) -> dict:
     return links
 
 
-def send_email(to_email: str, subject: str, body: str) -> dict:
+def send_email(to_email: str, subject: str, body: str, pdf_bytes: Optional[bytes] = None, pdf_filename: Optional[str] = None) -> dict:
     """Envía el email por SMTP (configurado en Settings). Si no hay SMTP, devuelve mailto."""
     host = os.getenv("SMTP_HOST") or _db_setting("SMTP_HOST")
     if not host:
@@ -94,6 +94,13 @@ def send_email(to_email: str, subject: str, body: str) -> dict:
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
+    if pdf_bytes:
+        from email.mime.application import MIMEApplication
+
+        part = MIMEApplication(pdf_bytes, _subtype="pdf")
+        part.add_header("Content-Disposition", "attachment", filename=pdf_filename or "propuesta.pdf")
+        msg.attach(part)
+
     try:
         with smtplib.SMTP(host, port, timeout=20) as server:
             server.ehlo()
@@ -106,6 +113,6 @@ def send_email(to_email: str, subject: str, body: str) -> dict:
             if user:
                 server.login(user, password)
             server.sendmail(from_addr, [to_email], msg.as_string())
-        return {"sent": True, "method": "smtp", "to": to_email}
+        return {"sent": True, "method": "smtp", "to": to_email, "attachments": [pdf_filename or "propuesta.pdf"] if pdf_bytes else []}
     except Exception as e:  # noqa: BLE001
         return {"sent": False, "method": "smtp", "error": str(e)[:300]}

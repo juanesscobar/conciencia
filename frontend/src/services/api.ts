@@ -134,6 +134,7 @@ export const leadsApi = {
   proposalCreate: (id: string, data: any) => api.post(`/api/v1/leads/${id}/proposal`, data),
   proposalSend: (proposalId: string, data?: any) => api.post(`/api/v1/leads/proposals/${proposalId}/send`, data || {}),
   proposalDeliver: (proposalId: string) => api.get(`/api/v1/leads/proposals/${proposalId}/deliver`),
+  proposalPdf: (proposalId: string) => api.get(`/api/v1/leads/proposals/${proposalId}/pdf`, { responseType: 'blob' }),
 }
 
 export const settingsApi = {
