@@ -7,5 +7,12 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    proxy: {
+      // Proxy API -> backend local: permite usar /api relativo desde el celular
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
   },
 })
