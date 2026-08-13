@@ -37,6 +37,14 @@ class AgentResponse(BaseModel):
     status: str
     capabilities: List[str]
     autonomy_level: str
+    runtime: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    workspace: Optional[str] = None
+    health_status: Optional[str] = None
+    last_heartbeat: Optional[datetime] = None
+    version: Optional[str] = None
+    availability: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -74,6 +82,10 @@ class RunResponse(BaseModel):
     output: Optional[str] = None
     error: Optional[str] = None
     model: Optional[str] = None
+    runtime: Optional[str] = None
+    provider: Optional[str] = None
+    usage: Optional[dict] = None
+    duration_ms: Optional[int] = None
     simulated: bool = False
 
 
@@ -81,6 +93,14 @@ class RunResponse(BaseModel):
 def get_agents(db: Session = Depends(get_db)):
     agents = db.query(Agent).all()
     return agents
+
+
+@router.get("/runtimes", response_model=List[dict])
+def list_runtimes():
+    """Runtimes de agentes disponibles (generic, openclaw...) con sus capacidades."""
+    from app.adapters.registry import list_runtimes
+
+    return list_runtimes()
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)
@@ -140,8 +160,14 @@ def get_agent_activity(agent_id: UUID, db: Session = Depends(get_db)):
 
 @router.post("/{agent_id}/run", response_model=RunResponse)
 def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
-    """Ejecuta el agente contra DeepSeek usando su SOUL.md como system prompt."""
-    from app.services.llm import run_agent as llm_run
+    """Ejecuta el agente a través de su ADAPTER de runtime (generic|openclaw|...).
+
+    El harness es token-efficient: recorta system prompt/contexto/tarea a presupuestos
+    y registra usage + costo estimado en la ejecución.
+    """
+    from app.adapters.registry import get_adapter
+    from app.adapters.base import AgentIdentity
+    from app.services.agent_soul import load_agent_persona
 
     agent = db.query(Agent).filter(Agent.id == agent_id).first()
     if not agent:
@@ -158,18 +184,41 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
     if not task_text:
         raise HTTPException(status_code=400, detail="task_text or task_id required")
 
-    # Leer archivos del agente (SOUL.md, AGENTS.md, etc.)
-    from app.services.agent_soul import load_agent_persona
+    runtime = getattr(agent, "runtime", None)
+    runtime_name = runtime.value if hasattr(runtime, "value") else (runtime or "generic")
+    provider_name = getattr(agent, "provider", None)
+    provider_name = provider_name.value if hasattr(provider_name, "value") else (provider_name or "deepseek")
+    model = getattr(agent, "model", None) or None
+
+    adapter = get_adapter(runtime_name)
+    if not adapter:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Runtime '{runtime_name}' no tiene adapter registrado. Disponibles: generic, openclaw",
+        )
+
+    # Leer SOUL.md (el adapter generic lo recorta a presupuesto de tokens)
     system_prompt = load_agent_persona(agent.role.value)
     if not system_prompt:
-        # Fallback: usar personality/system_prompt de la DB
-        base = agent.system_prompt or agent.personality or ""
-        system_prompt = f"===== SOUL.md (DB) =====\n{base}\n"
+        system_prompt = agent.system_prompt or agent.personality or ""
 
-    # Registrar ejecuciÃ³n (task_id puede ser None)
+    identity = AgentIdentity(
+        agent_id=str(agent.id),
+        name=agent.name,
+        role=agent.role.value if hasattr(agent.role, "value") else str(agent.role),
+        runtime=runtime_name,
+        provider=provider_name,
+        model=model,
+        workspace=getattr(agent, "workspace", None),
+        system_prompt=system_prompt,
+        capabilities=agent.capabilities or [],
+        config=agent.config or {},
+    )
+
+    # Registrar ejecución (task_id puede ser None)
     execution = AgentExecution(
         agent_id=agent.id,
-        task_id=req.task_id,  # None si no hay tarea asociada
+        task_id=req.task_id,
         status=ExecutionStatus.RUNNING,
         started_at=datetime.utcnow(),
     )
@@ -177,17 +226,16 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(execution)
 
-    # Cambiar status del agente
     from app.models.agent import AgentStatus
     agent.status = AgentStatus.WORKING
     db.commit()
 
     try:
-        result = llm_run(agent.name, system_prompt, task_text, req.context)
+        result = adapter.dispatch_task(identity, task_text, req.context)
 
-        if result.get("error"):
+        if not result.ok or result.status == "failed":
             execution.status = ExecutionStatus.FAILED
-            execution.error_message = result["error"]
+            execution.error_message = result.error
             execution.completed_at = datetime.utcnow()
             db.commit()
             agent.status = AgentStatus.ERROR
@@ -197,15 +245,20 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
                 agent_id=agent.id,
                 agent_name=agent.name,
                 status="failed",
-                error=result["error"],
-                simulated=False,
+                error=result.error,
+                runtime=runtime_name,
+                provider=result.provider or provider_name,
+                model=result.model or model,
+                simulated=result.simulated,
             )
 
         execution.status = ExecutionStatus.COMPLETED
-        execution.output = result.get("output")
+        execution.output = result.output
         execution.completed_at = datetime.utcnow()
         db.commit()
         agent.status = AgentStatus.IDLE
+        agent.last_heartbeat = datetime.utcnow()
+        agent.health_status = "online"
         db.commit()
 
         # Registrar actividad
@@ -213,7 +266,7 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
             from app.models.activity import Activity
             activity = Activity(
                 type="agent_action",
-                description=f"ðŸ¤– {agent.name} ejecutÃ³ tarea: {task_text[:80]}",
+                description=f"🤖 {agent.name} ejecutó tarea: {task_text[:80]}",
                 agent_id=agent.id,
             )
             db.add(activity)
@@ -226,9 +279,13 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
             agent_id=agent.id,
             agent_name=agent.name,
             status="completed",
-            output=result.get("output"),
-            model=result.get("model"),
-            simulated=result.get("simulated", False),
+            output=result.output,
+            model=result.model or model,
+            runtime=runtime_name,
+            provider=result.provider or provider_name,
+            usage=result.usage,
+            duration_ms=result.duration_ms,
+            simulated=result.simulated,
         )
     except Exception as e:
         execution.status = ExecutionStatus.FAILED
@@ -243,6 +300,8 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
             agent_name=agent.name,
             status="failed",
             error=str(e),
+            runtime=runtime_name,
+            provider=provider_name,
             simulated=False,
         )
 

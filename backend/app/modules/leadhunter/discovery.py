@@ -61,7 +61,7 @@ def add_event(db: Session, lead_id: str, event_type: str, description: Optional[
     return event
 
 
-def run_discovery(db: Session, source: Optional[str] = None, limit: Optional[int] = None) -> dict:
+def run_discovery(db: Session, source: Optional[str] = None, limit: Optional[int] = None, job_id: Optional[str] = None) -> dict:
     """Corre una (o todas) las fuentes y agrega leads nuevos. Devuelve resumen."""
     sources = get_all_sources()
     if source:
@@ -74,6 +74,8 @@ def run_discovery(db: Session, source: Optional[str] = None, limit: Optional[int
 
     for name, src in sources.items():
         run = LeadHuntRun(source=name, status="running")
+        if job_id:
+            run.job_id = job_id
         db.add(run)
         db.commit()
 
@@ -104,6 +106,7 @@ def run_discovery(db: Session, source: Optional[str] = None, limit: Optional[int
                     status=LeadStatus.NEW,
                     notes=(item.get("address") or None),
                     meta=item.get("meta") or {},
+                    job_id=job_id,
                 )
                 lead.score = compute_score(
                     company=lead.company,

@@ -16,7 +16,7 @@ from app.database import get_db
 from app.models.user import User
 from app.services.auth import get_current_user
 
-from .models import Lead, LeadStatus, LeadHuntRun, LeadEvent, LeadProposal
+from .models import Lead, LeadStatus, LeadHuntRun, LeadEvent, LeadProposal, LeadHunterJobStatus
 from .schemas import (
     LeadCreate,
     LeadUpdate,
@@ -34,6 +34,9 @@ from .schemas import (
     ActionRequest,
     ImportResult,
     SendProposalRequest,
+    LeadHunterJobCreate,
+    LeadHunterJobResponse,
+    LeadHunterJobListResponse,
 )
 from .service import compute_score, enrich_with_ai
 from .sources import get_all_sources
@@ -239,6 +242,90 @@ def hunt_runs(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)
     """Historial de corridas de descubrimiento."""
     runs = db.query(LeadHuntRun).order_by(LeadHuntRun.started_at.desc()).limit(limit).all()
     return [HuntRunResponse(**r.to_dict()) for r in runs]
+
+
+# ================== JOBS (prospección async con cancel/retry) ==================
+
+
+@router.post("/jobs", response_model=LeadHunterJobResponse, status_code=201)
+def create_job(req: LeadHunterJobCreate, db: Session = Depends(get_db)):
+    """Crea un job de prospección con criterios y lo lanza async (PENDING → RUNNING).
+
+    criteria: {source?: str, limit?: int, industry?: str, region?: str, segment?: str}
+    """
+    from .jobs import create_job as _create_job
+
+    job = _create_job(db, name=req.name, project_id=req.project_id, criteria=req.criteria)
+    return LeadHunterJobResponse(**job.to_dict())
+
+
+@router.get("/jobs", response_model=LeadHunterJobListResponse)
+def list_jobs(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
+    """Lista de jobs de prospección (más recientes primero)."""
+    from .models import LeadHunterJob
+
+    jobs = db.query(LeadHunterJob).order_by(LeadHunterJob.created_at.desc()).limit(limit).all()
+    return LeadHunterJobListResponse(
+        items=[LeadHunterJobResponse(**j.to_dict()) for j in jobs],
+        total=len(jobs),
+    )
+
+
+@router.get("/jobs/{job_id}", response_model=LeadHunterJobResponse)
+def get_job(job_id: str, db: Session = Depends(get_db)):
+    """Estado de un job (incluye progress: searching/extracting/validating/scoring/done)."""
+    from .models import LeadHunterJob
+
+    job = db.query(LeadHunterJob).filter(LeadHunterJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return LeadHunterJobResponse(**job.to_dict())
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=LeadHunterJobResponse)
+def cancel_job(job_id: str, db: Session = Depends(get_db)):
+    """Solicita la cancelación del job (se corta entre fuentes)."""
+    from .models import LeadHunterJob
+    from .jobs import request_cancel
+
+    job = db.query(LeadHunterJob).filter(LeadHunterJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status not in (LeadHunterJobStatus.PENDING, LeadHunterJobStatus.RUNNING):
+        raise HTTPException(status_code=409, detail=f"El job está {job.status.value}; solo se cancelan jobs pendientes/running")
+    request_cancel(job_id)
+    return LeadHunterJobResponse(**job.to_dict())
+
+
+@router.post("/jobs/{job_id}/retry", response_model=LeadHunterJobResponse)
+def retry_job(job_id: str, db: Session = Depends(get_db)):
+    """Reintenta un job fallido o cancelado (misma configuración)."""
+    from .models import LeadHunterJob
+    from .jobs import start_job
+
+    job = db.query(LeadHunterJob).filter(LeadHunterJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status in (LeadHunterJobStatus.RUNNING, LeadHunterJobStatus.PENDING):
+        raise HTTPException(status_code=409, detail="El job ya está corriendo")
+    job.status = LeadHunterJobStatus.PENDING
+    job.error = None
+    job.completed_at = None
+    job.results_count = 0
+    job.duplicates_count = 0
+    db.commit()
+    start_job(job.id)
+    db.refresh(job)
+    return LeadHunterJobResponse(**job.to_dict())
+
+
+@router.get("/jobs/{job_id}/leads", response_model=LeadListResponse)
+def job_leads(job_id: str, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200), db: Session = Depends(get_db)):
+    """Leads creados por un job."""
+    query = db.query(Lead).filter(Lead.job_id == job_id).order_by(Lead.created_at.desc())
+    total = query.count()
+    items = query.offset((page - 1) * page_size).limit(page_size).all()
+    return LeadListResponse(items=[_to_response(l) for l in items], total=total, page=page, page_size=page_size)
 
 
 # ================== PIPELINE (acciones) ==================

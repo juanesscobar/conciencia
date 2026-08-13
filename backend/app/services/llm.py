@@ -20,6 +20,8 @@ PROVIDER_DEFAULTS = {
     "openai": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1", "model": "deepseek/deepseek-chat"},
     "ollama": {"base_url": "http://localhost:11434/v1", "model": "llama3.2"},
+    "anthropic": {"base_url": "https://api.anthropic.com/v1", "model": "claude-sonnet-4-20250514"},
+    "google": {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "model": "gemini-2.0-flash"},
 }
 
 DEFAULT_PROVIDER = "deepseek"
@@ -40,26 +42,44 @@ def _db_setting(key: str) -> str:
         return ""
 
 
-def get_config() -> dict:
-    """Resuelve la config activa del proveedor LLM."""
-    provider = os.getenv("LLM_PROVIDER") or _db_setting("LLM_PROVIDER") or DEFAULT_PROVIDER
-    provider = provider.strip().lower()
+def get_config(provider: Optional[str] = None, model: Optional[str] = None) -> dict:
+    """Resuelve la config activa del proveedor LLM.
+
+    Si se pasa provider/model explícitos (ej: del registro del agente),
+    esos prevalecen sobre la config global.
+    """
+    active_provider = os.getenv("LLM_PROVIDER") or _db_setting("LLM_PROVIDER") or DEFAULT_PROVIDER
+    active_provider = active_provider.strip().lower()
 
     api_key = os.getenv("LLM_API_KEY") or _db_setting("LLM_API_KEY")
-    model = os.getenv("LLM_MODEL") or _db_setting("LLM_MODEL")
+    active_model = os.getenv("LLM_MODEL") or _db_setting("LLM_MODEL")
     base_url = os.getenv("LLM_BASE_URL") or _db_setting("LLM_BASE_URL")
 
+    # Override por agente
+    if provider:
+        active_provider = provider.strip().lower()
+        # La API key se resuelve por provider cuando hay override
+        key_env = {
+            "deepseek": "DEEPSEEK_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "anthropic": "ANTHROPIC_API_KEY",
+            "google": "GOOGLE_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY",
+        }.get(active_provider)
+        if key_env:
+            api_key = os.getenv(key_env) or _db_setting(key_env) or api_key
+
     # Backward-compat con DEEPSEEK_API_KEY
-    if not api_key and provider == "deepseek":
+    if not api_key and active_provider == "deepseek":
         api_key = os.getenv("DEEPSEEK_API_KEY") or _db_setting("DEEPSEEK_API_KEY")
     if not api_key:
         api_key = os.getenv("OPENAI_API_KEY") or _db_setting("OPENAI_API_KEY")
 
-    defaults = PROVIDER_DEFAULTS.get(provider, PROVIDER_DEFAULTS[DEFAULT_PROVIDER])
+    defaults = PROVIDER_DEFAULTS.get(active_provider, PROVIDER_DEFAULTS[DEFAULT_PROVIDER])
     return {
-        "provider": provider,
+        "provider": active_provider,
         "api_key": api_key or "",
-        "model": model or defaults["model"],
+        "model": model or active_model or defaults["model"],
         "base_url": base_url or defaults["base_url"],
     }
 

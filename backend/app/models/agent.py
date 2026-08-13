@@ -31,6 +31,24 @@ class AgentType(str, enum.Enum):
     CUSTOM = "custom"
     MARKETPLACE = "marketplace"
 
+
+class AgentRuntime(str, enum.Enum):
+    """Runtime / ejecutor del agente — CÓMO ejecuta (independiente del proveedor LLM)."""
+    GENERIC = "generic"          # motor LLM embebido (llm service) — default
+    OPENCLAW = "openclaw"        # OpenClaw CLI/daemon
+    CLAUDE_CODE = "claude_code"  # Claude Code CLI
+    CODEX = "codex"              # OpenAI Codex CLI
+
+
+class AgentProvider(str, enum.Enum):
+    """Proveedor del modelo — QUIÉN da el LLM (independiente del runtime)."""
+    DEEPSEEK = "deepseek"
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    GOOGLE = "google"
+    OLLAMA = "ollama"
+    OPENROUTER = "openrouter"
+
 class Agent(Base):
     __tablename__ = "agents"
     
@@ -47,6 +65,18 @@ class Agent(Base):
     config = Column(JSON, default=dict)
     personality = Column(Text)
     system_prompt = Column(Text)
+
+    # Arquitectura: runtime (cómo ejecuta) vs provider (quién da el modelo) vs model
+    runtime = Column(Enum(AgentRuntime, values_callable=lambda e: [m.value for m in e]), default=AgentRuntime.GENERIC, nullable=False)
+    provider = Column(Enum(AgentProvider, values_callable=lambda e: [m.value for m in e]), default=AgentProvider.DEEPSEEK, nullable=False)
+    model = Column(String(100), nullable=True)
+    workspace = Column(String(255), nullable=True)  # directorio de trabajo del runtime
+
+    # Health / registry
+    health_status = Column(String(20), default="unknown")  # online | idle | busy | degraded | offline | error | unknown
+    last_heartbeat = Column(DateTime, nullable=True)
+    version = Column(String(50), nullable=True)
+    availability = Column(String(20), default="available")  # available | busy | maintenance
     
     autonomy_level = Column(Enum(AutonomyLevel), default=AutonomyLevel.PREVIEW)
     cost_per_execution = Column(Numeric(10, 4), default=0)

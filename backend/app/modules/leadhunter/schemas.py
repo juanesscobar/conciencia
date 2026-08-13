@@ -179,3 +179,38 @@ class ImportResult(BaseModel):
 class SendProposalRequest(BaseModel):
     channel: Optional[str] = None  # email | whatsapp | link
     to_email: Optional[str] = None
+
+
+class JobStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class LeadHunterJobCreate(BaseModel):
+    name: Optional[str] = None
+    project_id: Optional[str] = None
+    criteria: Optional[Dict[str, Any]] = None  # {source, limit, industry, region...}
+
+
+class LeadHunterJobResponse(BaseModel):
+    id: str
+    name: Optional[str] = None
+    project_id: Optional[str] = None
+    status: str
+    criteria: Optional[Dict[str, Any]] = None
+    progress: Optional[str] = None
+    results_count: int = 0
+    duplicates_count: int = 0
+    error: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class LeadHunterJobListResponse(BaseModel):
+    items: List[LeadHunterJobResponse]
+    total: int
