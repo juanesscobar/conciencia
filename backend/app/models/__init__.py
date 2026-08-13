@@ -11,4 +11,5 @@ from app.models.user_memory import UserMemory
 from app.models.setting import Setting
 from app.models.deliverable import Deliverable
 from app.models.audit import AuditEvent
+from app.models.workflow import Workflow, WorkflowRun
 from app.modules.leadhunter.models import Lead, LeadHuntRun, LeadEvent, LeadProposal

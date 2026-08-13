@@ -13,6 +13,7 @@ from app.routers import system as system_router
 from app.routers import reports as reports_router
 from app.routers import sprints as sprints_router
 from app.routers import audit as audit_router
+from app.routers import workflows as workflows_router
 from app.modules.jobscout.router import router as jobscout_router
 from app.modules.leadhunter.router import router as leadhunter_router, intake_router as leadhunter_intake_router
 from app.modules.leadhunter.scheduler import start_scheduler, stop_scheduler
@@ -68,6 +69,7 @@ app.include_router(system_router.router)
 app.include_router(reports_router.router)
 app.include_router(sprints_router.router)
 app.include_router(audit_router.router)
+app.include_router(workflows_router.router)
 app.include_router(jobscout_router)
 app.include_router(leadhunter_router)
 app.include_router(leadhunter_intake_router)
