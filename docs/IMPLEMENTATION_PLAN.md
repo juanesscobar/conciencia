@@ -23,7 +23,7 @@
 | 0.3 | Observabilidad de pasos del job (searching→extracting→scoring→done) | ⏳ |
 | 0.4 | Error handling explícito (timeout, rate limit, partial) | ⏳ |
 | 0.5 | Test E2E job→leads→persistencia→API | ⏳ |
-| 0.6 | Fix blockers (DEEPSEEK_API_KEY, SMTP real, mocks) | ⏳ |
+| 0.6 | Fix blockers (DEEPSEEK_API_KEY, SMTP real, mocks) — LLM simplificado a DeepSeek-only; falta configurar key + SMTP | 🔶 |
 
 ## 🟡 ETAPA 1 — Control Plane P0
 
