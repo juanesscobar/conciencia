@@ -40,7 +40,7 @@
 | PR | Descripción | Estado |
 |----|-------------|--------|
 | 2.1 | Capability matching (requirements → candidates → best) | ✅ |
-| 2.2 | Approval gates UI (PENDING/APPROVED/REJECTED) | ⏳ |
+| 2.2 | Approval gates UI (PENDING/APPROVED/REJECTED) | ✅ |
 | 2.3 | Cost tracking real por ejecución + budgets | ⏳ |
 | 2.4 | Agent health dashboard + alertas | ⏳ |
 | 2.5 | GitHub: issue→task→run→commit→PR | ⏳ |

@@ -8,6 +8,7 @@ import ProjectDetail from './pages/ProjectDetail'
 import Tasks from './pages/Tasks'
 import Reports from './pages/Reports'
 import Agents from './pages/Agents'
+import Workflows from './pages/Workflows'
 import Leads from './pages/Leads'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
@@ -35,6 +36,7 @@ function App() {
       <Route path="/tasks" element={<ProtectedRoute><Tasks /></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
       <Route path="/agents" element={<ProtectedRoute><Agents /></ProtectedRoute>} />
+      <Route path="/workflows" element={<ProtectedRoute><Workflows /></ProtectedRoute>} />
       <Route path="/leads" element={<ProtectedRoute><Leads /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />

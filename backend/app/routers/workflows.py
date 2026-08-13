@@ -35,6 +35,7 @@ class WorkflowResponse(BaseModel):
     id: str
     name: str
     project_id: Optional[str] = None
+    definition: list = []
     status: str
     current_step: int
     error: Optional[str] = None
@@ -46,6 +47,7 @@ class WorkflowResponse(BaseModel):
 class RunResponse(BaseModel):
     id: str
     workflow_id: str
+    workflow_name: Optional[str] = None
     status: str
     step_results: list
     current_step: int
@@ -79,6 +81,21 @@ def get_wf(wf_id: str, db: Session = Depends(get_db)):
     return WorkflowResponse(**wf.to_dict())
 
 
+@router.get("/{wf_id}/runs", response_model=List[RunResponse])
+def list_runs(wf_id: str, db: Session = Depends(get_db)):
+    wf = db.query(Workflow).filter(Workflow.id == wf_id).first()
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    runs = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.workflow_id == wf_id)
+        .order_by(WorkflowRun.started_at.desc())
+        .limit(20)
+        .all()
+    )
+    return [RunResponse(**r.to_dict()) for r in runs]
+
+
 @router.post("/{wf_id}/run", response_model=RunResponse)
 def run_wf(wf_id: str, db: Session = Depends(get_db)):
     from app.services.workflow_engine import execute_workflow
@@ -93,6 +110,23 @@ def run_wf(wf_id: str, db: Session = Depends(get_db)):
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(e)[:300])
     return RunResponse(**run.to_dict())
+
+
+@router.get("/runs/pending", response_model=List[RunResponse])
+def pending_approvals(db: Session = Depends(get_db)):
+    """Runs pausados esperando aprobación humana (cola de approval gates)."""
+    runs = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.status == "paused")
+        .order_by(WorkflowRun.started_at.desc())
+        .limit(50)
+        .all()
+    )
+    names = {
+        w.id: w.name
+        for w in db.query(Workflow).filter(Workflow.id.in_([r.workflow_id for r in runs])).all()
+    }
+    return [RunResponse(**r.to_dict(), workflow_name=names.get(r.workflow_id)) for r in runs]
 
 
 @router.get("/runs/{run_id}", response_model=RunResponse)

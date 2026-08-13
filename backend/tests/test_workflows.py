@@ -159,3 +159,36 @@ def test_workflow_cancel(client, auth_headers):
 def test_workflow_no_encontrado(client, auth_headers):
     res = client.post("/api/v1/workflows/inexistente/run", headers=auth_headers)
     assert res.status_code == 404
+
+
+def test_listar_runs_de_workflow(client, auth_headers):
+    wf = _create_wf(client, auth_headers, [{"name": "paso1"}])
+    client.post(f"/api/v1/workflows/{wf['id']}/run", headers=auth_headers)
+
+    res = client.get(f"/api/v1/workflows/{wf['id']}/runs", headers=auth_headers)
+    assert res.status_code == 200
+    runs = res.json()
+    assert len(runs) == 1
+    assert runs[0]["workflow_id"] == wf["id"]
+    assert runs[0]["status"] == "completed"
+
+
+def test_aprobaciones_pendientes(client, auth_headers):
+    wf = _create_wf(client, auth_headers, [{"name": "gate", "approval": True}])
+    run = client.post(f"/api/v1/workflows/{wf['id']}/run", headers=auth_headers).json()
+
+    res = client.get("/api/v1/workflows/runs/pending", headers=auth_headers)
+    assert res.status_code == 200
+    pending = res.json()
+    assert len(pending) == 1
+    assert pending[0]["id"] == run["id"]
+    assert pending[0]["workflow_name"] == wf["name"]
+    assert pending[0]["step_results"][0]["status"] == "waiting_approval"
+
+    client.post(
+        f"/api/v1/workflows/runs/{run['id']}/approve",
+        headers=auth_headers,
+        json={"approved": True},
+    )
+    pending = client.get("/api/v1/workflows/runs/pending", headers=auth_headers).json()
+    assert pending == []

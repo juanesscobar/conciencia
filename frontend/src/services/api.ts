@@ -137,6 +137,20 @@ export const leadsApi = {
   proposalPdf: (proposalId: string) => api.get(`/api/v1/leads/proposals/${proposalId}/pdf`, { responseType: 'blob' }),
 }
 
+export const workflowsApi = {
+  getAll: () => api.get('/api/v1/workflows/'),
+  getById: (id: string) => api.get(`/api/v1/workflows/${id}`),
+  create: (data: any) => api.post('/api/v1/workflows/', data),
+  run: (id: string) => api.post(`/api/v1/workflows/${id}/run`),
+  getRuns: (id: string) => api.get(`/api/v1/workflows/${id}/runs`),
+  getRun: (runId: string) => api.get(`/api/v1/workflows/runs/${runId}`),
+  pendingApprovals: () => api.get('/api/v1/workflows/runs/pending'),
+  approve: (runId: string, approved: boolean) =>
+    api.post(`/api/v1/workflows/runs/${runId}/approve`, { approved }),
+  pause: (runId: string) => api.post(`/api/v1/workflows/runs/${runId}/pause`),
+  cancel: (runId: string) => api.post(`/api/v1/workflows/runs/${runId}/cancel`),
+}
+
 export const settingsApi = {
   integrations: () => api.get('/api/v1/settings/integrations'),
   set: (key: string, value: string) => api.put(`/api/v1/settings/${key}`, { value }),
