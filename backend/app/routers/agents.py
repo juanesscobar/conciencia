@@ -226,6 +226,11 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(execution)
 
+    from app.models.audit import audit
+    audit(db, event_type="task_started", actor=agent.name, actor_type="agent",
+          task_id=str(req.task_id) if req.task_id else None,
+          metadata={"agent": agent.name, "runtime": runtime_name, "provider": provider_name, "model": model})
+
     from app.models.agent import AgentStatus
     agent.status = AgentStatus.WORKING
     db.commit()
@@ -240,6 +245,10 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
             db.commit()
             agent.status = AgentStatus.ERROR
             db.commit()
+            from app.models.audit import audit
+            audit(db, event_type="task_failed", actor=agent.name, actor_type="agent",
+                  task_id=str(req.task_id) if req.task_id else None,
+                  metadata={"agent": agent.name, "error": (result.error or "")[:200]})
             return RunResponse(
                 execution_id=execution.id,
                 agent_id=agent.id,
@@ -260,6 +269,13 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
         agent.last_heartbeat = datetime.utcnow()
         agent.health_status = "online"
         db.commit()
+
+        from app.models.audit import audit
+        audit(db, event_type="task_completed", actor=agent.name, actor_type="agent",
+              task_id=str(req.task_id) if req.task_id else None,
+              metadata={"agent": agent.name, "runtime": runtime_name, "provider": provider_name,
+                        "model": result.model or model, "duration_ms": result.duration_ms,
+                        "usage": result.usage})
 
         # Registrar actividad
         try:

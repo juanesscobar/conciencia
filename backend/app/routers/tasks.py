@@ -25,6 +25,10 @@ def create_task(task: TaskCreate, db: Session = Depends(get_db)):
     db.add(db_task)
     db.commit()
     db.refresh(db_task)
+    from app.models.audit import audit
+    audit(db, event_type="task_created", actor="user", actor_type="user",
+          project_id=str(db_task.project_id) if db_task.project_id else None,
+          task_id=str(db_task.id), metadata={"title": db_task.title})
     return db_task
 
 @router.get("/{task_id}", response_model=TaskSchema)
@@ -42,6 +46,11 @@ def update_task(task_id: UUID, task_update: TaskUpdate, db: Session = Depends(ge
     
     for field, value in task_update.model_dump(exclude_unset=True).items():
         setattr(task, field, value)
+
+    from app.models.audit import audit
+    audit(db, event_type="task_updated", actor="user", actor_type="user",
+          project_id=str(task.project_id) if task.project_id else None,
+          task_id=str(task.id), metadata=task_update.model_dump(exclude_unset=True))
     
     # Re-evaluar BLOCKED/READY según dependencias y propagar a dependientes
     from app.services.task_dag import refresh_task_status, propagate
