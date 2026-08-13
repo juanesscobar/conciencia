@@ -40,6 +40,8 @@ def add_dependency(db: Session, task_id: str, depends_on_id: str, kind: str = "f
 
     dep_row = TaskDependency(task_id=task_id, depends_on_id=depends_on_id, kind=kind)
     db.add(dep_row)
+    db.flush()  # visible para las queries de _dependency_status (sesiones con autoflush=False)
+    refresh_task_status(db, task)
     db.commit()
     db.refresh(dep_row)
     return dep_row
@@ -54,6 +56,10 @@ def remove_dependency(db: Session, task_id: str, depends_on_id: str) -> None:
     if row:
         db.delete(row)
         db.commit()
+        task = _get_task(db, task_id)
+        if task:
+            refresh_task_status(db, task)
+            db.commit()
 
 
 def _would_create_cycle(db: Session, task_id: str, depends_on_id: str) -> bool:

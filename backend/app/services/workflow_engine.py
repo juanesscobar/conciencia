@@ -7,6 +7,7 @@ Cada step puede:
 - tener max_cost (se corta si el acumulado lo supera)
 """
 
+import copy
 import logging
 import time
 import uuid
@@ -30,7 +31,8 @@ def execute_workflow(db: Session, workflow_id: str, run_id: str | None = None) -
         run = start_run(db, wf)
 
     steps = wf.definition or []
-    results = run.step_results or []
+    # deepcopy: si los dicts internos son los mismos objetos, SQLAlchemy no detecta el cambio JSON
+    results = copy.deepcopy(run.step_results or [])
 
     for idx in range(run.current_step, len(steps)):
         if run.status == "cancelled":
@@ -99,6 +101,15 @@ def _run_step(db: Session, step: dict, wf: Workflow) -> tuple[str | None, str | 
     task_text = step.get("task") or step.get("task_text")
     agent_id = step.get("agent_id")
 
+    # Capability matching: si el step pide capabilities y no un agente concreto
+    if not agent_id and step.get("required_capabilities"):
+        from app.services.capability_matching import best_agent
+
+        best = best_agent(db, required_capabilities=step.get("required_capabilities"))
+        if not best:
+            return None, f"No hay agente que cubra >=50% de {step.get('required_capabilities')}", 0.0
+        agent_id = best["agent_id"]
+
     if not task_text and not agent_id:
         return f"[{step.get('name','step')}] sin ejecución (declarativo)", None, 0.0
 
@@ -144,7 +155,7 @@ def _run_step(db: Session, step: dict, wf: Workflow) -> tuple[str | None, str | 
 
 def approve_step(db: Session, run: WorkflowRun, step_index: int, approved: bool) -> WorkflowRun:
     """Aprueba/rechaza el step que esperaba aprobación y continúa."""
-    results = run.step_results or []
+    results = copy.deepcopy(run.step_results or [])
     for r in results:
         if r.get("step_index") == step_index and r.get("status") == "waiting_approval":
             r["status"] = "approved" if approved else "rejected"

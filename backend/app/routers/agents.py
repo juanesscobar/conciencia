@@ -103,6 +103,25 @@ def list_runtimes():
     return list_runtimes()
 
 
+class MatchRequest(BaseModel):
+    required_capabilities: List[str]
+    role: Optional[str] = None
+    runtime: Optional[str] = None
+
+
+@router.post("/match", response_model=List[dict])
+def match_agents(req: MatchRequest, db: Session = Depends(get_db)):
+    """Capability matching: devuelve agentes ordenados por cobertura de capabilities."""
+    from app.services.capability_matching import match_agents as _match
+
+    return _match(
+        db,
+        required_capabilities=req.required_capabilities,
+        role=req.role,
+        runtime=req.runtime,
+    )
+
+
 @router.get("/{agent_id}", response_model=AgentResponse)
 def get_agent(agent_id: UUID, db: Session = Depends(get_db)):
     agent = db.query(Agent).filter(Agent.id == agent_id).first()

@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/v1/workflows", tags=["workflows"], dependencies=
 class StepDef(BaseModel):
     name: str
     agent_id: Optional[str] = None
+    required_capabilities: Optional[List[str]] = None
     task: Optional[str] = None
     context: Optional[str] = None
     approval: bool = False
@@ -85,8 +86,8 @@ def run_wf(wf_id: str, db: Session = Depends(get_db)):
     wf = db.query(Workflow).filter(Workflow.id == wf_id).first()
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    if wf.status == "running":
-        raise HTTPException(status_code=409, detail="Workflow ya está corriendo")
+    if wf.status in ("running", "paused"):
+        raise HTTPException(status_code=409, detail="Workflow ya está corriendo o pausado con aprobación pendiente")
     try:
         run = execute_workflow(db, wf.id)
     except Exception as e:  # noqa: BLE001
