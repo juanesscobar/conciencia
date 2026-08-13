@@ -10,6 +10,10 @@ interface Agent {
   status: string
   capabilities: string[]
   autonomy_level: string
+  runtime?: string
+  provider?: string
+  model?: string
+  health_status?: string
   created_at: string
 }
 
@@ -73,7 +77,7 @@ export default function Agents() {
     onSuccess: (res) => {
       const data = res.data
       if (data.status === 'completed') {
-        setRunOutput(`$ agent.execute → COMPLETED ${data.simulated ? '(SIMULADO)' : `(model: ${data.model})`}\n\n${data.output}`)
+        setRunOutput(`$ agent.execute → COMPLETED ${data.simulated ? '(SIMULADO)' : `(runtime: ${data.runtime} · model: ${data.model})`}${data.duration_ms ? ` · ${data.duration_ms}ms` : ''}${data.usage?.cost_estimate_usd ? ` · ~$${data.usage.cost_estimate_usd}` : ''}\n\n${data.output}`)
       } else {
         setRunOutput(`$ agent.execute → FAILED\n\n${data.error}`)
       }
@@ -126,6 +130,11 @@ export default function Agents() {
             </div>
             <p className="font-bold text-gray-200">{agent.name}</p>
             <p className="text-xs text-primary-500 mt-1">{autonomyLabels[agent.autonomy_level] || agent.autonomy_level}</p>
+            <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+              <span className="px-1.5 py-0.5 bg-bg-800 text-cyan-400 rounded text-[10px] font-mono">⛭ {agent.runtime || 'generic'}</span>
+              <span className="px-1.5 py-0.5 bg-bg-800 text-purple-400 rounded text-[10px] font-mono">{agent.provider || 'deepseek'}</span>
+            </div>
+            {agent.model && <p className="text-[10px] text-gray-600 mt-1 font-mono truncate">{agent.model}</p>}
             <div className="mt-2 flex flex-wrap gap-1">
               {agent.capabilities?.slice(0, 3).map((cap: string) => (
                 <span key={cap} className="px-1.5 py-0.5 bg-bg-800 text-gray-500 rounded text-[10px]">
@@ -145,7 +154,11 @@ export default function Agents() {
               <span className="text-xs text-gray-500">
                 {selected.emoji} {selected.name} — execute console
               </span>
-              <span className="text-primary-500 animate-blink">▊</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono text-cyan-400">⛭ {selected.runtime || 'generic'}</span>
+                <span className="text-[10px] font-mono text-purple-400">{selected.provider || 'deepseek'}</span>
+                <span className="text-primary-500 animate-blink">▊</span>
+              </div>
             </div>
             <div className="p-4">
               <label className="block text-sm font-medium text-primary-400 mb-2">
