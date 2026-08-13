@@ -8,7 +8,10 @@ import enum
 class TaskStatus(str, enum.Enum):
     BACKLOG = "backlog"
     TODO = "todo"
+    READY = "ready"
+    ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
+    BLOCKED = "blocked"
     REVIEW = "review"
     DONE = "done"
     CANCELLED = "cancelled"
@@ -64,3 +67,4 @@ class Task(Base):
     executions = relationship("AgentExecution", back_populates="task")
     subtasks = relationship("Task", backref="parent", remote_side="Task.id")
     sprint = relationship("Sprint", back_populates="tasks")
+    dependencies = relationship("TaskDependency", foreign_keys="TaskDependency.task_id", back_populates="task", cascade="all, delete-orphan")
