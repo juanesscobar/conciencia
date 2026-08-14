@@ -16,12 +16,17 @@ MAX_CONTEXT_CHARS = 6000            # contexto adicional limitado
 MAX_TASK_CHARS = 4000               # tarea limitada
 MAX_OUTPUT_TOKENS = 2000
 
-# Costo por millón de tokens (USD, deepseek-chat)
+# Costo por millón de tokens (USD, estimado por provider/model; ajustable)
 PRICING_PER_1M = {
-    "deepseek": {"input": 0.27, "output": 1.10},
+    "deepseek": {"input": 0.27, "output": 1.10},          # deepseek-chat
+    "openai": {"input": 0.15, "output": 0.60},            # gpt-4o-mini
+    "openrouter": {"input": 0.27, "output": 1.10},        # deepseek via OR
+    "anthropic": {"input": 3.00, "output": 15.00},        # claude-sonnet (estimado)
+    "google": {"input": 1.25, "output": 5.00},            # gemini (estimado)
+    "ollama": {"input": 0.0, "output": 0.0},              # local
 }
 
-DEFAULT_PRICE = {"input": 0.27, "output": 1.10}
+DEFAULT_PRICE = {"input": 0.5, "output": 1.5}
 
 
 def _truncate(s: str, max_chars: int) -> str:
@@ -51,7 +56,7 @@ class GenericAgentAdapter(AgentAdapter):
             return DispatchResult(
                 ok=False,
                 status="failed",
-                error="DeepSeek no configurado. Agregá tu DEEPSEEK_API_KEY desde Configuración → Integraciones.",
+                error="LLM no configurado. Agregá tu API key desde Configuración → Integraciones.",
                 provider=cfg.get("provider"),
                 model=cfg.get("model"),
                 runtime=self.runtime_name,

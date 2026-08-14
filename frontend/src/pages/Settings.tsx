@@ -3,6 +3,13 @@ import { settingsApi, whatsappApi } from '../services/api'
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
+const PROVIDERS = [
+  { id: 'deepseek', label: 'DeepSeek', defaultModel: 'deepseek-chat', defaultBase: 'https://api.deepseek.com' },
+  { id: 'openai', label: 'OpenAI', defaultModel: 'gpt-4o-mini', defaultBase: 'https://api.openai.com/v1' },
+  { id: 'openrouter', label: 'OpenRouter', defaultModel: 'deepseek/deepseek-chat', defaultBase: 'https://openrouter.ai/api/v1' },
+  { id: 'ollama', label: 'Ollama (local)', defaultModel: 'llama3.2', defaultBase: 'http://localhost:11434/v1' },
+]
+
 function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div className="bg-bg-900 border border-bg-700 rounded-lg p-5">
@@ -46,25 +53,32 @@ export default function Settings() {
     onSuccess: (r: any) => setGhMsg(r.data.ok ? `GitHub OK: @${r.data.login}` : `GitHub: ${r.data.error}`),
   })
 
-  // ---- LLM (DeepSeek) ----
+  // ---- LLM ----
+  const [provider, setProvider] = useState('deepseek')
   const [llmKey, setLlmKey] = useState('')
   const [model, setModel] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
   const [llmMsg, setLlmMsg] = useState('')
   const [llmTestResult, setLlmTestResult] = useState<any>(null)
 
   const saveLlm = useMutation({
     mutationFn: async () => {
-      if (llmKey.trim()) await settingsApi.set('DEEPSEEK_API_KEY', llmKey.trim())
-      if (model.trim()) await settingsApi.set('LLM_MODEL', model.trim())
+      const p = PROVIDERS.find(x => x.id === provider)!
+      await settingsApi.set('LLM_PROVIDER', provider)
+      if (llmKey.trim()) await settingsApi.set('LLM_API_KEY', llmKey.trim())
+      await settingsApi.set('LLM_MODEL', model.trim() || p.defaultModel)
+      await settingsApi.set('LLM_BASE_URL', baseUrl.trim() || p.defaultBase)
     },
-    onSuccess: () => { setLlmKey(''); setLlmMsg('DeepSeek configurado'); queryClient.invalidateQueries({ queryKey: ['integrations'] }); setTimeout(() => setLlmMsg(''), 4000) },
+    onSuccess: () => { setLlmKey(''); setLlmMsg('Proveedor IA configurado'); queryClient.invalidateQueries({ queryKey: ['integrations'] }); setTimeout(() => setLlmMsg(''), 4000) },
     onError: (e: any) => { setLlmMsg(e.response?.data?.detail || 'Error al guardar'); setTimeout(() => setLlmMsg(''), 5000) },
   })
 
   const testLlm = useMutation({
     mutationFn: () => settingsApi.llmTest({
+      provider,
       api_key: llmKey.trim() || undefined,
       model: model.trim() || undefined,
+      base_url: baseUrl.trim() || undefined,
     }),
     onSuccess: (r: any) => setLlmTestResult(r.data),
     onError: (e: any) => setLlmTestResult({ ok: false, error: e.response?.data?.detail || 'Error de conexión' }),
@@ -185,19 +199,29 @@ export default function Settings() {
           {ghMsg && <p className="text-xs text-gray-400 mt-2">{ghMsg}</p>}
         </Card>
 
-        {/* DeepSeek */}
-        <Card title="DEEPSEEK" subtitle="Motor de agentes y propuestas con IA">
+        {/* Proveedor IA */}
+        <Card title="PROVEEDOR IA" subtitle="Motor de agentes y propuestas con IA (DeepSeek, OpenAI, OpenRouter, Ollama)">
           <div className="flex items-center gap-2 mb-4">
-            <StatusBadge ok={!!llm?.configured} label={llm?.configured ? `Activo · ${llm?.model}` : 'Modo simulado'} />
+            <StatusBadge ok={!!llm?.configured} label={llm?.configured ? `Activo · ${llm?.provider} · ${llm?.model}` : 'Modo simulado'} />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-gray-500 uppercase tracking-wider">API key</label>
-              <input type="password" value={llmKey} onChange={e => setLlmKey(e.target.value)} placeholder="sk-..." className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+              <label className="text-xs text-gray-500 uppercase tracking-wider">Proveedor</label>
+              <select value={provider} onChange={e => setProvider(e.target.value)} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50">
+                {PROVIDERS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
             </div>
             <div>
               <label className="text-xs text-gray-500 uppercase tracking-wider">Modelo</label>
-              <input value={model} onChange={e => setModel(e.target.value)} placeholder="deepseek-chat" className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+              <input value={model} onChange={e => setModel(e.target.value)} placeholder={PROVIDERS.find(p => p.id === provider)?.defaultModel} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-xs text-gray-500 uppercase tracking-wider">API key</label>
+              <input type="password" value={llmKey} onChange={e => setLlmKey(e.target.value)} placeholder="sk-..." className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-xs text-gray-500 uppercase tracking-wider">Base URL</label>
+              <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={PROVIDERS.find(p => p.id === provider)?.defaultBase} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
             </div>
           </div>
           <div className="flex justify-end gap-3 mt-3">
@@ -219,8 +243,8 @@ export default function Settings() {
           {llmTestResult && (
             <div className={`mt-3 p-3 rounded-lg border text-xs font-mono ${llmTestResult.ok ? 'text-primary-400 border-primary-500/40 bg-primary-500/5' : 'text-alert-400 border-alert-500/40 bg-alert-500/5'}`}>
               {llmTestResult.ok
-                ? `✓ DeepSeek · modelo ${llmTestResult.model} · ${llmTestResult.latency_ms}ms · "${llmTestResult.reply}"`
-                : `✗ DeepSeek: ${llmTestResult.error}`}
+                ? `✓ ${llmTestResult.provider} · modelo ${llmTestResult.model} · ${llmTestResult.latency_ms}ms · "${llmTestResult.reply}"`
+                : `✗ ${llmTestResult.provider}: ${llmTestResult.error}`}
             </div>
           )}
           {llmMsg && <p className="text-xs text-gray-400 mt-2">{llmMsg}</p>}

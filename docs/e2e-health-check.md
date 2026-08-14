@@ -45,48 +45,12 @@ Login local: `admin` / `MC-Admin#2026!` (seed: `scripts/seed_local_admin.py`, gi
 
 | Variable | Estado | Dónde |
 |----------|--------|-------|
-| `DEEPSEEK_API_KEY` | ❌ falta | backend/.env o Settings DB (Configuración → DeepSeek) |
-| `SMTP_HOST/PORT/USER/PASS/FROM` | ❌ falta | Settings DB (Configuración → Email) |
+| `DEEPSEEK_API_KEY` / `LLM_API_KEY` | ❌ falta | backend/.env o Settings DB |
+| `SMTP_HOST/PORT/USER/PASS/FROM` | ❌ falta | Settings DB (envío email real) |
 | `LEADHUNTER_BBOX` | ✅ default | env |
 | `LEADHUNTER_CRON` | ✅ `0 9 * * 1` | env |
 | `SECRET_KEY` | ✅ | backend/.env |
 | `VITE_API_URL` | ✅ vacío → proxy | frontend/.env.local (gitignored) |
-
-## Configuración para salir del modo simulado
-
-### DeepSeek (agentes + propuestas reales)
-
-**Opción A — UI (recomendado):**
-1. Login como admin → Configuración → DeepSeek
-2. Pegar API key (`sk-...`) → Guardar
-3. Probar conexión → debe mostrar `✓ DeepSeek · modelo deepseek-chat · Xms`
-
-**Opción B — .env:**
-```bash
-# backend/.env
-DEEPSEEK_API_KEY=sk-tu-key-aqui
-```
-
-### SMTP (envío de propuestas por email real)
-
-1. Login como admin → Configuración → Email (SMTP)
-2. Completar:
-   - Host: `smtp.gmail.com` (o tu proveedor)
-   - Puerto: `587`
-   - Usuario: tu email
-   - Contraseña: App password (Gmail requiere 2FA activado)
-   - From: tu email
-3. Guardar → Enviar email de prueba
-
-**Opción B — .env:**
-```bash
-# backend/.env
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=tu@email.com
-SMTP_PASS=tu-app-password
-SMTP_FROM=tu@email.com
-```
 
 ## Servicios externos
 
@@ -94,7 +58,7 @@ SMTP_FROM=tu@email.com
 |----------|--------|-----|
 | GitHub API | ✅ verificado | sync repos (Multilimp, Conciencia) |
 | Overpass (OSM) | ✅ verificado | caza de leads real (826+ leads) |
-| DeepSeek API | ❌ sin key | agentes + propuestas → MODO SIMULADO (único proveedor) |
+| DeepSeek API | ❌ sin key | agentes + propuestas → MODO SIMULADO |
 | SMTP | ❌ sin config | envío propuestas → mailto fallback |
 | Gmail MCP (OpenClaw) | ✅ autorizado | agente externo (no backend) |
 
@@ -121,15 +85,9 @@ SMTP_FROM=tu@email.com
 
 ## Blockers actuales
 
-1. **DEEPSEEK_API_KEY** — sin key, propuestas y agentes corren en modo simulado (bloquea demo real). Configurar desde UI o .env (ver arriba).
-2. **SMTP** — envío de propuestas por email real requiere credenciales (hoy mailto). Configurar desde UI o .env (ver arriba).
+1. **DEEPSEEK_API_KEY** — sin key, propuestas y agentes corren en modo simulado (bloquea demo real)
+2. **SMTP** — envío de propuestas por email real requiere credenciales (hoy mailto)
 3. **WhatsApp bridge en MC** — el bot con QR vive en `C:\Users\juane\Atiendo AI` (:8010), no integrado al dashboard MC
-
-## Cambios recientes
-
-- **LLM simplificado a DeepSeek-only** — eliminados OpenAI/OpenRouter/Ollama/Anthropic/Google del backend y frontend. Solo `DEEPSEEK_API_KEY` requerido.
-- **PR-2.1 Capability matching** — agents se resuelven por capabilities requeridas en workflows.
-- **PR-2.2 Approval gates UI** — página /workflows con cola de aprobaciones pendientes.
 
 ## Próximos pasos (Plan)
 
