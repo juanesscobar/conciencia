@@ -27,10 +27,12 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 SENSITIVE_KEYS = {
-    "LLM_API_KEY", "DEEPSEEK_API_KEY", "GITHUB_TOKEN", "OPENAI_API_KEY", "RESEND_API_KEY", "SMTP_PASS",
+    "LLM_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+    "GOOGLE_API_KEY", "OPENROUTER_API_KEY", "GITHUB_TOKEN", "RESEND_API_KEY", "SMTP_PASS",
 }
 VISIBLE_KEYS = {
-    "LLM_PROVIDER", "LLM_MODEL", "LLM_BASE_URL", "GITHUB_USERNAME",
+    "LLM_PROVIDER", "LLM_MODEL", "LLM_BASE_URL", "LLM_FALLBACK_PROVIDERS",
+    "GITHUB_USERNAME",
     "LEADHUNTER_CRON", "LEADHUNTER_BBOX", "LEADHUNTER_SCOPE",
     "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_FROM",
 }
@@ -136,6 +138,50 @@ def get_integrations(
             "from": os.getenv("SMTP_FROM") or _db_setting("SMTP_FROM") or None,
         },
     }
+
+
+@router.get("/providers")
+def get_providers_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Estado de todos los providers LLM (configurado o no, sin exponer keys)."""
+    import os
+
+    providers = {
+        "deepseek": {
+            "configured": bool(os.getenv("DEEPSEEK_API_KEY") or _db_setting("DEEPSEEK_API_KEY")),
+            "default_model": "deepseek-chat",
+            "default_base_url": "https://api.deepseek.com",
+        },
+        "openai": {
+            "configured": bool(os.getenv("OPENAI_API_KEY") or _db_setting("OPENAI_API_KEY")),
+            "default_model": "gpt-4o-mini",
+            "default_base_url": "https://api.openai.com/v1",
+        },
+        "anthropic": {
+            "configured": bool(os.getenv("ANTHROPIC_API_KEY") or _db_setting("ANTHROPIC_API_KEY")),
+            "default_model": "claude-sonnet-4-20250514",
+            "default_base_url": "",
+        },
+        "google": {
+            "configured": bool(os.getenv("GOOGLE_API_KEY") or _db_setting("GOOGLE_API_KEY")),
+            "default_model": "gemini-2.0-flash",
+            "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        },
+        "ollama": {
+            "configured": True,  # local, no requiere key
+            "default_model": "llama3.2",
+            "default_base_url": "http://localhost:11434/v1",
+        },
+        "openrouter": {
+            "configured": bool(os.getenv("OPENROUTER_API_KEY") or _db_setting("OPENROUTER_API_KEY")),
+            "default_model": "deepseek/deepseek-chat",
+            "default_base_url": "https://openrouter.ai/api/v1",
+        },
+    }
+
+    return providers
 
 
 @router.put("/{key}", response_model=SettingResponse)

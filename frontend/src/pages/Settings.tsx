@@ -4,10 +4,12 @@ import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
 const PROVIDERS = [
-  { id: 'deepseek', label: 'DeepSeek', defaultModel: 'deepseek-chat', defaultBase: 'https://api.deepseek.com' },
-  { id: 'openai', label: 'OpenAI', defaultModel: 'gpt-4o-mini', defaultBase: 'https://api.openai.com/v1' },
-  { id: 'openrouter', label: 'OpenRouter', defaultModel: 'deepseek/deepseek-chat', defaultBase: 'https://openrouter.ai/api/v1' },
-  { id: 'ollama', label: 'Ollama (local)', defaultModel: 'llama3.2', defaultBase: 'http://localhost:11434/v1' },
+  { id: 'deepseek', label: 'DeepSeek', defaultModel: 'deepseek-chat', defaultBase: 'https://api.deepseek.com', envKey: 'DEEPSEEK_API_KEY' },
+  { id: 'openai', label: 'OpenAI', defaultModel: 'gpt-4o-mini', defaultBase: 'https://api.openai.com/v1', envKey: 'OPENAI_API_KEY' },
+  { id: 'anthropic', label: 'Anthropic', defaultModel: 'claude-sonnet-4-20250514', defaultBase: '', envKey: 'ANTHROPIC_API_KEY' },
+  { id: 'google', label: 'Google', defaultModel: 'gemini-2.0-flash', defaultBase: 'https://generativelanguage.googleapis.com/v1beta/openai', envKey: 'GOOGLE_API_KEY' },
+  { id: 'openrouter', label: 'OpenRouter', defaultModel: 'deepseek/deepseek-chat', defaultBase: 'https://openrouter.ai/api/v1', envKey: 'OPENROUTER_API_KEY' },
+  { id: 'ollama', label: 'Ollama (local)', defaultModel: 'llama3.2', defaultBase: 'http://localhost:11434/v1', envKey: '' },
 ]
 
 function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -53,36 +55,73 @@ export default function Settings() {
     onSuccess: (r: any) => setGhMsg(r.data.ok ? `GitHub OK: @${r.data.login}` : `GitHub: ${r.data.error}`),
   })
 
-  // ---- LLM ----
-  const [provider, setProvider] = useState('deepseek')
-  const [llmKey, setLlmKey] = useState('')
-  const [model, setModel] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
+  // ---- LLM Harness (multi-provider) ----
+  const { data: providersStatus } = useQuery({
+    queryKey: ['providers-status'],
+    queryFn: () => settingsApi.getProviders().then(res => res.data),
+  })
+
+  const [providerKeys, setProviderKeys] = useState<Record<string, string>>({})
+  const [preferredProvider, setPreferredProvider] = useState('deepseek')
+  const [fallbackProviders, setFallbackProviders] = useState<string[]>([])
   const [llmMsg, setLlmMsg] = useState('')
   const [llmTestResult, setLlmTestResult] = useState<any>(null)
 
-  const saveLlm = useMutation({
-    mutationFn: async () => {
+  const saveProviderKey = useMutation({
+    mutationFn: async ({ provider, key }: { provider: string; key: string }) => {
       const p = PROVIDERS.find(x => x.id === provider)!
-      await settingsApi.set('LLM_PROVIDER', provider)
-      if (llmKey.trim()) await settingsApi.set('LLM_API_KEY', llmKey.trim())
-      await settingsApi.set('LLM_MODEL', model.trim() || p.defaultModel)
-      await settingsApi.set('LLM_BASE_URL', baseUrl.trim() || p.defaultBase)
+      await settingsApi.set(p.envKey, key.trim())
     },
-    onSuccess: () => { setLlmKey(''); setLlmMsg('Proveedor IA configurado'); queryClient.invalidateQueries({ queryKey: ['integrations'] }); setTimeout(() => setLlmMsg(''), 4000) },
-    onError: (e: any) => { setLlmMsg(e.response?.data?.detail || 'Error al guardar'); setTimeout(() => setLlmMsg(''), 5000) },
+    onSuccess: (_, vars) => {
+      setProviderKeys(prev => ({ ...prev, [vars.provider]: '' }))
+      setLlmMsg(`API key de ${vars.provider} guardada`)
+      queryClient.invalidateQueries({ queryKey: ['providers-status'] })
+      queryClient.invalidateQueries({ queryKey: ['integrations'] })
+      setTimeout(() => setLlmMsg(''), 4000)
+    },
+    onError: (e: any) => {
+      setLlmMsg(e.response?.data?.detail || 'Error al guardar')
+      setTimeout(() => setLlmMsg(''), 5000)
+    },
+  })
+
+  const saveHarnessConfig = useMutation({
+    mutationFn: async () => {
+      await settingsApi.set('LLM_PROVIDER', preferredProvider)
+      await settingsApi.set('LLM_FALLBACK_PROVIDERS', JSON.stringify(fallbackProviders))
+    },
+    onSuccess: () => {
+      setLlmMsg('Configuración del harness guardada')
+      queryClient.invalidateQueries({ queryKey: ['integrations'] })
+      setTimeout(() => setLlmMsg(''), 4000)
+    },
+    onError: (e: any) => {
+      setLlmMsg(e.response?.data?.detail || 'Error al guardar')
+      setTimeout(() => setLlmMsg(''), 5000)
+    },
   })
 
   const testLlm = useMutation({
-    mutationFn: () => settingsApi.llmTest({
-      provider,
-      api_key: llmKey.trim() || undefined,
-      model: model.trim() || undefined,
-      base_url: baseUrl.trim() || undefined,
-    }),
+    mutationFn: ({ provider, key }: { provider: string; key?: string }) => {
+      const p = PROVIDERS.find(x => x.id === provider)!
+      return settingsApi.llmTest({
+        provider,
+        api_key: key?.trim() || undefined,
+        model: p.defaultModel,
+        base_url: p.defaultBase || undefined,
+      })
+    },
     onSuccess: (r: any) => setLlmTestResult(r.data),
     onError: (e: any) => setLlmTestResult({ ok: false, error: e.response?.data?.detail || 'Error de conexión' }),
   })
+
+  const toggleFallback = (providerId: string) => {
+    setFallbackProviders(prev =>
+      prev.includes(providerId)
+        ? prev.filter(p => p !== providerId)
+        : [...prev, providerId]
+    )
+  }
 
   // ---- Lead Hunter ----
   const [lhCron, setLhCron] = useState('')
@@ -199,47 +238,102 @@ export default function Settings() {
           {ghMsg && <p className="text-xs text-gray-400 mt-2">{ghMsg}</p>}
         </Card>
 
-        {/* Proveedor IA */}
-        <Card title="PROVEEDOR IA" subtitle="Motor de agentes y propuestas con IA (DeepSeek, OpenAI, OpenRouter, Ollama)">
+        {/* LLM Harness (multi-provider) */}
+        <Card title="LLM HARNESS" subtitle="Motor multimodal con fallback, cost tracking y routing inteligente">
           <div className="flex items-center gap-2 mb-4">
             <StatusBadge ok={!!llm?.configured} label={llm?.configured ? `Activo · ${llm?.provider} · ${llm?.model}` : 'Modo simulado'} />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-gray-500 uppercase tracking-wider">Proveedor</label>
-              <select value={provider} onChange={e => setProvider(e.target.value)} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50">
-                {PROVIDERS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 uppercase tracking-wider">Modelo</label>
-              <input value={model} onChange={e => setModel(e.target.value)} placeholder={PROVIDERS.find(p => p.id === provider)?.defaultModel} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-xs text-gray-500 uppercase tracking-wider">API key</label>
-              <input type="password" value={llmKey} onChange={e => setLlmKey(e.target.value)} placeholder="sk-..." className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-xs text-gray-500 uppercase tracking-wider">Base URL</label>
-              <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder={PROVIDERS.find(p => p.id === provider)?.defaultBase} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+
+          <div className="mb-4">
+            <label className="text-xs text-gray-500 uppercase tracking-wider">Provider preferido</label>
+            <select
+              value={preferredProvider}
+              onChange={e => setPreferredProvider(e.target.value)}
+              className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50"
+            >
+              {PROVIDERS.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.label} {providersStatus?.[p.id]?.configured ? '✓' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="mb-4">
+            <label className="text-xs text-gray-500 uppercase tracking-wider mb-2 block">Fallback providers (orden de prioridad)</label>
+            <div className="flex flex-wrap gap-2">
+              {PROVIDERS.filter(p => p.id !== preferredProvider).map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => toggleFallback(p.id)}
+                  disabled={!isAdmin}
+                  className={`px-3 py-1.5 text-xs rounded-lg border transition-all disabled:opacity-40 ${
+                    fallbackProviders.includes(p.id)
+                      ? 'bg-primary-500/20 text-primary-400 border-primary-500/50'
+                      : 'border-bg-600 text-gray-500 hover:border-primary-500/30'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
             </div>
           </div>
-          <div className="flex justify-end gap-3 mt-3">
+
+          <div className="flex justify-end mb-4">
             <button
-              onClick={() => testLlm.mutate()}
-              disabled={testLlm.isPending || !isAdmin}
-              className="px-4 py-2 text-sm rounded-lg border border-bg-600 text-primary-400 hover:border-primary-500/50 transition-colors disabled:opacity-40"
-            >
-              {testLlm.isPending ? 'Probando...' : 'Probar conexión'}
-            </button>
-            <button
-              onClick={() => saveLlm.mutate()}
-              disabled={saveLlm.isPending || !isAdmin}
+              onClick={() => saveHarnessConfig.mutate()}
+              disabled={saveHarnessConfig.isPending || !isAdmin}
               className="px-4 py-2 text-sm bg-primary-500/10 text-primary-400 border border-primary-500/40 rounded-lg hover:bg-primary-500/20 transition-all disabled:opacity-40"
             >
-              Guardar
+              Guardar configuración
             </button>
           </div>
+
+          <div className="space-y-3">
+            {PROVIDERS.map(p => {
+              const status = providersStatus?.[p.id]
+              const isConfigured = status?.configured || false
+              return (
+                <div key={p.id} className="bg-bg-950/60 border border-bg-800 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <StatusBadge ok={isConfigured} label={isConfigured ? 'Configurado' : 'Sin key'} />
+                      <span className="text-sm text-gray-300 font-medium">{p.label}</span>
+                    </div>
+                    <button
+                      onClick={() => testLlm.mutate({ provider: p.id, key: providerKeys[p.id] })}
+                      disabled={testLlm.isPending || !isAdmin}
+                      className="text-xs px-2 py-1 rounded border border-bg-600 text-primary-400 hover:border-primary-500/50 transition-colors disabled:opacity-40"
+                    >
+                      Test
+                    </button>
+                  </div>
+                  {p.envKey && (
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={providerKeys[p.id] || ''}
+                        onChange={e => setProviderKeys(prev => ({ ...prev, [p.id]: e.target.value }))}
+                        placeholder={isConfigured ? '•••••••• (configurada)' : 'sk-...'}
+                        className="flex-1 px-3 py-1.5 bg-bg-950 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none focus:border-primary-500/50"
+                      />
+                      <button
+                        onClick={() => saveProviderKey.mutate({ provider: p.id, key: providerKeys[p.id] || '' })}
+                        disabled={!providerKeys[p.id]?.trim() || saveProviderKey.isPending || !isAdmin}
+                        className="px-3 py-1.5 text-xs bg-primary-500/10 text-primary-400 border border-primary-500/40 rounded hover:bg-primary-500/20 transition-all disabled:opacity-40"
+                      >
+                        Guardar
+                      </button>
+                    </div>
+                  )}
+                  {p.id === 'ollama' && (
+                    <p className="text-xs text-gray-600 mt-1">Ollama es local, no requiere API key</p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
           {llmTestResult && (
             <div className={`mt-3 p-3 rounded-lg border text-xs font-mono ${llmTestResult.ok ? 'text-primary-400 border-primary-500/40 bg-primary-500/5' : 'text-alert-400 border-alert-500/40 bg-alert-500/5'}`}>
               {llmTestResult.ok

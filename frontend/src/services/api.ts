@@ -153,6 +153,7 @@ export const workflowsApi = {
 
 export const settingsApi = {
   integrations: () => api.get('/api/v1/settings/integrations'),
+  getProviders: () => api.get('/api/v1/settings/providers'),
   set: (key: string, value: string) => api.put(`/api/v1/settings/${key}`, { value }),
   remove: (key: string) => api.delete(`/api/v1/settings/${key}`),
   llmStatus: () => api.get('/api/v1/settings/llm'),
