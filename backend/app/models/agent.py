@@ -72,6 +72,11 @@ class Agent(Base):
     model = Column(String(100), nullable=True)
     workspace = Column(String(255), nullable=True)  # directorio de trabajo del runtime
 
+    # Harness: preferred provider + fallback chain + routing strategy
+    preferred_provider = Column(String(50), nullable=True)  # override del provider global
+    fallback_providers = Column(JSON, default=list)  # ["openai", "anthropic", ...]
+    routing_strategy = Column(String(20), nullable=True)  # cost_optimized, latency_optimized, quality_optimized, balanced
+
     # Health / registry
     health_status = Column(String(20), default="unknown")  # online | idle | busy | degraded | offline | error | unknown
     last_heartbeat = Column(DateTime, nullable=True)

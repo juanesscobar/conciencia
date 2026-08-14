@@ -1,8 +1,8 @@
-"""GenericAgentAdapter — runtime embebido: llama al LLM del provider configurado.
+"""GenericAgentAdapter — runtime embebido: usa el LLM Harness para dispatch.
 
-Este es el runtime por defecto de Mission Control. El "harness" es eficiente en
-tokens: trunca el system prompt (SOUL.md) y el contexto a presupuestos medibles,
-y registra usage (prompt/completion/cost) en cada ejecución.
+Este es el runtime por defecto de Mission Control. El harness orquesta providers
+con fallback, cost tracking, y routing inteligente. Token efficiency: trunca
+system prompt (SOUL.md) y contexto a presupuestos medibles.
 """
 
 import time
@@ -10,23 +10,10 @@ from typing import Optional
 
 from .base import AgentAdapter, AgentIdentity, DispatchResult
 
-# Presupuestos de tokens para el harness (token efficiency)
-MAX_SYSTEM_PROMPT_CHARS = 4000      # ~1000 tokens de system prompt (SOUL.md resumido)
-MAX_CONTEXT_CHARS = 6000            # contexto adicional limitado
-MAX_TASK_CHARS = 4000               # tarea limitada
+MAX_SYSTEM_PROMPT_CHARS = 4000
+MAX_CONTEXT_CHARS = 6000
+MAX_TASK_CHARS = 4000
 MAX_OUTPUT_TOKENS = 2000
-
-# Costo por millón de tokens (USD, estimado por provider/model; ajustable)
-PRICING_PER_1M = {
-    "deepseek": {"input": 0.27, "output": 1.10},          # deepseek-chat
-    "openai": {"input": 0.15, "output": 0.60},            # gpt-4o-mini
-    "openrouter": {"input": 0.27, "output": 1.10},        # deepseek via OR
-    "anthropic": {"input": 3.00, "output": 15.00},        # claude-sonnet (estimado)
-    "google": {"input": 1.25, "output": 5.00},            # gemini (estimado)
-    "ollama": {"input": 0.0, "output": 0.0},              # local
-}
-
-DEFAULT_PRICE = {"input": 0.5, "output": 1.5}
 
 
 def _truncate(s: str, max_chars: int) -> str:
@@ -39,20 +26,26 @@ class GenericAgentAdapter(AgentAdapter):
     runtime_name = "generic"
 
     def get_capabilities(self) -> list:
-        return ["llm_chat", "context_window", "token_usage_tracking"]
+        return ["llm_chat", "context_window", "token_usage_tracking", "multi_provider", "fallback", "cost_tracking"]
 
     def dispatch_task(self, identity: AgentIdentity, task: str, context: Optional[str] = None) -> DispatchResult:
-        from app.services.llm import get_config, is_configured, get_client
+        from app.services.llm_harness import run_with_harness, HarnessConfig, HarnessError, CostTracker
+        from app.services.llm import get_config
 
         start = time.time()
-        cfg = get_config(provider=identity.provider or None, model=identity.model or None)
 
-        # ----- Token efficiency: recortar a presupuestos -----
         system_prompt = _truncate(identity.system_prompt or "", MAX_SYSTEM_PROMPT_CHARS)
         task_limited = _truncate(task, MAX_TASK_CHARS)
         context_limited = _truncate(context or "", MAX_CONTEXT_CHARS)
 
-        if not is_configured() and cfg.get("provider") != "ollama":
+        messages = [{"role": "system", "content": system_prompt}]
+        if context_limited:
+            messages.append({"role": "user", "content": f"## CONTEXTO\n{context_limited}\n"})
+        messages.append({"role": "user", "content": f"## TAREA\n{task_limited}"})
+
+        cfg = get_config(provider=identity.provider or None, model=identity.model or None)
+
+        if not cfg.get("api_key") and cfg.get("provider") != "ollama":
             return DispatchResult(
                 ok=False,
                 status="failed",
@@ -65,39 +58,55 @@ class GenericAgentAdapter(AgentAdapter):
                 meta={"reason": "llm_not_configured"},
             )
 
-        try:
-            client = get_client()
-            messages = [{"role": "system", "content": system_prompt}]
-            if context_limited:
-                messages.append({"role": "user", "content": f"## CONTEXTO\n{context_limited}\n"})
-            messages.append({"role": "user", "content": f"## TAREA\n{task_limited}"})
+        fallback_providers = identity.config.get("fallback_providers", [])
+        routing_strategy = identity.config.get("routing_strategy")
 
-            response = client.chat.completions.create(
-                model=cfg["model"],
-                messages=messages,
-                temperature=0.4,
-                max_tokens=MAX_OUTPUT_TOKENS,
-            )
-            usage = response.usage.model_dump() if response.usage else None
-            price = PRICING_PER_1M.get(cfg.get("provider", ""), DEFAULT_PRICE)
-            cost = None
-            if usage:
-                cost = round(
-                    (usage.get("prompt_tokens", 0) / 1_000_000 * price["input"])
-                    + (usage.get("completion_tokens", 0) / 1_000_000 * price["output"]),
-                    6,
-                )
+        harness_config = HarnessConfig(
+            provider=cfg["provider"],
+            model=cfg["model"],
+            api_key=cfg["api_key"],
+            base_url=cfg.get("base_url"),
+            fallback_providers=fallback_providers,
+            max_retries=2,
+            timeout_seconds=60,
+            metadata={
+                "agent_id": identity.agent_id,
+                "agent_name": identity.name,
+                "role": identity.role,
+            },
+        )
+
+        cost_tracker = CostTracker()
+
+        try:
+            result = run_with_harness(messages, harness_config, cost_tracker)
+
+            usage_dict = None
+            if result.usage:
+                usage_dict = {
+                    "prompt_tokens": result.usage.prompt_tokens,
+                    "completion_tokens": result.usage.completion_tokens,
+                    "total_tokens": result.usage.total_tokens,
+                    "cost_estimate_usd": result.usage.cost_usd,
+                }
+
             return DispatchResult(
-                ok=True,
-                status="completed",
-                output=response.choices[0].message.content,
-                model=response.model or cfg["model"],
-                provider=cfg.get("provider"),
+                ok=result.ok,
+                status="completed" if result.ok else "failed",
+                output=result.output,
+                error=result.error,
+                model=result.model,
+                provider=result.provider,
                 runtime=self.runtime_name,
-                usage={**usage, "cost_estimate_usd": cost} if usage else {"cost_estimate_usd": cost},
-                duration_ms=int((time.time() - start) * 1000),
+                usage=usage_dict,
+                duration_ms=result.latency_ms or int((time.time() - start) * 1000),
+                meta={
+                    "retries": result.retries,
+                    "fallback_used": result.fallback_used,
+                },
             )
-        except Exception as e:  # noqa: BLE001
+
+        except HarnessError as e:
             return DispatchResult(
                 ok=False,
                 status="failed",
