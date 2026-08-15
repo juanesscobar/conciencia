@@ -59,6 +59,11 @@
 - **Cambio:** Configuracion para deploy seguro en Hetzner con Tailscale. Sin puertos publicos, acceso solo desde tailnet. Script de setup automatico + documentacion completa.
 - **Estado:** done
 
+### Fix — Separacion de requirements
+- **Archivos:** `backend/requirements.txt`, `backend/requirements-dev.txt` (nuevo)
+- **Cambio:** pytest y pytest-asyncio movidos a requirements-dev.txt. Docker solo instala requirements.txt (produccion). Para tests locales: `pip install -r requirements-dev.txt`
+- **Estado:** done
+
 ---
 
 ## [2.0.0-alpha] — 2026-08

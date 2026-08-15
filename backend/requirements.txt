@@ -35,10 +35,6 @@ bcrypt==4.1.2
 redis[hiredis]==5.0.1
 fpdf2==2.8.8  # generación de PDF de propuestas
 
-# Testing
-pytest==8.0.0
-pytest-asyncio==0.24.0
-
 # Production
 gunicorn==21.2.0
 beautifulsoup4==4.12.3
