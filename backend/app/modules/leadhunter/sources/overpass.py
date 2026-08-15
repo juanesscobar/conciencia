@@ -8,11 +8,13 @@ distribuidoras, comercio, financiero e industria.
 
 import os
 import re
+import time
 from typing import List, Optional
 
 import httpx
 
 from .base import BaseLeadSource, register_source
+from ..exceptions import RateLimitError, SourceTimeoutError, SourceUnavailableError
 
 OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter"
 OVERPASS_ENDPOINTS = [
@@ -149,24 +151,38 @@ class OverpassSource(BaseLeadSource):
         last_error: Optional[Exception] = None
 
         for endpoint in OVERPASS_ENDPOINTS:
-            for attempt in range(2):
+            for attempt in range(3):
                 try:
                     resp = httpx.post(
                         endpoint,
                         data={"data": query},
                         timeout=150 if self.scope == "country" else 120,
-                        headers={"User-Agent": "MissionControl-LeadHunter/2.0 (contact: juanesscobar)"},
+                        headers={"User-Agent": "ConcienciaPlatform-LeadHunter/2.0 (contact: juanesscobar)"},
                     )
+                    if resp.status_code == 429:
+                        retry_after = int(resp.headers.get("Retry-After", 60))
+                        raise RateLimitError("overpass", retry_after)
                     resp.raise_for_status()
                     data = resp.json()
                     elements = data.get("elements", [])
                     leads = self._parse_elements(elements)
                     return leads[:limit] if limit else leads
+                except RateLimitError:
+                    raise
+                except httpx.TimeoutException as e:
+                    last_error = SourceTimeoutError("overpass", 150 if self.scope == "country" else 120)
+                    time.sleep(2 ** attempt)
+                    continue
+                except httpx.HTTPStatusError as e:
+                    last_error = e
+                    time.sleep(2 ** attempt)
+                    continue
                 except Exception as e:  # noqa: BLE001
                     last_error = e
+                    time.sleep(2 ** attempt)
                     continue
 
-        raise RuntimeError(f"Overpass API unreachable: {last_error}")
+        raise SourceUnavailableError("overpass", str(last_error))
 
     def _parse_elements(self, elements: list) -> List[dict]:
         leads: List[dict] = []

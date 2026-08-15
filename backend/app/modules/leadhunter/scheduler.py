@@ -47,10 +47,19 @@ def stop_scheduler() -> None:
 
 
 def _run_job() -> None:
-    from .discovery import run_discovery_job
+    from . import jobs
+    from app.database import SessionLocal
 
+    db = SessionLocal()
     try:
-        result = run_discovery_job()
-        log.info(f"Lead Hunter discovery: {result}")
+        job = jobs.create_job(
+            db,
+            name="Scheduled Discovery",
+            project_id=None,
+            criteria={"source": "overpass"},
+        )
+        log.info(f"Lead Hunter scheduled job created: {job.id}")
     except Exception as e:  # noqa: BLE001
-        log.error(f"Lead Hunter discovery falló: {e}")
+        log.error(f"Lead Hunter scheduled job failed: {e}")
+    finally:
+        db.close()

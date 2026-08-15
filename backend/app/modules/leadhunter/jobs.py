@@ -1,10 +1,11 @@
 """Ejecutor async de LeadHunterJobs: threading + estado cancelable + retry.
 
 El job corre en un thread daemon para no bloquear el request HTTP.
-El estado (pending/running/completed/failed/cancelled) vive en DB.
-El progreso se expone como string (searching → extracting → validating → scoring → done).
+El estado (pending/running/completed/partial_failure/failed/cancelled) vive en DB.
+El progreso se expone como string (searching → extracting → scoring → validating → done).
 """
 
+import json
 import logging
 import threading
 import uuid
@@ -15,10 +16,17 @@ from sqlalchemy.orm import Session
 
 from .models import LeadHunterJob, LeadHunterJobStatus
 from .sources import get_all_sources
+from .exceptions import (
+    LeadHunterError,
+    InvalidCriteriaError,
+    RateLimitError,
+    SourceTimeoutError,
+    SourceUnavailableError,
+    PartialFailureError,
+)
 
 log = logging.getLogger("leadhunter.jobs")
 
-# job_id -> threading.Event de cancelación (en memoria, suficiente para un solo proceso)
 _cancel_events: dict[str, threading.Event] = {}
 _jobs_lock = threading.Lock()
 
@@ -49,21 +57,27 @@ def _clear_cancel(job_id: str) -> None:
 
 
 def _source_names(criteria: Optional[dict]) -> list[str]:
-    """Resuelve qué fuentes correr según los criterios del job.
-    Si el usuario pide una fuente inexistente, levanta ValueError para que el job falle limpio."""
+    """Resuelve que fuentes correr segun los criterios del job."""
     sources = get_all_sources()
     if not criteria:
         return list(sources.keys())
     src = (criteria.get("source") or "").strip().lower()
     if src:
         if src not in sources:
-            raise ValueError(f"Fuente desconocida: {src}. Disponibles: {', '.join(sources)}")
+            raise InvalidCriteriaError(f"Fuente desconocida: {src}. Disponibles: {', '.join(sources)}")
         return [src]
     return list(sources.keys())
 
 
+def _serialize_error(e: Exception) -> str:
+    """Serializa un error a JSON categorizado."""
+    if isinstance(e, LeadHunterError):
+        return json.dumps(e.to_dict())[:500]
+    return json.dumps({"type": "unknown_error", "message": str(e)[:400]})[:500]
+
+
 def run_job(job_id: str) -> None:
-    """Ejecuta el job en su propio thread (daemon). Cierra su propia sesión de DB."""
+    """Ejecuta el job en su propio thread (daemon). Cierra su propia sesion de DB."""
     from app.database import SessionLocal
 
     db = SessionLocal()
@@ -74,7 +88,7 @@ def run_job(job_id: str) -> None:
         job = db.query(LeadHunterJob).filter(LeadHunterJob.id == job_id).first()
         if job and job.status == LeadHunterJobStatus.RUNNING:
             job.status = LeadHunterJobStatus.FAILED
-            job.error = str(e)[:500]
+            job.error = _serialize_error(e)
             job.completed_at = datetime.utcnow()
             db.commit()
     finally:
@@ -84,7 +98,6 @@ def run_job(job_id: str) -> None:
 
 def _execute(db: Session, job_id: str) -> None:
     from .discovery import run_discovery
-    from .models import Lead
 
     job = db.query(LeadHunterJob).filter(LeadHunterJob.id == job_id).first()
     if not job:
@@ -96,13 +109,13 @@ def _execute(db: Session, job_id: str) -> None:
     limit = criteria.get("limit")
     try:
         sources = _source_names(criteria)
-    except ValueError as e:
+    except InvalidCriteriaError as e:
         job.status = LeadHunterJobStatus.FAILED
-        job.error = str(e)[:500]
+        job.error = _serialize_error(e)
         job.completed_at = datetime.utcnow()
         job.progress = None
         db.commit()
-        log.info(f"job {job_id} falló: {e}")
+        log.info(f"job {job_id} fallo: {e}")
         return
 
     job.status = LeadHunterJobStatus.RUNNING
@@ -114,6 +127,8 @@ def _execute(db: Session, job_id: str) -> None:
     total_added = 0
     total_dupes = 0
     results = []
+    failed_sources = []
+    successful_sources = []
 
     for name in sources:
         if cancel_requested(job_id):
@@ -127,20 +142,36 @@ def _execute(db: Session, job_id: str) -> None:
         job.progress = "extracting"
         db.commit()
         try:
-            # run_discovery crea su propio LeadHuntRun por fuente y asocia job_id
             result = run_discovery(db, source=name, limit=limit, job_id=job.id)
             r = result["results"][0] if result["results"] else {"status": "error", "error": "sin resultados"}
             total_added += r.get("added", 0)
             total_dupes += r.get("duplicates", 0)
             results.append(r)
+            successful_sources.append(name)
+            db.commit()
+        except RateLimitError as e:
+            log.warning(f"job {job_id} rate limit en fuente {name}: {e}")
+            failed_sources.append(name)
+            results.append({"source": name, "status": "error", "error": _serialize_error(e)})
+            db.commit()
+        except SourceTimeoutError as e:
+            log.warning(f"job {job_id} timeout en fuente {name}: {e}")
+            failed_sources.append(name)
+            results.append({"source": name, "status": "error", "error": _serialize_error(e)})
+            db.commit()
+        except SourceUnavailableError as e:
+            log.warning(f"job {job_id} fuente no disponible {name}: {e}")
+            failed_sources.append(name)
+            results.append({"source": name, "status": "error", "error": _serialize_error(e)})
             db.commit()
         except Exception as e:  # noqa: BLE001
-            job.status = LeadHunterJobStatus.FAILED
-            job.error = str(e)[:500]
-            job.completed_at = datetime.utcnow()
-            job.progress = None
+            log.warning(f"job {job_id} error en fuente {name}: {e}")
+            failed_sources.append(name)
+            results.append({"source": name, "status": "error", "error": _serialize_error(e)})
             db.commit()
-            return
+
+        job.progress = "scoring"
+        db.commit()
 
         job.progress = "validating"
         db.commit()
@@ -148,6 +179,15 @@ def _execute(db: Session, job_id: str) -> None:
     if cancel_requested(job_id):
         job.status = LeadHunterJobStatus.CANCELLED
         job.progress = None
+    elif failed_sources and successful_sources:
+        job.status = LeadHunterJobStatus.PARTIAL_FAILURE
+        job.progress = "done"
+        partial_err = PartialFailureError(failed_sources, successful_sources)
+        job.error = _serialize_error(partial_err)
+    elif failed_sources and not successful_sources:
+        job.status = LeadHunterJobStatus.FAILED
+        job.progress = None
+        job.error = json.dumps({"type": "all_sources_failed", "message": "Todas las fuentes fallaron"})[:500]
     else:
         job.status = LeadHunterJobStatus.COMPLETED
         job.progress = "done"
@@ -157,7 +197,7 @@ def _execute(db: Session, job_id: str) -> None:
     job.completed_at = datetime.utcnow()
     job.meta = {"results": results} if hasattr(job, "meta") else None
     db.commit()
-    log.info(f"job {job_id} completado: +{total_added} leads ({total_dupes} dupes)")
+    log.info(f"job {job_id} completado: +{total_added} leads ({total_dupes} dupes, {len(failed_sources)} fuentes fallidas)")
 
 
 def start_job(job_id: str) -> None:
@@ -171,7 +211,7 @@ def create_job(db: Session, *, name: Optional[str], project_id: Optional[str], c
     """Crea el job en estado pending y lo lanza."""
     job = LeadHunterJob(
         id=str(uuid.uuid4()),
-        name=name or "Prospección",
+        name=name or "Prospeccion",
         project_id=project_id,
         criteria=criteria or {},
         status=LeadHunterJobStatus.PENDING,

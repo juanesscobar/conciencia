@@ -7,6 +7,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from .models import Lead
+from .exceptions import RateLimitError
 
 JUNK_EMAIL_RE = re.compile(
     r"(example|yourname|your-?email|someone|domain|test|sample|sentry|"
@@ -53,6 +54,9 @@ def enrich_from_website(lead: Lead) -> dict:
 
     try:
         resp = httpx.get(url, headers=HEADERS, timeout=15, follow_redirects=True)
+        if resp.status_code == 429:
+            retry_after = int(resp.headers.get("Retry-After", 60))
+            raise RateLimitError("website_enrichment", retry_after)
         resp.raise_for_status()
         found["fetched"] = True
         text = resp.text

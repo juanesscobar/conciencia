@@ -174,6 +174,7 @@ class LeadHunterJobStatus(str, PyEnum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
+    PARTIAL_FAILURE = "partial_failure"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
