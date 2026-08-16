@@ -39,6 +39,9 @@ add_*.py
 patch_*.py
 test_api.py
 
+# Herramientas locales
+.opencode/
+
 # Scripts de test con credenciales (nunca commitear)
 *_test.sh
 e2e_*.sh
@@ -48,5 +51,6 @@ reset_*.py
 check_*.sh
 
 
-# Seeds de admin local (contienen passwords)
-backend/scripts/seed_*.py
+# Seeds de admin local — NO contienen passwords hardcodeadas.
+# seed_local_admin.py lee LOCAL_ADMIN_PASSWORD de env (si falta, genera aleatoria).
+# Se commitean porque entrypoint.sh los ejecuta en el deploy.
