@@ -61,6 +61,26 @@ def run_with_harness(
     last_error: Optional[Exception] = None
     total_retries = 0
 
+    # --- Token efficiency (harness engineering) ---
+    # Optimize the message list ONCE, before the provider loop:
+    #  - context window budgeting (keep system, prune oldest, compact middle)
+    #  - pre-flight cost guard using the primary provider's pricing
+    token_stats: Dict[str, int] = {}
+    if config.efficient_mode:
+        from .token_budget import TokenOptimizer
+
+        optimizer = TokenOptimizer(
+            max_context_tokens=config.max_context_tokens,
+            max_output_tokens=config.max_output_tokens,
+        )
+        primary = get_provider(providers_to_try[0]) if providers_to_try else None
+        pricing = primary.get_pricing(config.model) if primary else None
+        messages, token_stats = optimizer.optimize(
+            messages, pricing=pricing, budget_usd=config.budget_usd
+        )
+        if token_stats and token_stats.get("original_tokens", 0) > 0:
+            log.info(f"TokenOptimizer stats: {token_stats}")
+
     for idx, provider_name in enumerate(providers_to_try):
         provider = get_provider(provider_name)
         if not provider:
@@ -78,6 +98,7 @@ def run_with_harness(
                     model=model,
                     api_key=config.api_key or "",
                     base_url=base_url,
+                    max_tokens=config.max_output_tokens,
                     timeout_seconds=config.timeout_seconds,
                 )
 
@@ -92,6 +113,9 @@ def run_with_harness(
                 if is_fallback:
                     result.fallback_used = True
                     result.retries = total_retries
+
+                if token_stats:
+                    result.metadata["token_stats"] = token_stats
 
                 log.info(
                     f"Harness success: provider={result.provider}, model={result.model}, "

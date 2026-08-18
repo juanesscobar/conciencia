@@ -144,6 +144,25 @@ def run_agent(agent_name: str, system_prompt: str, task: str, context: Optional[
     # Filtrar el provider actual de los fallbacks
     fallback_providers = [p for p in fallback_providers if p != cfg["provider"]]
 
+    # --- Token efficiency settings (harness engineering) ---
+    def _int_setting(key: str, default: int) -> int:
+        try:
+            return int(os.getenv(key) or _db_setting(key) or default)
+        except (TypeError, ValueError):
+            return default
+
+    efficient_mode = (
+        os.getenv("LLM_EFFICIENT_MODE") or _db_setting("LLM_EFFICIENT_MODE") or "true"
+    ).lower() in ("1", "true", "yes", "on")
+
+    budget_usd = None
+    try:
+        raw_budget = os.getenv("LLM_BUDGET_USD") or _db_setting("LLM_BUDGET_USD") or ""
+        if raw_budget:
+            budget_usd = float(raw_budget)
+    except (TypeError, ValueError):
+        budget_usd = None
+
     harness_config = HarnessConfig(
         provider=cfg["provider"],
         model=cfg["model"],
@@ -152,6 +171,10 @@ def run_agent(agent_name: str, system_prompt: str, task: str, context: Optional[
         fallback_providers=fallback_providers,
         max_retries=2,
         timeout_seconds=60,
+        budget_usd=budget_usd,
+        efficient_mode=efficient_mode,
+        max_context_tokens=_int_setting("LLM_MAX_CONTEXT_TOKENS", 0),
+        max_output_tokens=_int_setting("LLM_MAX_OUTPUT_TOKENS", 2000),
         metadata={
             "agent_name": agent_name,
             "source": "run_agent",
@@ -181,6 +204,7 @@ def run_agent(agent_name: str, system_prompt: str, task: str, context: Optional[
             "cost_usd": result.usage.cost_usd if result.usage else 0.0,
             "fallback_used": result.fallback_used,
             "retries": result.retries,
+            "token_stats": result.metadata.get("token_stats", {}),
         }
 
     except HarnessError as e:

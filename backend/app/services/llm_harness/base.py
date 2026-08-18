@@ -32,6 +32,11 @@ class HarnessConfig:
     budget_usd: Optional[float] = None  # max cost for this execution
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    # --- Token efficiency (harness engineering) ---
+    efficient_mode: bool = True   # apply TokenOptimizer (context budget + cost guard) before every call
+    max_context_tokens: int = 0   # context window budget; 0 = disabled (keep full history)
+    max_output_tokens: int = 2000 # cap on generated output tokens
+
     def __post_init__(self):
         self.provider = self.provider.strip().lower()
         self.model = self.model.strip()
