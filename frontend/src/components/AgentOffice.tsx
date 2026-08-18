@@ -59,7 +59,7 @@ export default function AgentOffice() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-2xl font-bold flex items-center gap-2">
-            🏢 Mission Control HQ
+            🏢 Conciencia Platform HQ
           </h2>
           <p className="text-slate-400 text-sm">Iron Toto Software Factory</p>
         </div>

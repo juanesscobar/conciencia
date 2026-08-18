@@ -48,12 +48,12 @@ export default function Login() {
             <span className="w-3 h-3 rounded-full bg-alert-500 inline-block"></span>
             <span className="w-3 h-3 rounded-full bg-yellow-500 inline-block"></span>
             <span className="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
-            <span className="ml-3 text-xs text-gray-600">auth://mission-control</span>
+            <span className="ml-3 text-xs text-gray-600">auth://conciencia-platform</span>
           </div>
         </div>
 
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-primary-400 tracking-widest">◉ MISSION CONTROL</h1>
+          <h1 className="text-2xl font-bold text-primary-400 tracking-widest">◉ CONCIENCIA PLATFORM</h1>
           <p className="text-gray-600 mt-2 text-sm">&gt; software_factory_governance.sh</p>
           <p className="text-primary-500/70 mt-1 text-xs">$ {isRegister ? 'register --new-operator' : 'login --operator'}</p>
         </div>
@@ -124,7 +124,7 @@ export default function Login() {
         </div>
 
         <div className="mt-6 pt-4 border-t border-bg-800 text-center">
-          <p className="text-xs text-gray-700 font-mono">Mission Control v2.0 — agent orchestration engine</p>
+          <p className="text-xs text-gray-700 font-mono">Conciencia Platform v2.0 - agent orchestration engine</p>
         </div>
       </div>
     </div>

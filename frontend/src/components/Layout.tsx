@@ -24,7 +24,7 @@ function TerminalHeader() {
         <span className="w-3 h-3 rounded-full bg-alert-500 inline-block"></span>
         <span className="w-3 h-3 rounded-full bg-yellow-500 inline-block"></span>
         <span className="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
-        <span className="ml-3 text-xs text-gray-500">iron@mission-control:~$</span>
+        <span className="ml-3 text-xs text-gray-500">iron@conciencia-platform:~$</span>
       </div>
       <span className="text-xs text-primary-500 animate-blink">▊</span>
     </div>
@@ -57,7 +57,7 @@ export default function Layout({ children }: LayoutProps) {
         <TerminalHeader />
 
         <div className="flex items-center h-14 px-6 border-b border-bg-800">
-          <span className="text-lg font-bold text-primary-400 tracking-wider">◉ MISSION CONTROL</span>
+          <span className="text-lg font-bold text-primary-400 tracking-wider">◉ CONCIENCIA PLATFORM</span>
         </div>
 
         <nav className="p-4 space-y-1">
@@ -114,7 +114,7 @@ export default function Layout({ children }: LayoutProps) {
           >
             ☰
           </button>
-          <span className="text-sm font-bold text-primary-400 tracking-wider">◉ MC</span>
+          <span className="text-sm font-bold text-primary-400 tracking-wider">◉ CP</span>
           <span className="text-primary-500 animate-blink text-xs">▊</span>
         </div>
 
