@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { settingsApi, whatsappApi } from '../services/api'
+import { settingsApi, whatsappApi, emailApi, mcpApi } from '../services/api'
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -163,6 +163,53 @@ export default function Settings() {
     mutationFn: () => settingsApi.emailTest({ to_email: smtpFrom.trim() || undefined }),
     onSuccess: (r: any) => setSmtpTestResult(r.data),
     onError: (e: any) => setSmtpTestResult({ sent: false, error: e.response?.data?.detail || 'Error al probar' }),
+  })
+
+  // ---- Email multi-proveedor (MCP) ----
+  const { data: emailAccounts, refetch: emailRefetch } = useQuery({
+    queryKey: ['email-accounts'],
+    queryFn: () => emailApi.accounts().then(res => res.data),
+  })
+  const { data: emailProviders } = useQuery({
+    queryKey: ['email-providers'],
+    queryFn: () => emailApi.providers().then(res => res.data),
+  })
+  const [accForm, setAccForm] = useState({ name: '', provider: 'gmail', email: '', password: '', from_name: '' })
+  const [accMsg, setAccMsg] = useState('')
+  const [inboxFor, setInboxFor] = useState<string | null>(null)
+  const [testResults, setTestResults] = useState<Record<string, any>>({})
+
+  const createAcc = useMutation({
+    mutationFn: () => emailApi.create(accForm),
+    onSuccess: () => { setAccForm({ name: '', provider: 'gmail', email: '', password: '', from_name: '' }); setAccMsg('Cuenta creada'); emailRefetch(); setTimeout(() => setAccMsg(''), 4000) },
+    onError: (e: any) => { setAccMsg(e.response?.data?.detail || 'Error al crear cuenta'); setTimeout(() => setAccMsg(''), 5000) },
+  })
+  const deleteAcc = useMutation({
+    mutationFn: (id: string) => emailApi.delete(id),
+    onSuccess: () => emailRefetch(),
+  })
+  const testAcc = useMutation({
+    mutationFn: (id: string) => emailApi.test(id),
+    onSuccess: (r: any, id: string) => setTestResults(prev => ({ ...prev, [id]: r.data })),
+    onError: (e: any, id: string) => setTestResults(prev => ({ ...prev, [id]: { imap: false, smtp: false, error: e.response?.data?.detail || 'Error' } })),
+  })
+
+  const { data: inboxData } = useQuery({
+    queryKey: ['email-inbox', inboxFor],
+    queryFn: () => emailApi.inbox(inboxFor!).then(res => res.data),
+    enabled: !!inboxFor,
+  })
+
+  // ---- MCP / Tool Registry ----
+  const { data: mcpServers } = useQuery({
+    queryKey: ['mcp-servers'],
+    queryFn: () => mcpApi.servers().then(res => res.data),
+  })
+  const [mcpToolsFor, setMcpToolsFor] = useState<string | null>(null)
+  const { data: mcpTools } = useQuery({
+    queryKey: ['mcp-tools', mcpToolsFor],
+    queryFn: () => mcpApi.tools(mcpToolsFor!).then(res => res.data),
+    enabled: !!mcpToolsFor,
   })
 
   // ---- WhatsApp Business ----
@@ -400,8 +447,69 @@ export default function Settings() {
           </p>
         </Card>
 
+        {/* Email multi-proveedor (MCP) */}
+        <Card title="EMAIL · MULTI-PROVEEDOR (MCP)" subtitle="Cuentas IMAP/SMTP — Gmail, Outlook o genérico. Exponidas como MCP tools para los agentes">
+          <div className="mb-4">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+              <select value={accForm.provider} onChange={e => setAccForm({ ...accForm, provider: e.target.value })} className="px-2 py-1.5 bg-bg-950 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none">
+                {(emailProviders || []).map((p: any) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+              <input value={accForm.name} onChange={e => setAccForm({ ...accForm, name: e.target.value })} placeholder="Nombre (ej. Personal)" className="px-2 py-1.5 bg-bg-950 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none" />
+              <input value={accForm.email} onChange={e => setAccForm({ ...accForm, email: e.target.value })} placeholder="tu@gmail.com" className="col-span-2 px-2 py-1.5 bg-bg-950 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none" />
+              <input type="password" value={accForm.password} onChange={e => setAccForm({ ...accForm, password: e.target.value })} placeholder="App password" className="col-span-2 px-2 py-1.5 bg-bg-950 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none" />
+            </div>
+            <button
+              onClick={() => createAcc.mutate()}
+              disabled={!accForm.email.trim() || !accForm.password.trim() || createAcc.isPending || !isAdmin}
+              className="mt-2 px-3 py-1.5 text-xs bg-primary-500/10 text-primary-400 border border-primary-500/40 rounded hover:bg-primary-500/20 transition-all disabled:opacity-40"
+            >
+              + Agregar cuenta
+            </button>
+            {accMsg && <p className="text-xs text-gray-400 mt-1">{accMsg}</p>}
+          </div>
+
+          {(emailAccounts || []).length === 0 ? (
+            <p className="text-xs text-gray-600">Sin cuentas. Agregá tu Gmail con una App password (2FA activado).</p>
+          ) : (
+            <div className="space-y-2">
+              {(emailAccounts as any[]).map((acc: any) => (
+                <div key={acc.id} className="bg-bg-950/60 border border-bg-800 rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-200 font-medium">{acc.name} <span className="text-gray-600">· {acc.provider}</span></p>
+                      <p className="text-xs text-gray-500">{acc.email}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => testAcc.mutate(acc.id)} disabled={testAcc.isPending} className="text-xs px-2 py-1 rounded border border-bg-600 text-primary-400 hover:border-primary-500/50">Test</button>
+                      <button onClick={() => setInboxFor(inboxFor === acc.id ? null : acc.id)} className="text-xs px-2 py-1 rounded border border-bg-600 text-primary-400 hover:border-primary-500/50">Inbox</button>
+                      <button onClick={() => { if (confirm('¿Eliminar cuenta?')) deleteAcc.mutate(acc.id) }} className="text-xs px-2 py-1 rounded border border-alert-500/40 text-alert-400 hover:bg-alert-500/10">✕</button>
+                    </div>
+                  </div>
+                  {testResults[acc.id] && (
+                    <div className={`mt-2 text-xs font-mono ${testResults[acc.id].imap && testResults[acc.id].smtp ? 'text-primary-400' : 'text-alert-400'}`}>
+                      {testResults[acc.id].imap && testResults[acc.id].smtp ? '✓ IMAP + SMTP OK' : `✗ ${testResults[acc.id].error || 'falló'}`}
+                    </div>
+                  )}
+                  {inboxFor === acc.id && (
+                    <div className="mt-2 border-t border-bg-800 pt-2 max-h-40 overflow-auto">
+                      {inboxData?.messages?.length ? (inboxData.messages as any[]).map((m, i) => (
+                        <div key={i} className="text-xs py-1 border-b border-bg-800/50 last:border-0">
+                          <span className="text-gray-400">{String(m.from || '').split('<')[0].trim()}</span> — <span className="text-gray-300">{m.subject}</span>
+                        </div>
+                      )) : <p className="text-xs text-gray-600">Inbox vacío o sin acceso</p>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-gray-600 mt-3">
+            💡 Gmail: App password (2FA). Outlook/Office365: similar con MFA. Los agentes acceden vía MCP tools desde el Tool Registry.
+          </p>
+        </Card>
+
         {/* WhatsApp Business */}
-        <Card title="WHATSAPP BUSINESS" subtitle="Conectá tu número escaneando un QR y enviá propuestas por chat">
+        <Card title="WHATSAPP" subtitle="Conectá tu número escaneando un QR y enviá propuestas por chat">
           <div className="flex items-center justify-between mb-4">
             <StatusBadge ok={wa?.state === 'connected'} label={
               wa?.state === 'connected' ? `Conectado · ${wa?.phone ? `+${wa.phone}` : 'WhatsApp'}`
@@ -434,8 +542,38 @@ export default function Settings() {
           )}
           {waMsg && <p className="text-xs text-gray-400 mb-2">{waMsg}</p>}
           <p className="text-xs text-gray-600">
-            💡 Se conecta a <span className="text-gray-400">WhatsApp Web</span> (multi-dispositivo) con whatsapp-web.js. Si tu número es una cuenta Business, esta es tu vía oficial. La sesión queda guardada localmente.
+            💡 Se conecta a <span className="text-gray-400">WhatsApp Web</span> (multi-dispositivo) con whatsapp-web.js. La sesión queda guardada localmente.
           </p>
+        </Card>
+
+        {/* MCP / Tool Registry */}
+        <Card title="MCP · TOOL REGISTRY" subtitle="Servidores MCP adjuntados al Control Plane">
+          <div className="space-y-3">
+            {(mcpServers || []).map((s: any) => (
+              <div key={s.name} className="bg-bg-950/60 border border-bg-800 rounded-lg p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-200 font-medium">{s.label || s.name} {s.builtin && <span className="text-[10px] text-primary-500 border border-primary-500/40 rounded px-1 ml-1">BUILT-IN</span>}</p>
+                    <p className="text-xs text-gray-600 font-mono">{s.command} {s.args?.join(' ')}</p>
+                  </div>
+                  <button onClick={() => setMcpToolsFor(mcpToolsFor === s.name ? null : s.name)} className="text-xs px-2 py-1 rounded border border-bg-600 text-primary-400 hover:border-primary-500/50">
+                    {mcpToolsFor === s.name ? 'Ocultar' : 'Tools'}
+                  </button>
+                </div>
+                {mcpToolsFor === s.name && mcpTools && (
+                  <div className="mt-2 border-t border-bg-800 pt-2 space-y-1">
+                    {(mcpTools.tools || []).map((t: any) => (
+                      <div key={t.name} className="text-xs">
+                        <span className="text-primary-400 font-mono">{t.name}</span>
+                        <p className="text-gray-600">{t.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {(mcpServers || []).length === 0 && <p className="text-xs text-gray-600">Sin servidores MCP registrados.</p>}
+          </div>
         </Card>
 
         {/* Lead Hunter */}

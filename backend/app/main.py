@@ -18,6 +18,9 @@ from app.modules.jobscout.router import router as jobscout_router
 from app.modules.leadhunter.router import router as leadhunter_router, intake_router as leadhunter_intake_router
 from app.modules.leadhunter.scheduler import start_scheduler, stop_scheduler
 from app.modules.whatsapp.router import router as whatsapp_router
+from app.modules.email.router import router as email_router
+from app.modules.email import models as email_models  # noqa: F401 (registra EmailAccount en Base.metadata)
+from app.routers.mcp import router as mcp_router
 from app.config import get_cors_origins, ENVIRONMENT
 from app.services.system_logger import setup_logging
 from app.database import Base, engine
@@ -74,6 +77,8 @@ app.include_router(jobscout_router)
 app.include_router(leadhunter_router)
 app.include_router(leadhunter_intake_router)
 app.include_router(whatsapp_router)
+app.include_router(email_router)
+app.include_router(mcp_router)
 
 
 @app.middleware("http")

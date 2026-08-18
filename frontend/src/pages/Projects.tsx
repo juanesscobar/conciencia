@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { projectsApi, githubApi } from '../services/api'
+import { projectsApi, tasksApi, githubApi } from '../services/api'
 import { useState } from 'react'
 
 interface Project {
@@ -12,6 +12,13 @@ interface Project {
   category: string
   github_repo: string
   created_at: string
+}
+
+interface Task {
+  id: string
+  project_id: string
+  title: string
+  status: string
 }
 
 interface GithubRepo {
@@ -39,6 +46,20 @@ export default function Projects() {
     queryKey: ['projects'],
     queryFn: () => projectsApi.getAll().then(res => res.data),
   })
+
+  const { data: allTasks } = useQuery<Task[]>({
+    queryKey: ['tasks'],
+    queryFn: () => tasksApi.getAll().then(res => res.data),
+  })
+
+  // Progreso real por misión: done/total (spec §14 PROGRESS)
+  const taskStats = (allTasks || []).reduce<Record<string, { done: number; total: number }>>((acc, t) => {
+    const key = String(t.project_id)
+    acc[key] = acc[key] || { done: 0, total: 0 }
+    acc[key].total += 1
+    if (t.status === 'done') acc[key].done += 1
+    return acc
+  }, {})
 
   const { data: repos, isLoading: reposLoading } = useQuery<GithubRepo[]>({
     queryKey: ['github-repos'],
@@ -76,14 +97,14 @@ export default function Projects() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-primary-400 tracking-wider">// PROJECTS</h1>
-          <p className="text-sm text-gray-500 mt-1">Proyectos internos + todos tus repositorios de GitHub</p>
+          <h1 className="text-2xl font-bold text-primary-400 tracking-wider">// MISSIONS</h1>
+          <p className="text-sm text-gray-500 mt-1">Unidad de intención autónoma — contenedor de tasks, workflows, agentes y resultados</p>
         </div>
         <button
           onClick={() => setShowModal(true)}
           className="px-4 py-2 bg-primary-600/90 text-bg-950 font-bold rounded-lg hover:bg-primary-500 hover:shadow-neon transition-all"
         >
-          + NEW_PROJECT
+          + NEW_MISSION
         </button>
       </div>
 
@@ -136,48 +157,64 @@ export default function Projects() {
         {repoMsg && <p className="text-xs text-primary-400 mt-3">{repoMsg}</p>}
       </div>
 
-      {/* Proyectos */}
+      {/* Misiones */}
       <div className="hack-card overflow-hidden">
         <table className="min-w-full divide-y divide-bg-800">
           <thead className="bg-bg-800">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">Name</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">Mission</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">Progress</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">Priority</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-primary-400 uppercase tracking-wider">GitHub</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-bg-800">
-            {projects?.map((project) => (
-              <tr key={project.id} className="hover:bg-bg-800 transition-colors">
-                <td className="px-6 py-4">
-                  <Link to={`/projects/${project.id}`} className="text-primary-400 hover:text-primary-300 font-medium">
-                    {project.name}
-                  </Link>
-                  <p className="text-sm text-gray-600 line-clamp-1">{project.description}</p>
-                </td>
-                <td className="px-6 py-4">
-                  <StatusBadge status={project.status} />
-                </td>
-                <td className="px-6 py-4">
-                  <PriorityBadge priority={project.priority} />
-                </td>
-                <td className="px-6 py-4">
-                  {project.github_repo ? (
-                    <a
-                      href={`https://github.com/${project.github_repo}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-gray-400 hover:text-primary-300 hover:underline"
-                    >
-                      {project.github_repo}
-                    </a>
-                  ) : (
-                    <span className="text-xs text-gray-700">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {projects?.map((project) => {
+              const stats = taskStats[project.id] || { done: 0, total: 0 }
+              const pct = stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0
+              return (
+                <tr key={project.id} className="hover:bg-bg-800 transition-colors">
+                  <td className="px-6 py-4">
+                    <Link to={`/projects/${project.id}`} className="text-primary-400 hover:text-primary-300 font-medium">
+                      {project.name}
+                    </Link>
+                    <p className="text-sm text-gray-600 line-clamp-1">{project.description}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <StatusBadge status={project.status} />
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-24 bg-bg-800 rounded-full h-1.5 border border-bg-700">
+                        <div
+                          className={`h-1.5 rounded-full ${pct === 100 ? 'bg-neon-500' : 'bg-primary-500'}`}
+                          style={{ width: `${Math.min(100, pct)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-gray-500 font-mono">{stats.done}/{stats.total}</span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <PriorityBadge priority={project.priority} />
+                  </td>
+                  <td className="px-6 py-4">
+                    {project.github_repo ? (
+                      <a
+                        href={`https://github.com/${project.github_repo}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-gray-400 hover:text-primary-300 hover:underline"
+                      >
+                        {project.github_repo}
+                      </a>
+                    ) : (
+                      <span className="text-xs text-gray-700">—</span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -228,19 +265,19 @@ function ProjectModal({ onClose, onSubmit, loading }: {
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
       <div className="hack-card w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto border-primary-500/30 shadow-neon">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-primary-400">// NEW_PROJECT</h2>
+          <h2 className="text-xl font-bold text-primary-400">// NEW_MISSION</h2>
           <button onClick={onClose} className="text-gray-600 hover:text-alert-400 text-2xl">&times;</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-primary-400 mb-1">$ name *</label>
-            <input type="text" value={name} onChange={e => setName(e.target.value)} className="hack-input" placeholder="Project name" />
+            <label className="block text-sm font-medium text-primary-400 mb-1">$ objective *</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} className="hack-input" placeholder="Mission objective" />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-primary-400 mb-1">$ description</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} className="hack-input" placeholder="What is this project about?" />
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} className="hack-input" placeholder="What should this mission accomplish?" />
           </div>
 
           <div className="grid grid-cols-3 gap-3">
@@ -293,7 +330,7 @@ function ProjectModal({ onClose, onSubmit, loading }: {
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 border border-bg-700 rounded-lg text-gray-500 hover:bg-bg-800">Cancel</button>
             <button type="submit" disabled={loading} className="px-4 py-2 bg-primary-600/90 text-bg-950 font-bold rounded-lg hover:bg-primary-500 hover:shadow-neon disabled:opacity-50 transition-all">
-              {loading ? 'CREATING...' : '[ CREATE ]'}
+              {loading ? 'CREATING...' : '[ LAUNCH MISSION ]'}
             </button>
           </div>
         </form>

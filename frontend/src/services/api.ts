@@ -168,3 +168,20 @@ export const whatsappApi = {
   disconnect: () => api.post('/api/v1/whatsapp/disconnect'),
   send: (to: string, message: string) => api.post('/api/v1/whatsapp/send', { to, message }),
 }
+
+export const emailApi = {
+  providers: () => api.get('/api/v1/email/providers'),
+  accounts: () => api.get('/api/v1/email/accounts'),
+  create: (data: any) => api.post('/api/v1/email/accounts', data),
+  update: (id: string, data: any) => api.patch(`/api/v1/email/accounts/${id}`, data),
+  delete: (id: string) => api.delete(`/api/v1/email/accounts/${id}`),
+  test: (id: string) => api.post(`/api/v1/email/accounts/${id}/test`),
+  inbox: (id: string, limit = 15) => api.get(`/api/v1/email/accounts/${id}/inbox`, { params: { limit } }),
+  send: (id: string, data: any) => api.post(`/api/v1/email/accounts/${id}/send`, data),
+}
+
+export const mcpApi = {
+  servers: () => api.get('/api/v1/mcp/servers'),
+  tools: (name: string) => api.get(`/api/v1/mcp/servers/${name}/tools`),
+  call: (name: string, tool: string, arguments_: any) => api.post(`/api/v1/mcp/servers/${name}/call`, { tool, arguments: arguments_ }),
+}

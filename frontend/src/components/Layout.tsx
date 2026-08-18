@@ -12,8 +12,9 @@ const navigation = [
     section: 'OPERATE',
     items: [
       { name: 'Mission Control', href: '/', icon: '◉' },
-      { name: 'Projects', href: '/projects', icon: '▣' },
+      { name: 'Missions', href: '/projects', icon: '▣' },
       { name: 'Tasks', href: '/tasks', icon: '☑' },
+      { name: 'Approvals', href: '/approvals', icon: '⚠' },
       { name: 'Leads', href: '/leads', icon: '◎' },
       { name: 'Reports', href: '/reports', icon: '▤' },
     ],
