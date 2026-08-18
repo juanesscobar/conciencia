@@ -6,15 +6,29 @@ interface LayoutProps {
   children: ReactNode
 }
 
+// Navegación agrupada (Fase 1 — spec §11): solo rutas existentes, sin secciones vacías
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: '◉' },
-  { name: 'Projects', href: '/projects', icon: '▣' },
-  { name: 'Tasks', href: '/tasks', icon: '☑' },
-  { name: 'Reports', href: '/reports', icon: '▤' },
-  { name: 'Agents', href: '/agents', icon: '◈' },
-  { name: 'Workflows', href: '/workflows', icon: '⇄' },
-  { name: 'Leads', href: '/leads', icon: '◎' },
-  { name: 'Settings', href: '/settings', icon: '⚙' },
+  {
+    section: 'OPERATE',
+    items: [
+      { name: 'Mission Control', href: '/', icon: '◉' },
+      { name: 'Projects', href: '/projects', icon: '▣' },
+      { name: 'Tasks', href: '/tasks', icon: '☑' },
+      { name: 'Leads', href: '/leads', icon: '◎' },
+      { name: 'Reports', href: '/reports', icon: '▤' },
+    ],
+  },
+  {
+    section: 'BUILD',
+    items: [
+      { name: 'Agents', href: '/agents', icon: '◈' },
+      { name: 'Workflows', href: '/workflows', icon: '⇄' },
+    ],
+  },
+  {
+    section: 'SYSTEM',
+    items: [{ name: 'Settings', href: '/settings', icon: '⚙' }],
+  },
 ]
 
 function TerminalHeader() {
@@ -60,25 +74,35 @@ export default function Layout({ children }: LayoutProps) {
           <span className="text-lg font-bold text-primary-400 tracking-wider">◉ CONCIENCIA PLATFORM</span>
         </div>
 
-        <nav className="p-4 space-y-1">
-          {navigation.map((item) => {
-            const isActive = location.pathname === item.href
-            return (
-              <Link
-                key={item.name}
-                to={item.href}
-                onClick={closeSidebar}
-                className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                  isActive
-                    ? 'bg-bg-800 text-primary-400 border border-primary-500/30 shadow-neon'
-                    : 'text-gray-500 border border-transparent hover:bg-bg-800 hover:text-primary-300'
-                }`}
-              >
-                <span className="mr-3">{item.icon}</span>
-                {item.name}
-              </Link>
-            )
-          })}
+        <nav className="p-4 space-y-4">
+          {navigation.map((group) => (
+            <div key={group.section}>
+              <p className="px-4 mb-1 text-[10px] font-semibold tracking-[0.2em] text-gray-700">
+                // {group.section}
+              </p>
+              <div className="space-y-1">
+                {group.items.map((item) => {
+                  const isActive = location.pathname === item.href
+                  return (
+                    <Link
+                      key={item.name}
+                      to={item.href}
+                      onClick={closeSidebar}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                        isActive
+                          ? 'bg-bg-800 text-primary-400 border border-primary-500/30 shadow-neon'
+                          : 'text-gray-500 border border-transparent hover:bg-bg-800 hover:text-primary-300'
+                      }`}
+                    >
+                      <span className="mr-3">{item.icon}</span>
+                      {item.name}
+                    </Link>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-bg-700">

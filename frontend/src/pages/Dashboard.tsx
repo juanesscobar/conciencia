@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { api } from '../services/api'
+import { api, workflowsApi } from '../services/api'
 import AgentOffice from '../components/AgentOffice'
 import UserMemory from '../components/UserMemory'
 import SystemLogs from '../components/SystemLogs'
+import { LoadingState, EmptyState, ErrorState } from '../components/StateViews'
 
 interface Metric {
   id: string
@@ -29,63 +30,182 @@ interface Task {
   priority: string
 }
 
+interface Agent {
+  id: string
+  name: string
+  emoji: string
+  role: string
+  status: string
+}
+
+interface Project {
+  id: string
+  name: string
+  description: string
+  status: string
+  priority: string
+}
+
+// LEVEL 1 — WHAT MATTERS NOW: System Operational + status crítico (spec §12)
+function StatusBar({
+  operational,
+  agentsTotal,
+  agentsWorking,
+  activeMissions,
+  openTasks,
+  approvals,
+  failedTasks,
+}: {
+  operational: boolean
+  agentsTotal: number
+  agentsWorking: number
+  activeMissions: number
+  openTasks: number
+  approvals: number
+  failedTasks: number
+}) {
+  const status = operational ? (
+    <span className="flex items-center gap-2 text-green-400">
+      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block"></span>
+      SYSTEM_OPERATIONAL
+    </span>
+  ) : (
+    <span className="flex items-center gap-2 text-alert-400">
+      <span className="w-2 h-2 rounded-full bg-alert-500 inline-block"></span>
+      SYSTEM_DEGRADED
+    </span>
+  )
+
+  return (
+    <div className="hack-card p-4 mb-6">
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+        <div className="text-sm font-mono">{status}</div>
+        <Stat label="ACTIVE_MISSIONS" value={activeMissions} to="/projects" />
+        <Stat label="AGENTS_WORKING" value={`${agentsWorking}/${agentsTotal}`} to="/agents" alert={agentsWorking === 0 && agentsTotal > 0} />
+        <Stat label="OPEN_TASKS" value={openTasks} to="/tasks" />
+        <Stat
+          label="APPROVALS"
+          value={approvals}
+          to="/workflows"
+          alert={approvals > 0}
+          pulse={approvals > 0}
+        />
+        <Stat label="FAILED_TASKS" value={failedTasks} to="/tasks" alert={failedTasks > 0} />
+      </div>
+    </div>
+  )
+}
+
+function Stat({ label, value, to, alert, pulse }: { label: string; value: string | number; to: string; alert?: boolean; pulse?: boolean }) {
+  return (
+    <Link
+      to={to}
+      className={`group flex flex-col ${alert ? 'text-alert-400' : 'text-gray-300'} hover:text-primary-400 transition-colors`}
+    >
+      <span className="text-[10px] font-medium tracking-wider text-gray-600 group-hover:text-primary-500">
+        {label}
+      </span>
+      <span className={`text-lg font-bold font-mono ${pulse ? 'animate-blink' : ''}`}>{value}</span>
+    </Link>
+  )
+}
+
 export default function Dashboard() {
-  const { data: projects, isLoading: projectsLoading } = useQuery({
+  const projects = useQuery({
     queryKey: ['projects'],
-    queryFn: () => api.get('/api/v1/projects/').then(res => res.data)
+    queryFn: () => api.get('/api/v1/projects/').then(res => res.data as Project[]),
   })
 
-  const { data: tasks } = useQuery<Task[]>({
+  const tasks = useQuery<Task[]>({
     queryKey: ['tasks'],
-    queryFn: () => api.get('/api/v1/tasks/').then(res => res.data)
+    queryFn: () => api.get('/api/v1/tasks/').then(res => res.data),
   })
 
-  const { data: metrics } = useQuery<Metric[]>({
+  const metrics = useQuery<Metric[]>({
     queryKey: ['metrics'],
-    queryFn: () => api.get('/api/v1/metrics/').then(res => res.data)
+    queryFn: () => api.get('/api/v1/metrics/').then(res => res.data),
   })
 
-  const { data: activities } = useQuery<Activity[]>({
+  const activities = useQuery<Activity[]>({
     queryKey: ['activities'],
-    queryFn: () => api.get('/api/v1/activities/').then(res => res.data)
+    queryFn: () => api.get('/api/v1/activities/').then(res => res.data),
   })
 
-  if (projectsLoading) {
-    return <div className="text-primary-400 animate-blink">Loading system...</div>
+  const agents = useQuery<Agent[]>({
+    queryKey: ['agents'],
+    queryFn: () => api.get('/api/v1/agents/').then(res => res.data),
+  })
+
+  const pendingApprovals = useQuery({
+    queryKey: ['approvals', 'pending'],
+    queryFn: () => workflowsApi.pendingApprovals().then(res => res.data as unknown[]),
+  })
+
+  const queries = [projects, tasks, metrics, activities, agents, pendingApprovals]
+  const isLoading = queries.some(q => q.isLoading)
+  const hasError = queries.some(q => q.isError)
+  const retryAll = () => queries.forEach(q => q.refetch())
+
+  if (isLoading) {
+    return <LoadingState label="Booting Mission Control..." />
   }
 
-  const activeProjects = projects?.filter((p: any) => p.status === 'active').length || 0
-  const openTasks = tasks?.filter((t: Task) => t.status !== 'done' && t.status !== 'cancelled').length || 0
-  const completedTasks = tasks?.filter((t: Task) => t.status === 'done').length || 0
-  const totalTasks = tasks?.length || 0
+  if (hasError) {
+    return (
+      <ErrorState
+        message="One or more Control Plane endpoints failed to respond."
+        onRetry={retryAll}
+      />
+    )
+  }
 
-  const recentActivities = activities?.slice(0, 10) || []
+  const allProjects = projects.data || []
+  const allTasks = tasks.data || []
+  const allAgents = agents.data || []
+  const approvalsCount = pendingApprovals.data?.length || 0
+
+  const activeMissions = allProjects.filter((p: Project) => p.status === 'active')
+  const openTasks = allTasks.filter((t: Task) => t.status !== 'done' && t.status !== 'cancelled').length
+  const failedTasks = allTasks.filter((t: Task) => t.status === 'failed').length
+  const agentsWorking = allAgents.filter((a: Agent) => a.status === 'working').length
+
+  const recentActivities = (activities.data || []).slice(0, 10)
 
   return (
     <div>
+      {/* HEADER */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-primary-400 tracking-wider">// DASHBOARD</h1>
-        <span className="text-xs text-gray-600 font-mono">$ uptime --live</span>
-      </div>
-      
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-8">
-        <StatCardLink title="ACTIVE_PROJECTS" value={activeProjects} icon="▣" color="green" to="/projects" />
-        <StatCardLink title="TOTAL_TASKS" value={totalTasks} icon="☑" color="cyan" to="/tasks" />
-        <StatCardLink title="COMPLETED" value={completedTasks} icon="✓" color="purple" to="/tasks" />
-        <StatCardLink title="OPEN_TASKS" value={openTasks} icon="◌" color="orange" to="/tasks" />
+        <div>
+          <h1 className="text-2xl font-bold text-primary-400 tracking-wider">// MISSION_CONTROL</h1>
+          <p className="text-xs text-gray-600 font-mono mt-1">$ status --live · control plane overview</p>
+        </div>
+        <span className="text-xs text-gray-600 font-mono">iron@conciencia:~$ uptime</span>
       </div>
 
-      {/* 🏢 OFICINA VIRTUAL - Agentes trabajando */}
+      {/* LEVEL 1 — STATUS */}
+      <StatusBar
+        operational={!hasError}
+        agentsTotal={allAgents.length}
+        agentsWorking={agentsWorking}
+        activeMissions={activeMissions.length}
+        openTasks={openTasks}
+        approvals={approvalsCount}
+        failedTasks={failedTasks}
+      />
+
+      {/* LEVEL 2 — WHAT IS HAPPENING: agentes trabajando */}
       <div className="mb-8">
+        <SectionTitle label="AGENTS_WORKING" />
         <AgentOffice />
       </div>
 
+      {/* LEVEL 2 — métricas + actividad */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <div className="hack-card p-6">
-          <h2 className="text-lg font-semibold text-primary-400 mb-4">// METRICS</h2>
-          {metrics && metrics.length > 0 ? (
+          <SectionTitle label="METRICS" />
+          {metrics.data && metrics.data.length > 0 ? (
             <div className="space-y-4">
-              {metrics.map((metric: Metric) => (
+              {metrics.data.map((metric: Metric) => (
                 <div key={metric.id}>
                   <div className="flex justify-between items-center mb-1">
                     <span className="text-sm font-medium text-gray-300">{metric.name}</span>
@@ -94,7 +214,7 @@ export default function Dashboard() {
                     </span>
                   </div>
                   <div className="w-full bg-bg-800 rounded-full h-2 border border-bg-700">
-                    <div 
+                    <div
                       className={`h-2 rounded-full ${metric.target && metric.value >= metric.target ? 'bg-primary-500 shadow-neon' : 'bg-neon-500'}`}
                       style={{ width: metric.target ? `${Math.min(100, (metric.value / metric.target) * 100)}%` : `${Math.min(100, metric.value)}%` }}
                     />
@@ -108,7 +228,7 @@ export default function Dashboard() {
         </div>
 
         <div className="hack-card p-6">
-          <h2 className="text-lg font-semibold text-primary-400 mb-4">// ACTIVITY_LOG</h2>
+          <SectionTitle label="ACTIVITY_LOG" />
           {recentActivities.length > 0 ? (
             <ul className="space-y-3">
               {recentActivities.map((activity: Activity) => (
@@ -129,26 +249,35 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 🖥️ LOGS DEL SISTEMA EN VIVO */}
-      <div className="mb-8">
-        <SystemLogs />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* LEVEL 2 — misiones activas + memoria */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         <div className="lg:col-span-2 hack-card p-6">
-          <h2 className="text-lg font-semibold text-primary-400 mb-4">// PROJECT_OVERVIEW</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {projects?.map((project: any) => (
-              <div key={project.id} className="border border-bg-700 rounded-lg p-4 hover:border-primary-500/50 transition-colors">
-                <h3 className="font-medium text-gray-200">{project.name}</h3>
-                <p className="text-sm text-gray-600 mt-1 line-clamp-2">{project.description}</p>
-                <div className="mt-2 flex items-center gap-2">
-                  <StatusBadge status={project.status} />
-                  <PriorityBadge priority={project.priority} />
-                </div>
-              </div>
-            ))}
-          </div>
+          <SectionTitle label="ACTIVE_MISSIONS" />
+          {allProjects.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {allProjects.map((project: Project) => (
+                <Link
+                  key={project.id}
+                  to={`/projects/${project.id}`}
+                  className="border border-bg-700 rounded-lg p-4 hover:border-primary-500/50 transition-colors"
+                >
+                  <h3 className="font-medium text-gray-200">{project.name}</h3>
+                  <p className="text-sm text-gray-600 mt-1 line-clamp-2">{project.description}</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <StatusBadge status={project.status} />
+                    <PriorityBadge priority={project.priority} />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No missions yet"
+              message="Create a project to start executing autonomous missions."
+              actionLabel="create mission"
+              to="/projects"
+            />
+          )}
         </div>
 
         {/* 🧠 MEMORIA DE USUARIO */}
@@ -156,33 +285,21 @@ export default function Dashboard() {
           <UserMemory />
         </div>
       </div>
+
+      {/* LEVEL 3 — TECHNICAL: logs del sistema */}
+      <div className="mb-8 opacity-80">
+        <SectionTitle label="TECHNICAL // SYSTEM_LOGS" muted />
+        <SystemLogs />
+      </div>
     </div>
   )
 }
 
-function StatCardLink({ title, value, icon, color, to }: { title: string, value: number, icon: string, color: 'green' | 'cyan' | 'purple' | 'orange', to: string }) {
-  const colors = {
-    green: 'text-primary-400 border-primary-500/40',
-    cyan: 'text-neon-400 border-neon-500/40',
-    purple: 'text-purple-400 border-purple-500/40',
-    orange: 'text-orange-400 border-orange-500/40',
-  }
-
+function SectionTitle({ label, muted }: { label: string; muted?: boolean }) {
   return (
-    <Link to={to} className="hack-card p-4 md:p-6 hover:border-primary-500/50 hover:shadow-neon transition-all group">
-      <div className="flex items-center">
-        <div className={`w-10 h-10 md:w-12 md:h-12 rounded-lg bg-bg-800 border ${colors[color]} flex items-center justify-center text-xl md:text-2xl`}>
-          {icon}
-        </div>
-        <div className="ml-3 md:ml-4">
-          <p className="text-[10px] md:text-xs font-medium text-gray-600">{title}</p>
-          <p className="text-xl md:text-2xl font-bold text-gray-200 group-hover:text-primary-400 transition-colors">{value}</p>
-        </div>
-      </div>
-      <p className="mt-2 md:mt-3 text-[10px] text-gray-700 group-hover:text-primary-500 transition-colors hidden md:block">
-        ▸ abrir {title.toLowerCase().replace(/_/g, ' ')}
-      </p>
-    </Link>
+    <h2 className={`text-sm font-semibold tracking-wider mb-4 ${muted ? 'text-gray-600' : 'text-primary-400'}`}>
+      // {label}
+    </h2>
   )
 }
 
