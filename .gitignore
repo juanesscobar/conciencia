@@ -54,3 +54,6 @@ check_*.sh
 # Seeds de admin local — NO contienen passwords hardcodeadas.
 # seed_local_admin.py lee LOCAL_ADMIN_PASSWORD de env (si falta, genera aleatoria).
 # Se commitean porque entrypoint.sh los ejecuta en el deploy.
+
+# WhatsApp Web cache (sesion local)
+wa-bridge/.wwebjs_cache/
