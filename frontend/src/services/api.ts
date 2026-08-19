@@ -205,3 +205,25 @@ export const tracesApi = {
 export const auditApi = {
   getAll: (params?: any) => api.get('/api/v1/audit/', { params }),
 }
+
+export const decisionsApi = {
+  getAll: () => api.get('/api/v1/decisions/'),
+  get: (id: string) => api.get(`/api/v1/decisions/${id}`),
+  create: (data: any) => api.post('/api/v1/decisions/', data),
+  delete: (id: string) => api.delete(`/api/v1/decisions/${id}`),
+}
+
+export const contextPacksApi = {
+  getAll: () => api.get('/api/v1/context-packs/'),
+  get: (id: string) => api.get(`/api/v1/context-packs/${id}`),
+  create: (data: any) => api.post('/api/v1/context-packs/', data),
+  generate: (data: any) => api.post('/api/v1/context-packs/generate', data),
+  delete: (id: string) => api.delete(`/api/v1/context-packs/${id}`),
+  export: (id: string, format = 'markdown') => api.get(`/api/v1/context-packs/${id}/export`, { params: { format } }),
+  targets: () => api.get('/api/v1/context-packs/targets'),
+  decisionsForPack: (id: string) => api.get(`/api/v1/decisions/pack/${id}`),
+}
+
+export const assistantApi = {
+  ask: (query: string, context?: any) => api.post('/api/v1/assistant/ask', { query, context }),
+}

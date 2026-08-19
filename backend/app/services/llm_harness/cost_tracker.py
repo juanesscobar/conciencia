@@ -113,12 +113,6 @@ class CostTracker:
         except Exception:  # noqa: BLE001
             log.debug("cost persistence skipped", exc_info=True)
 
-        log.info(
-            f"Usage recorded: provider={provider}, model={model}, "
-            f"tokens={usage.total_tokens}, cost=${usage.cost_usd:.6f}"
-        )
-        return record
-
     def set_budget(self, budget: BudgetConfig, scope: str = "global") -> None:
         """Set a budget for a scope (global, project, agent, etc.).
 

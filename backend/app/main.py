@@ -26,6 +26,11 @@ from app.routers.policies import router as policies_router
 from app.routers.traces import router as traces_router
 from app.models.cost_record import CostRecord  # noqa: F401 (tabla cost_records)
 from app.models.policy import Policy  # noqa: F401 (tabla policies)
+from app.models.decision import Decision  # noqa: F401 (tabla decisions)
+from app.models.context_pack import ContextPack  # noqa: F401 (tabla context_packs)
+from app.routers.decisions import router as decisions_router
+from app.routers.context_packs import router as context_packs_router
+from app.routers.assistant import router as assistant_router
 from app.config import get_cors_origins, ENVIRONMENT
 from app.services.system_logger import setup_logging
 from app.database import Base, engine
@@ -87,6 +92,9 @@ app.include_router(mcp_router)
 app.include_router(costs_router)
 app.include_router(policies_router)
 app.include_router(traces_router)
+app.include_router(decisions_router)
+app.include_router(context_packs_router)
+app.include_router(assistant_router)
 
 
 @app.middleware("http")

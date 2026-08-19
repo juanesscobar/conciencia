@@ -10,6 +10,7 @@ import Reports from './pages/Reports'
 import Agents from './pages/Agents'
 import Workflows from './pages/Workflows'
 import Approvals from './pages/Approvals'
+import Context from './pages/Context'
 import Governance from './pages/Governance'
 import Traces from './pages/Traces'
 import Costs from './pages/Costs'
@@ -43,6 +44,7 @@ function App() {
       <Route path="/agents" element={<ProtectedRoute><Agents /></ProtectedRoute>} />
       <Route path="/workflows" element={<ProtectedRoute><Workflows /></ProtectedRoute>} />
       <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />
+      <Route path="/context" element={<ProtectedRoute><Context /></ProtectedRoute>} />
       <Route path="/governance" element={<ProtectedRoute><Governance /></ProtectedRoute>} />
       <Route path="/traces" element={<ProtectedRoute><Traces /></ProtectedRoute>} />
       <Route path="/costs" element={<ProtectedRoute><Costs /></ProtectedRoute>} />

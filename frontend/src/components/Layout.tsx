@@ -1,6 +1,8 @@
 import { Link, useLocation } from 'react-router-dom'
-import { ReactNode, useState } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import CommandPalette from './CommandPalette'
+import AskConciencia from './AskConciencia'
 
 interface LayoutProps {
   children: ReactNode
@@ -24,6 +26,7 @@ const navigation = [
     items: [
       { name: 'Agents', href: '/agents', icon: '◈' },
       { name: 'Workflows', href: '/workflows', icon: '⇄' },
+      { name: 'Context', href: '/context', icon: '◍' },
     ],
   },
   {
@@ -59,8 +62,28 @@ export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const { user, logout } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [assistantOpen, setAssistantOpen] = useState(false)
+  const [assistantQuery, setAssistantQuery] = useState<string | undefined>(undefined)
 
   const closeSidebar = () => setSidebarOpen(false)
+
+  // Command Bar global: ⌘K / Ctrl+K (spec §26/§32)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen(p => !p)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const openAssistant = (query?: string) => {
+    setAssistantQuery(query)
+    setAssistantOpen(true)
+  }
 
   return (
     <div className="min-h-screen bg-bg-950 scanlines">
@@ -113,6 +136,28 @@ export default function Layout({ children }: LayoutProps) {
               </div>
             </div>
           ))}
+
+          {/* Command Center (spec §64: GUI → Observe · Command Bar → Act · Ask → Understand) */}
+          <div>
+            <p className="px-4 mb-1 text-[10px] font-semibold tracking-[0.2em] text-gray-700">// COMMAND CENTER</p>
+            <div className="space-y-1">
+              <button
+                onClick={() => setPaletteOpen(true)}
+                className="w-full flex items-center px-4 py-2 text-sm font-medium rounded-lg text-gray-500 border border-transparent hover:bg-bg-800 hover:text-primary-300 transition-all"
+              >
+                <span className="mr-3">⌘</span>
+                Command Bar
+                <span className="ml-auto text-[10px] text-gray-700 border border-bg-700 rounded px-1.5 py-0.5">⌘K</span>
+              </button>
+              <button
+                onClick={() => openAssistant()}
+                className="w-full flex items-center px-4 py-2 text-sm font-medium rounded-lg text-gray-500 border border-transparent hover:bg-bg-800 hover:text-primary-300 transition-all"
+              >
+                <span className="mr-3">✦</span>
+                Ask Conciencia
+              </button>
+            </div>
+          </div>
         </nav>
 
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-bg-700">
@@ -156,6 +201,14 @@ export default function Layout({ children }: LayoutProps) {
           {children}
         </main>
       </div>
+
+      {/* Command Center global */}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onAskConciencia={(q) => { setPaletteOpen(false); openAssistant(q) }}
+      />
+      {assistantOpen && <AskConciencia key={assistantQuery || 'default'} initialQuery={assistantQuery} onClose={() => setAssistantOpen(false)} />}
     </div>
   )
 }
