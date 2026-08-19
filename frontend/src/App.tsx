@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import Layout from './components/Layout'
 import AuthGuard from './components/AuthGuard'
+import { ModeProvider, Mode } from './contexts/ModeContext'
 import Dashboard from './pages/Dashboard'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
@@ -19,10 +20,21 @@ import Leads from './pages/Leads'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 
+function AppShell({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth()
+  // Default de modo por rol (spec §36): ceo/admin → operator, resto → client
+  const defaultMode: Mode = user?.role === 'admin' || user?.role === 'ceo' ? 'operator' : 'client'
+  return (
+    <ModeProvider defaultMode={defaultMode}>
+      <Layout>{children}</Layout>
+    </ModeProvider>
+  )
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return (
     <AuthGuard>
-      <Layout>{children}</Layout>
+      <AppShell>{children}</AppShell>
     </AuthGuard>
   )
 }

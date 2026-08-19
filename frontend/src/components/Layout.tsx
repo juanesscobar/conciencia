@@ -1,6 +1,7 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, Navigate } from 'react-router-dom'
 import { ReactNode, useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useMode } from '../contexts/ModeContext'
 import CommandPalette from './CommandPalette'
 import AskConciencia from './AskConciencia'
 
@@ -44,6 +45,44 @@ const navigation = [
   },
 ]
 
+// Rutas permitidas en CLIENT MODE (spec §36/§56): resultados, no detalles técnicos
+const CLIENT_ROUTES = new Set(['/', '/projects', '/approvals', '/reports', '/costs'])
+
+function RouteGuard({ children }: { children: ReactNode }) {
+  const { mode } = useMode()
+  const location = useLocation()
+  if (mode === 'client' && !CLIENT_ROUTES.has(location.pathname)) {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
+
+function ModeSwitcher() {
+  const { mode, setMode } = useMode()
+  return (
+    <div className="flex items-center gap-1 p-1 bg-bg-950 border border-bg-700 rounded-lg mb-2">
+      <button
+        onClick={() => setMode('operator')}
+        className={`flex-1 px-2 py-1 text-[10px] font-semibold tracking-wider rounded transition-all ${
+          mode === 'operator' ? 'bg-primary-500/15 text-primary-400 border border-primary-500/40' : 'text-gray-600 hover:text-gray-400 border border-transparent'
+        }`}
+        title="Modo operador: control plane completo"
+      >
+        OPERATOR
+      </button>
+      <button
+        onClick={() => setMode('client')}
+        className={`flex-1 px-2 py-1 text-[10px] font-semibold tracking-wider rounded transition-all ${
+          mode === 'client' ? 'bg-neon-500/15 text-neon-400 border border-neon-500/40' : 'text-gray-600 hover:text-gray-400 border border-transparent'
+        }`}
+        title="Modo cliente: resultados y aprobaciones, sin detalle técnico"
+      >
+        CLIENT
+      </button>
+    </div>
+  )
+}
+
 function TerminalHeader() {
   return (
     <div className="flex items-center justify-between px-4 py-2 bg-bg-950 border-b border-bg-700">
@@ -61,12 +100,20 @@ function TerminalHeader() {
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const { user, logout } = useAuth()
+  const { isOperator } = useMode()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [assistantQuery, setAssistantQuery] = useState<string | undefined>(undefined)
 
   const closeSidebar = () => setSidebarOpen(false)
+
+  // Nav filtrada por modo (spec §36): client mode = solo operación/resultados
+  const visibleNav = isOperator
+    ? navigation
+    : navigation
+        .filter(g => g.section === 'OPERATE')
+        .map(g => ({ ...g, items: g.items.filter(i => CLIENT_ROUTES.has(i.href)) }))
 
   // Command Bar global: ⌘K / Ctrl+K (spec §26/§32)
   useEffect(() => {
@@ -108,7 +155,7 @@ export default function Layout({ children }: LayoutProps) {
         </div>
 
         <nav className="p-4 space-y-4">
-          {navigation.map((group) => (
+          {visibleNav.map((group) => (
             <div key={group.section}>
               <p className="px-4 mb-1 text-[10px] font-semibold tracking-[0.2em] text-gray-700">
                 // {group.section}
@@ -161,6 +208,7 @@ export default function Layout({ children }: LayoutProps) {
         </nav>
 
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-bg-700">
+          <ModeSwitcher />
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <div className="w-8 h-8 rounded-full bg-bg-800 border border-primary-500/50 flex items-center justify-center text-primary-400 font-bold text-sm shadow-neon">
@@ -198,7 +246,7 @@ export default function Layout({ children }: LayoutProps) {
         </div>
 
         <main className="p-4 md:p-8">
-          {children}
+          <RouteGuard>{children}</RouteGuard>
         </main>
       </div>
 

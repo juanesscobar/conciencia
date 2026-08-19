@@ -4,6 +4,7 @@ import { api, workflowsApi } from '../services/api'
 import AgentOffice from '../components/AgentOffice'
 import UserMemory from '../components/UserMemory'
 import SystemLogs from '../components/SystemLogs'
+import { useMode } from '../contexts/ModeContext'
 import { LoadingState, EmptyState, ErrorState } from '../components/StateViews'
 
 interface Metric {
@@ -111,6 +112,7 @@ function Stat({ label, value, to, alert, pulse }: { label: string; value: string
 }
 
 export default function Dashboard() {
+  const { isOperator } = useMode()
   const projects = useQuery({
     queryKey: ['projects'],
     queryFn: () => api.get('/api/v1/projects/').then(res => res.data as Project[]),
@@ -280,17 +282,21 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* 🧠 MEMORIA DE USUARIO */}
-        <div>
-          <UserMemory />
-        </div>
+        {/* 🧠 MEMORIA DE USUARIO (solo operador — spec §36) */}
+        {isOperator && (
+          <div>
+            <UserMemory />
+          </div>
+        )}
       </div>
 
-      {/* LEVEL 3 — TECHNICAL: logs del sistema */}
-      <div className="mb-8 opacity-80">
-        <SectionTitle label="TECHNICAL // SYSTEM_LOGS" muted />
-        <SystemLogs />
-      </div>
+      {/* LEVEL 3 — TECHNICAL: logs del sistema (solo operador) */}
+      {isOperator && (
+        <div className="mb-8 opacity-80">
+          <SectionTitle label="TECHNICAL // SYSTEM_LOGS" muted />
+          <SystemLogs />
+        </div>
+      )}
     </div>
   )
 }
