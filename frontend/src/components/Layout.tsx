@@ -27,6 +27,15 @@ const navigation = [
     ],
   },
   {
+    section: 'CONTROL',
+    items: [
+      { name: 'Governance', href: '/governance', icon: '⚖' },
+      { name: 'Traces', href: '/traces', icon: '≡' },
+      { name: 'Costs', href: '/costs', icon: '$' },
+      { name: 'Audit', href: '/audit', icon: '☰' },
+    ],
+  },
+  {
     section: 'SYSTEM',
     items: [{ name: 'Settings', href: '/settings', icon: '⚙' }],
   },

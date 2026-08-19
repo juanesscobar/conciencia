@@ -185,3 +185,23 @@ export const mcpApi = {
   tools: (name: string) => api.get(`/api/v1/mcp/servers/${name}/tools`),
   call: (name: string, tool: string, arguments_: any) => api.post(`/api/v1/mcp/servers/${name}/call`, { tool, arguments: arguments_ }),
 }
+
+export const costsApi = {
+  summary: () => api.get('/api/v1/costs/summary'),
+  records: (limit = 50) => api.get('/api/v1/costs/records', { params: { limit } }),
+}
+
+export const policiesApi = {
+  getAll: () => api.get('/api/v1/policies/'),
+  create: (data: any) => api.post('/api/v1/policies/', data),
+  delete: (id: string) => api.delete(`/api/v1/policies/${id}`),
+  agents: () => api.get('/api/v1/policies/agents'),
+}
+
+export const tracesApi = {
+  getAll: (limit = 60) => api.get('/api/v1/traces/', { params: { limit } }),
+}
+
+export const auditApi = {
+  getAll: (params?: any) => api.get('/api/v1/audit/', { params }),
+}

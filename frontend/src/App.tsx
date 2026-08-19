@@ -10,6 +10,10 @@ import Reports from './pages/Reports'
 import Agents from './pages/Agents'
 import Workflows from './pages/Workflows'
 import Approvals from './pages/Approvals'
+import Governance from './pages/Governance'
+import Traces from './pages/Traces'
+import Costs from './pages/Costs'
+import Audit from './pages/Audit'
 import Leads from './pages/Leads'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
@@ -39,6 +43,10 @@ function App() {
       <Route path="/agents" element={<ProtectedRoute><Agents /></ProtectedRoute>} />
       <Route path="/workflows" element={<ProtectedRoute><Workflows /></ProtectedRoute>} />
       <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />
+      <Route path="/governance" element={<ProtectedRoute><Governance /></ProtectedRoute>} />
+      <Route path="/traces" element={<ProtectedRoute><Traces /></ProtectedRoute>} />
+      <Route path="/costs" element={<ProtectedRoute><Costs /></ProtectedRoute>} />
+      <Route path="/audit" element={<ProtectedRoute><Audit /></ProtectedRoute>} />
       <Route path="/leads" element={<ProtectedRoute><Leads /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />

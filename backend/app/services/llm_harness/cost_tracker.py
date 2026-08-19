@@ -86,6 +86,32 @@ class CostTracker:
         )
         self.records.append(record)
         self._stats_cache.clear()
+        self._persist(record)
+        return record
+
+    @staticmethod
+    def _persist(record: "UsageRecord") -> None:
+        """Persiste el costo en la DB (best-effort, nunca rompe el flujo)."""
+        try:
+            from app.database import SessionLocal
+            from app.models.cost_record import CostRecord
+
+            db = SessionLocal()
+            try:
+                db.add(CostRecord(
+                    provider=record.provider,
+                    model=record.model,
+                    prompt_tokens=record.prompt_tokens,
+                    completion_tokens=record.completion_tokens,
+                    total_tokens=record.total_tokens,
+                    cost_usd=record.cost_usd,
+                    meta=record.metadata,
+                ))
+                db.commit()
+            finally:
+                db.close()
+        except Exception:  # noqa: BLE001
+            log.debug("cost persistence skipped", exc_info=True)
 
         log.info(
             f"Usage recorded: provider={provider}, model={model}, "

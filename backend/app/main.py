@@ -21,6 +21,11 @@ from app.modules.whatsapp.router import router as whatsapp_router
 from app.modules.email.router import router as email_router
 from app.modules.email import models as email_models  # noqa: F401 (registra EmailAccount en Base.metadata)
 from app.routers.mcp import router as mcp_router
+from app.routers.costs import router as costs_router
+from app.routers.policies import router as policies_router
+from app.routers.traces import router as traces_router
+from app.models.cost_record import CostRecord  # noqa: F401 (tabla cost_records)
+from app.models.policy import Policy  # noqa: F401 (tabla policies)
 from app.config import get_cors_origins, ENVIRONMENT
 from app.services.system_logger import setup_logging
 from app.database import Base, engine
@@ -79,6 +84,9 @@ app.include_router(leadhunter_intake_router)
 app.include_router(whatsapp_router)
 app.include_router(email_router)
 app.include_router(mcp_router)
+app.include_router(costs_router)
+app.include_router(policies_router)
+app.include_router(traces_router)
 
 
 @app.middleware("http")
