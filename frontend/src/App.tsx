@@ -17,6 +17,7 @@ import Traces from './pages/Traces'
 import Costs from './pages/Costs'
 import Audit from './pages/Audit'
 import Leads from './pages/Leads'
+import Email from './pages/Email'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 
@@ -62,6 +63,7 @@ function App() {
       <Route path="/costs" element={<ProtectedRoute><Costs /></ProtectedRoute>} />
       <Route path="/audit" element={<ProtectedRoute><Audit /></ProtectedRoute>} />
       <Route path="/leads" element={<ProtectedRoute><Leads /></ProtectedRoute>} />
+      <Route path="/email" element={<ProtectedRoute><Email /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

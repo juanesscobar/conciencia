@@ -79,15 +79,60 @@ def _decode(value) -> str:
     return "".join(out)
 
 
+def _decode_body(msg) -> str:
+    """Extrae el cuerpo del email (texto plano preferido, fallback HTML->texto)."""
+    import re
+
+    if msg.is_multipart():
+        text_part = None
+        html_part = None
+        for part in msg.walk():
+            ct = (part.get_content_type() or "").lower()
+            if ct == "text/plain" and text_part is None:
+                text_part = part
+            elif ct == "text/html" and html_part is None:
+                html_part = part
+        if text_part is not None:
+            payload = text_part.get_payload(decode=True) or b""
+            charset = text_part.get_content_charset() or "utf-8"
+            try:
+                return payload.decode(charset, errors="replace")
+            except LookupError:
+                return payload.decode("utf-8", errors="replace")
+        if html_part is not None:
+            payload = html_part.get_payload(decode=True) or b""
+            charset = html_part.get_content_charset() or "utf-8"
+            try:
+                html = payload.decode(charset, errors="replace")
+            except LookupError:
+                html = payload.decode("utf-8", errors="replace")
+            # strip tags para dejar texto legible
+            html = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
+            html = re.sub(r"<br\s*/?>|</p>|</div>|</tr>", "\n", html, flags=re.I)
+            html = re.sub(r"<[^>]+>", "", html)
+            return re.sub(r"\n{3,}", "\n\n", html).strip()
+        return ""
+    payload = msg.get_payload(decode=True) or b""
+    if not payload:
+        return ""
+    charset = msg.get_content_charset() or "utf-8"
+    try:
+        return payload.decode(charset, errors="replace")
+    except LookupError:
+        return payload.decode("utf-8", errors="replace")
+
+
 def _parse_message(raw: bytes) -> dict:
     import email as email_lib
     msg = email_lib.message_from_bytes(raw)
+    body = _decode_body(msg).strip()
     return {
         "from": _decode(msg.get("From", "")),
         "to": _decode(msg.get("To", "")),
         "subject": _decode(msg.get("Subject", "")) or "(sin asunto)",
         "date": msg.get("Date", ""),
         "message_id": msg.get("Message-ID", ""),
+        "body": body[:4000],  # preview del cuerpo (sin attachments)
     }
 
 

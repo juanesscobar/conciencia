@@ -19,6 +19,7 @@ const navigation = [
       { name: 'Tasks', href: '/tasks', icon: '☑' },
       { name: 'Approvals', href: '/approvals', icon: '⚠' },
       { name: 'Leads', href: '/leads', icon: '◎' },
+      { name: 'Email', href: '/email', icon: '✉' },
       { name: 'Reports', href: '/reports', icon: '▤' },
     ],
   },

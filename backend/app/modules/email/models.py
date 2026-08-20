@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Column, String, DateTime, Boolean, Integer
+from sqlalchemy.orm import validates
 
 from app.database import Base
 
@@ -29,6 +30,19 @@ class EmailAccount(Base):
     enabled = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    @validates("password")
+    def _encrypt_password(self, key, value):
+        """Cifra SIEMPRE el password al asignarlo (creación, patch, imports).
+
+        Valores ya cifrados (prefijo `enc:`) pasan intactos para no
+        doble-cifrar al re-asignar.
+        """
+        from app.services.crypto import encrypt_secret
+
+        if value and not value.startswith("enc:"):
+            return encrypt_secret(value)
+        return value
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -45,3 +59,14 @@ class EmailAccount(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             # nunca exponer password
         }
+
+    def to_service_dict(self) -> dict:
+        """Dict para uso interno (SMTP/IMAP): incluye el password DESCIFRADO.
+
+        NUNCA exponer por API. Usado por routers y el MCP server.
+        """
+        from app.services.crypto import decrypt_secret
+
+        d = self.to_dict()
+        d["password"] = decrypt_secret(self.password or "")
+        return d

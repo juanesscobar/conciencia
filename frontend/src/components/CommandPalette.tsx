@@ -25,6 +25,7 @@ const COMMANDS: { group: string; items: { label: string; icon?: string; to?: str
       { label: 'Tasks', to: '/tasks', icon: '☑' },
       { label: 'Approvals', to: '/approvals', icon: '⚠' },
       { label: 'Leads', to: '/leads', icon: '◎' },
+      { label: 'Email', to: '/email', icon: '✉', keywords: 'correo gmail outlook' },
       { label: 'Reports', to: '/reports', icon: '▤' },
     ],
   },

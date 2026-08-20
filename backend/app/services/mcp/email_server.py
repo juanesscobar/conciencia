@@ -30,7 +30,8 @@ def _accounts() -> list:
 
     db = SessionLocal()
     try:
-        return [a.to_dict() for a in db.query(EmailAccount).all()]
+        # to_service_dict incluye el password descifrado (uso interno MCP)
+        return [a.to_service_dict() for a in db.query(EmailAccount).all()]
     finally:
         db.close()
 

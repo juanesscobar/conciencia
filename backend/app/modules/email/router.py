@@ -109,8 +109,9 @@ def patch_account(account_id: str, req: AccountPatch):
         if not acc:
             raise HTTPException(status_code=404, detail="Cuenta de email no encontrada")
         for field, value in req.dict(exclude_unset=True).items():
-            if value is not None:
-                setattr(acc, field, value)
+            if value is None:
+                continue
+            setattr(acc, field, value)  # password se cifra solo vía @validates
         db.commit()
         db.refresh(acc)
         return _as_dict(acc)
@@ -135,7 +136,7 @@ def delete_account(account_id: str):
 @router.post("/accounts/{account_id}/test")
 def test_account(account_id: str):
     acc = _get_account(account_id)
-    return service.test_connection(acc.to_dict())
+    return service.test_connection(acc.to_service_dict())
 
 
 @router.get("/accounts/{account_id}/inbox")
@@ -144,7 +145,7 @@ def inbox(account_id: str, limit: int = 20):
     if not acc.enabled:
         raise HTTPException(status_code=400, detail="Cuenta deshabilitada")
     try:
-        return service.list_inbox(acc.to_dict(), limit=min(limit, 50))
+        return service.list_inbox(acc.to_service_dict(), limit=min(limit, 50))
     except service.EmailError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -155,6 +156,6 @@ def send(account_id: str, req: SendRequest):
     if not acc.enabled:
         raise HTTPException(status_code=400, detail="Cuenta deshabilitada")
     try:
-        return service.send_email(acc.to_dict(), req.to, req.subject, req.body)
+        return service.send_email(acc.to_service_dict(), req.to, req.subject, req.body)
     except service.EmailError as e:
         raise HTTPException(status_code=502, detail=str(e))
