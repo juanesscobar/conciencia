@@ -181,8 +181,6 @@ See [CHANGELOG.md](CHANGELOG.md) and open issues for details.
 
 <div align="center">
 
-**The job is not to look popular. The job is to deserve to become popular.**
-
-⭐ If Conciencia is useful to you, consider a star — it helps others find it.
+*
 
 </div>
