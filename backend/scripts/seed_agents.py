@@ -84,7 +84,7 @@ AGENTS = [
 db = SessionLocal()
 try:
     for a in AGENTS:
-        agent = db.query(Agent).filter(func.upper(Agent.role) == a["role"].name).first()
+        agent = db.query(Agent).filter(Agent.role == a["role"].name).first()
         if agent:
             agent.name = a["name"]
             agent.emoji = a["emoji"]

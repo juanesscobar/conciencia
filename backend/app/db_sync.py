@@ -39,7 +39,7 @@ def sync_schema(engine, base) -> None:
                 if table not in existing or col not in {c["name"] for c in insp.get_columns(table)}:
                     continue
                 try:
-                    conn.execute(text(f"UPDATE {table} SET {col} = upper({col}) WHERE {col} != upper({col})"))
+                    conn.execute(text(f"UPDATE {table} SET {col} = upper({col}::text) WHERE {col}::text != upper({col}::text)"))
                 except Exception:  # noqa: BLE001
                     pass
 
