@@ -146,8 +146,4 @@ Detalle completo: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 <div align="center">
 
-**El objetivo no es parecer popular. El objetivo es merecer serlo.**
-
-⭐ Si Conciencia te resulta útil, una estrella ayuda a que otros la encuentren.
-
 </div>
