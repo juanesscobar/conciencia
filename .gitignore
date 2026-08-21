@@ -57,3 +57,12 @@ check_*.sh
 
 # WhatsApp Web cache (sesion local)
 wa-bridge/.wwebjs_cache/
+
+# Deploy-only / datos locales (no ir al repo publico)
+sprints/
+reports/
+nginx/certs/
+backups/
+*.dump
+*.sql
+*.pyc
