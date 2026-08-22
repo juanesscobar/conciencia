@@ -37,6 +37,12 @@ from .schemas import (
     LeadHunterJobCreate,
     LeadHunterJobResponse,
     LeadHunterJobListResponse,
+    SavedLeadListCreate,
+    SavedLeadListResponse,
+    SavedLeadListDetailResponse,
+    SavedLeadListAddRequest,
+    LeadSavedSearchCreate,
+    LeadSavedSearchResponse,
 )
 from .service import compute_score, enrich_with_ai
 from .sources import get_all_sources
@@ -95,6 +101,7 @@ def list_leads(
     age_days: Optional[int] = Query(None, ge=0),   # creados en los últimos N días
     min_score: Optional[int] = Query(None, ge=0, le=100),
     max_score: Optional[int] = Query(None, ge=0, le=100),
+    list_id: Optional[str] = None,      # filtro por lista guardada
     sort: str = Query("newest", regex="^(newest|oldest|score|company)$"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
@@ -102,6 +109,14 @@ def list_leads(
 ):
     """Lista de leads con filtros avanzados: región, tamaño, presencia online, antigüedad, score."""
     query = db.query(Lead)
+
+    if list_id:
+        from .models import LeadList
+
+        lst = db.query(LeadList).filter(LeadList.id == list_id).first()
+        if not lst:
+            raise HTTPException(status_code=404, detail="Lista no encontrada")
+        query = query.filter(Lead.id.in_([l.id for l in lst.leads]))
 
     if status:
         query = query.filter(Lead.status == LeadStatus(status))
@@ -229,10 +244,28 @@ def hunt_sources():
 
 
 @router.post("/hunt/run", response_model=HuntSummary)
-def hunt_run(source: Optional[str] = None, db: Session = Depends(get_db)):
-    """Ejecuta el descubrimiento ahora (todas las fuentes o una sola)."""
+def hunt_run(
+    source: Optional[str] = None,
+    industry: Optional[str] = None,
+    segment: Optional[str] = None,
+    region: Optional[str] = None,
+    limit: Optional[int] = Query(None, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """Ejecuta el descubrimiento ahora (todas las fuentes o una sola).
+
+    Acepta los mismos criterios que el filtro de la UI: industry, segment, region.
+    Así se puede cazar directamente "farmacias de Luque" o "distribuidoras con score alto".
+    """
+    filters = {}
+    if industry:
+        filters["industry"] = industry
+    if segment:
+        filters["segment"] = segment
+    if region:
+        filters["region"] = region
     try:
-        return run_discovery(db, source=source)
+        return run_discovery(db, source=source, limit=limit, filters=filters or None)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -326,6 +359,130 @@ def job_leads(job_id: str, page: int = Query(1, ge=1), page_size: int = Query(20
     total = query.count()
     items = query.offset((page - 1) * page_size).limit(page_size).all()
     return LeadListResponse(items=[_to_response(l) for l in items], total=total, page=page, page_size=page_size)
+
+
+# ================== SEARCHES GUARDADAS + LISTAS ==================
+
+
+@router.get("/searches", response_model=list[LeadSavedSearchResponse])
+def list_saved_searches(db: Session = Depends(get_db)):
+    """Búsquedas guardadas (snapshots de filtros)."""
+    from .models import LeadSavedSearch
+
+    items = db.query(LeadSavedSearch).order_by(LeadSavedSearch.created_at.desc()).all()
+    return [LeadSavedSearchResponse(**s.to_dict()) for s in items]
+
+
+@router.post("/searches", response_model=LeadSavedSearchResponse, status_code=201)
+def create_saved_search(req: LeadSavedSearchCreate, db: Session = Depends(get_db)):
+    """Guarda la búsqueda actual (filtros de la tabla de leads)."""
+    from .models import LeadSavedSearch
+
+    search = LeadSavedSearch(name=req.name.strip(), filters=req.filters or {})
+    db.add(search)
+    db.commit()
+    db.refresh(search)
+    return LeadSavedSearchResponse(**search.to_dict())
+
+
+@router.delete("/searches/{search_id}", status_code=204)
+def delete_saved_search(search_id: str, db: Session = Depends(get_db)):
+    """Elimina una búsqueda guardada."""
+    from .models import LeadSavedSearch
+
+    search = db.query(LeadSavedSearch).filter(LeadSavedSearch.id == search_id).first()
+    if not search:
+        raise HTTPException(status_code=404, detail="Búsqueda guardada no encontrada")
+    db.delete(search)
+    db.commit()
+    return None
+
+
+@router.get("/lists", response_model=list[SavedLeadListResponse])
+def list_lead_lists(db: Session = Depends(get_db)):
+    """Listas de leads guardadas (ej: 'Seguimiento marzo', 'Distribuidoras Gran Asunción')."""
+    from .models import LeadList
+
+    items = db.query(LeadList).order_by(LeadList.created_at.desc()).all()
+    return [SavedLeadListResponse(**l.to_dict()) for l in items]
+
+
+@router.post("/lists", response_model=SavedLeadListResponse, status_code=201)
+def create_lead_list(req: SavedLeadListCreate, db: Session = Depends(get_db)):
+    """Crea una lista de leads."""
+    from .models import LeadList
+
+    lst = LeadList(name=req.name.strip(), description=req.description)
+    db.add(lst)
+    db.commit()
+    db.refresh(lst)
+    return SavedLeadListResponse(**lst.to_dict())
+
+
+@router.delete("/lists/{list_id}", status_code=204)
+def delete_lead_list(list_id: str, db: Session = Depends(get_db)):
+    """Elimina una lista (no borra los leads)."""
+    from .models import LeadList
+
+    lst = db.query(LeadList).filter(LeadList.id == list_id).first()
+    if not lst:
+        raise HTTPException(status_code=404, detail="Lista no encontrada")
+    db.delete(lst)
+    db.commit()
+    return None
+
+
+@router.post("/lists/{list_id}/leads", response_model=SavedLeadListResponse)
+def add_lead_to_list(list_id: str, req: SavedLeadListAddRequest, db: Session = Depends(get_db)):
+    """Agrega un lead a una lista (idempotente)."""
+    from .models import LeadList
+
+    lst = db.query(LeadList).filter(LeadList.id == list_id).first()
+    if not lst:
+        raise HTTPException(status_code=404, detail="Lista no encontrada")
+    _get_lead_or_404(db, req.lead_id)
+    if not any(l.id == req.lead_id for l in lst.leads):
+        lst.leads.append(db.query(Lead).filter(Lead.id == req.lead_id).first())
+        db.commit()
+        db.refresh(lst)
+    return SavedLeadListResponse(**lst.to_dict())
+
+
+@router.delete("/lists/{list_id}/leads/{lead_id}", response_model=SavedLeadListResponse)
+def remove_lead_from_list(list_id: str, lead_id: str, db: Session = Depends(get_db)):
+    """Saca un lead de una lista."""
+    from .models import LeadList
+
+    lst = db.query(LeadList).filter(LeadList.id == list_id).first()
+    if not lst:
+        raise HTTPException(status_code=404, detail="Lista no encontrada")
+    lst.leads = [l for l in lst.leads if l.id != lead_id]
+    db.commit()
+    db.refresh(lst)
+    return SavedLeadListResponse(**lst.to_dict())
+
+
+@router.get("/lists/{list_id}/leads", response_model=SavedLeadListDetailResponse)
+def get_lead_list(list_id: str, db: Session = Depends(get_db)):
+    """Detalle de una lista con sus leads."""
+    from .models import LeadList
+
+    lst = db.query(LeadList).filter(LeadList.id == list_id).first()
+    if not lst:
+        raise HTTPException(status_code=404, detail="Lista no encontrada")
+    d = lst.to_dict()
+    d["leads"] = [_to_response(l) for l in lst.leads]
+    return SavedLeadListDetailResponse(**d)
+
+
+@router.get("/{lead_id}/lists", response_model=list[SavedLeadListResponse])
+def lead_lists(lead_id: str, db: Session = Depends(get_db)):
+    """Listas a las que pertenece un lead."""
+    from .models import LeadList
+
+    _get_lead_or_404(db, lead_id)
+    lists = db.query(LeadList).filter(LeadList.leads.any(Lead.id == lead_id)).all()
+    return [SavedLeadListResponse(**l.to_dict()) for l in lists]
 
 
 # ================== PIPELINE (acciones) ==================
@@ -541,15 +698,31 @@ def send_proposal(proposal_id: str, req: SendProposalRequest = SendProposalReque
             raise HTTPException(status_code=400, detail="El lead no tiene teléfono para WhatsApp.")
         result["send_result"] = _send_whatsapp(wa)
 
-    # Marcar enviada + mover lead a proposal + evento
-    proposal.status = "sent"
-    proposal.sent_at = datetime.utcnow()
-    if lead.status != LeadStatus.PROPOSAL:
-        lead.status = LeadStatus.PROPOSAL
-    db.add(add_event(db, lead.id, "proposal_sent", f"Propuesta enviada por {channel}: {proposal.title or lead.company}"))
-    db.commit()
-    result["status"] = "sent"
+    # Seguimiento de entrega: marcar como enviada SOLO si hubo entrega real (SMTP/WhatsApp API)
+    # o fallback manual (mailto / wa.me). Si el envío falla, queda en draft y se registra el error
+    # para que se pueda verificar en el timeline si realmente salió o no.
+    sr = result.get("send_result") or {}
+    # channel=link (o vacío) = marcado manual: se marca enviada sin delivery externo
+    manual_mark = channel in ("link", "") or "send_result" not in result
+    delivered = manual_mark or bool(sr.get("sent")) or sr.get("method") in ("mailto", "whatsapp_link")
+    if delivered:
+        proposal.status = "sent"
+        proposal.sent_at = datetime.utcnow()
+        if lead.status != LeadStatus.PROPOSAL:
+            lead.status = LeadStatus.PROPOSAL
+        detail = f"Propuesta enviada por {channel}"
+        if sr.get("to"):
+            detail += f" a {sr['to']}"
+        if sr.get("method"):
+            detail += f" (método: {sr['method']})"
+        db.add(add_event(db, lead.id, "proposal_sent", detail))
+        result["status"] = "sent"
+    else:
+        err = sr.get("error") or sr.get("reason") or "Error de entrega desconocido"
+        db.add(add_event(db, lead.id, "proposal_send_failed", f"Fallo envío por {channel}: {err}"))
+        result["status"] = "failed"
     result["lead_status"] = lead.status.value
+    db.commit()
     return result
 
 
@@ -769,3 +942,27 @@ def enrich_lead_website(lead_id: str, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(lead)
     return EnrichResult(**result)
+
+
+@router.post("/{lead_id}/enrich", response_model=dict)
+def enrich_lead_ai(lead_id: str, db: Session = Depends(get_db)):
+    """Enriquece el lead con IA (DeepSeek si está configurado).
+
+    Guarda el análisis en meta.analysis y lo deja visible en el timeline.
+    Si el LLM no está configurado devuelve 409 para que la UI avise.
+    """
+    from .service import enrich_with_ai
+
+    lead = _get_lead_or_404(db, lead_id)
+    analysis = enrich_with_ai(lead)
+    if not analysis:
+        raise HTTPException(status_code=409, detail="IA no configurada — cargá la API key en Settings → Integraciones para enriquecer con IA")
+
+    meta = dict(lead.meta or {})
+    meta["analysis"] = analysis[:2000]
+    lead.meta = meta
+    _recompute_score(lead)
+    db.add(add_event(db, lead.id, "enriched", "Enriquecido con IA (análisis guardado en el lead)"))
+    db.commit()
+    db.refresh(lead)
+    return {"analysis": analysis, "score": lead.score, "lead": _to_response(lead)}

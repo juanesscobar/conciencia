@@ -181,6 +181,39 @@ class SendProposalRequest(BaseModel):
     to_email: Optional[str] = None
 
 
+class SavedLeadListCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    description: Optional[str] = None
+
+
+class SavedLeadListResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    lead_count: int = 0
+    created_at: Optional[str] = None
+
+
+class SavedLeadListDetailResponse(SavedLeadListResponse):
+    leads: List[LeadResponse] = []
+
+
+class SavedLeadListAddRequest(BaseModel):
+    lead_id: str
+
+
+class LeadSavedSearchCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    filters: Optional[Dict[str, Any]] = None
+
+
+class LeadSavedSearchResponse(BaseModel):
+    id: str
+    name: str
+    filters: Dict[str, Any] = {}
+    created_at: Optional[str] = None
+
+
 class JobStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"

@@ -61,8 +61,40 @@ def add_event(db: Session, lead_id: str, event_type: str, description: Optional[
     return event
 
 
-def run_discovery(db: Session, source: Optional[str] = None, limit: Optional[int] = None, job_id: Optional[str] = None) -> dict:
-    """Corre una (o todas) las fuentes y agrega leads nuevos. Devuelve resumen."""
+def _norm(s: str) -> str:
+    """Normaliza para comparar: minúsculas, sin acentos."""
+    s = unicodedata.normalize("NFKD", s or "")
+    return "".join(c for c in s if not unicodedata.combining(c)).lower().strip()
+
+
+def _matches_filters(item: dict, filters: Optional[dict]) -> bool:
+    """Filtra items crudos de una fuente según criterios de caza."""
+    if not filters:
+        return True
+    industry = (filters.get("industry") or "").strip()
+    if industry and _norm(industry) not in _norm(item.get("industry") or ""):
+        return False
+    segment = (filters.get("segment") or "").strip()
+    if segment and _norm(segment) != _norm(item.get("segment") or ""):
+        return False
+    region = (filters.get("region") or "").strip()
+    if region and _norm(region) not in _norm(item.get("region") or ""):
+        return False
+    return True
+
+
+def run_discovery(
+    db: Session,
+    source: Optional[str] = None,
+    limit: Optional[int] = None,
+    job_id: Optional[str] = None,
+    filters: Optional[dict] = None,
+) -> dict:
+    """Corre una (o todas) las fuentes y agrega leads nuevos. Devuelve resumen.
+
+    filters: {industry?, segment?, region?} para acotar la caza a los criterios
+    elegidos (mismo formato que el filtro de la UI de Leads).
+    """
     sources = get_all_sources()
     if source:
         if source not in sources:
@@ -81,13 +113,16 @@ def run_discovery(db: Session, source: Optional[str] = None, limit: Optional[int
 
         try:
             items = src.fetch(limit=limit)
-            found = len(items)
             added = 0
             dupes = 0
+            filtered = 0
 
             for item in items:
                 company = (item.get("company") or "").strip()
                 if not company:
+                    continue
+                if not _matches_filters(item, filters):
+                    filtered += 1
                     continue
                 if _is_duplicate(db, company, item.get("website"), item.get("phone")):
                     dupes += 1
@@ -126,16 +161,16 @@ def run_discovery(db: Session, source: Optional[str] = None, limit: Optional[int
                 added += 1
 
             run.status = "completed"
-            run.found = found
+            run.found = len(items) - filtered  # solo los que matchearon los criterios
             run.added = added
             run.duplicates = dupes
             run.finished_at = datetime.utcnow()
             db.commit()
 
-            total_found += found
+            total_found += len(items) - filtered
             total_added += added
             total_dupes += dupes
-            results.append({"source": name, "found": found, "added": added, "duplicates": dupes, "status": "completed"})
+            results.append({"source": name, "found": len(items) - filtered, "added": added, "duplicates": dupes, "status": "completed"})
         except Exception as e:  # noqa: BLE001
             run.status = "error"
             run.error = str(e)[:500]

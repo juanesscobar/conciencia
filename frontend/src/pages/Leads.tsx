@@ -40,6 +40,12 @@ interface LeadProposal {
   sent_at: string | null
 }
 
+const proposalStatusStyle: Record<string, string> = {
+  draft: 'text-gray-500 border-bg-600',
+  sent: 'text-primary-400 border-primary-500/40',
+  failed: 'text-alert-400 border-alert-500/40',
+}
+
 interface LeadStats {
   total: number
   by_status: Record<string, number>
@@ -71,6 +77,21 @@ interface HuntSummary {
   total_found: number
   total_added: number
   total_duplicates: number
+}
+
+interface SavedSearch {
+  id: string
+  name: string
+  filters: Record<string, string>
+  created_at: string | null
+}
+
+interface LeadList {
+  id: string
+  name: string
+  description: string | null
+  lead_count: number
+  created_at: string | null
 }
 
 const statusColors: Record<string, string> = {
@@ -116,6 +137,78 @@ function fmtDateTime(d: string | null): string {
   return new Date(d).toLocaleString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+// Snapshot de filtros para guardar/cargar búsquedas
+function buildFilterPayload(f: {
+  search: string
+  filterStatus: string
+  filterSource: string
+  filterRegion: string
+  filterSegment: string
+  filterIndustry: string
+  filterOnline: string
+  filterAge: string
+  filterMinScore: string
+  filterList: string
+  sort: string
+}): Record<string, string> {
+  return {
+    search: f.search || '',
+    status: f.filterStatus || '',
+    source: f.filterSource || '',
+    region: f.filterRegion || '',
+    segment: f.filterSegment || '',
+    industry: f.filterIndustry || '',
+    online: f.filterOnline || '',
+    age_days: f.filterAge || '',
+    min_score: f.filterMinScore || '',
+    list_id: f.filterList || '',
+    sort: f.sort || 'newest',
+  }
+}
+
+// Aplica un snapshot de filtros guardado
+function applySavedFilters(f: SavedSearch, setters: {
+  setSearch: (v: string) => void
+  setFilterStatus: (v: string) => void
+  setFilterSource: (v: string) => void
+  setFilterRegion: (v: string) => void
+  setFilterSegment: (v: string) => void
+  setFilterIndustry: (v: string) => void
+  setFilterOnline: (v: string) => void
+  setFilterAge: (v: string) => void
+  setFilterMinScore: (v: string) => void
+  setFilterList: (v: string) => void
+  setSort: (v: string) => void
+}) {
+  const flt = f.filters || {}
+  setters.setSearch(flt.search || '')
+  setters.setFilterStatus(flt.status || '')
+  setters.setFilterSource(flt.source || '')
+  setters.setFilterRegion(flt.region || '')
+  setters.setFilterSegment(flt.segment || '')
+  setters.setFilterIndustry(flt.industry || '')
+  setters.setFilterOnline(flt.online || '')
+  setters.setFilterAge(flt.age_days || '')
+  setters.setFilterMinScore(flt.min_score || '')
+  setters.setFilterList(flt.list_id || '')
+  setters.setSort(flt.sort || 'newest')
+}
+
+// Criterios de caza derivados de los filtros activos (para hunt/run)
+function huntCriteriaFromFilters(f: {
+  filterSource: string
+  filterRegion: string
+  filterSegment: string
+  filterIndustry: string
+}): Record<string, string> | undefined {
+  const c: Record<string, string> = {}
+  if (f.filterSource) c.source = f.filterSource
+  if (f.filterRegion) c.region = f.filterRegion
+  if (f.filterSegment) c.segment = f.filterSegment
+  if (f.filterIndustry) c.industry = f.filterIndustry
+  return Object.keys(c).length ? c : undefined
+}
+
 export default function Leads() {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
@@ -126,6 +219,7 @@ export default function Leads() {
   const [filterOnline, setFilterOnline] = useState('')
   const [filterAge, setFilterAge] = useState('')
   const [filterMinScore, setFilterMinScore] = useState('')
+  const [filterList, setFilterList] = useState('')
   const [sort, setSort] = useState('newest')
   const [showFilters, setShowFilters] = useState(false)
   const [showModal, setShowModal] = useState(false)
@@ -133,6 +227,11 @@ export default function Leads() {
   const [viewMode, setViewMode] = useState<'table' | 'pipeline'>('table')
   const [huntResult, setHuntResult] = useState<HuntSummary | null>(null)
   const [importMsg, setImportMsg] = useState('')
+  const [saveSearchName, setSaveSearchName] = useState('')
+  const [showSaveSearch, setShowSaveSearch] = useState(false)
+  const [newListName, setNewListName] = useState('')
+  const [showNewList, setShowNewList] = useState(false)
+  const [listMsg, setListMsg] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
@@ -147,7 +246,7 @@ export default function Leads() {
   })
 
   const { data: leadsData, isLoading } = useQuery<LeadList>({
-    queryKey: ['leads', search, filterStatus, filterSource, filterRegion, filterSegment, filterIndustry, filterOnline, filterAge, filterMinScore, sort],
+    queryKey: ['leads', search, filterStatus, filterSource, filterRegion, filterSegment, filterIndustry, filterOnline, filterAge, filterMinScore, filterList, sort],
     queryFn: () =>
       leadsApi.getAll({
         search: search || undefined,
@@ -159,9 +258,20 @@ export default function Leads() {
         online: filterOnline || undefined,
         age_days: filterAge || undefined,
         min_score: filterMinScore || undefined,
+        list_id: filterList || undefined,
         sort,
         page_size: 100,
       }).then(res => res.data),
+  })
+
+  const { data: savedSearches } = useQuery<SavedSearch[]>({
+    queryKey: ['lead-searches'],
+    queryFn: () => leadsApi.searches().then(res => res.data),
+  })
+
+  const { data: leadLists } = useQuery<LeadList[]>({
+    queryKey: ['lead-lists'],
+    queryFn: () => leadsApi.lists().then(res => res.data),
   })
 
   const { data: huntSources } = useQuery({
@@ -184,12 +294,50 @@ export default function Leads() {
   })
 
   const huntRun = useMutation({
-    mutationFn: () => leadsApi.huntRun(),
+    mutationFn: (params?: any) => leadsApi.huntRun(params),
     onSuccess: (res) => {
       setHuntResult(res.data)
       queryClient.invalidateQueries({ queryKey: ['leads'] })
       queryClient.invalidateQueries({ queryKey: ['lead-stats'] })
       queryClient.invalidateQueries({ queryKey: ['hunt-runs'] })
+    },
+  })
+
+  const saveSearch = useMutation({
+    mutationFn: (name: string) => leadsApi.searchSave({ name, filters: buildFilterPayload({
+      search, filterStatus, filterSource, filterRegion, filterSegment, filterIndustry, filterOnline, filterAge, filterMinScore, filterList, sort,
+    }) }),
+    onSuccess: () => {
+      setSaveSearchName('')
+      setShowSaveSearch(false)
+      queryClient.invalidateQueries({ queryKey: ['lead-searches'] })
+    },
+  })
+
+  const deleteSearch = useMutation({
+    mutationFn: (id: string) => leadsApi.searchDelete(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lead-searches'] }),
+  })
+
+  const createList = useMutation({
+    mutationFn: (name: string) => leadsApi.listCreate({ name }),
+    onSuccess: (res) => {
+      setNewListName('')
+      setShowNewList(false)
+      setFilterList(res.data.id)
+      setListMsg(`Lista "${res.data.name}" creada`)
+      queryClient.invalidateQueries({ queryKey: ['lead-lists'] })
+      queryClient.invalidateQueries({ queryKey: ['leads'] })
+      setTimeout(() => setListMsg(''), 4000)
+    },
+  })
+
+  const deleteList = useMutation({
+    mutationFn: (id: string) => leadsApi.listDelete(id),
+    onSuccess: () => {
+      setFilterList('')
+      queryClient.invalidateQueries({ queryKey: ['lead-lists'] })
+      queryClient.invalidateQueries({ queryKey: ['leads'] })
     },
   })
 
@@ -227,6 +375,7 @@ export default function Leads() {
     queryClient.invalidateQueries({ queryKey: ['lead-detail', id] })
     queryClient.invalidateQueries({ queryKey: ['lead-events', id] })
     queryClient.invalidateQueries({ queryKey: ['lead-proposals', id] })
+    queryClient.invalidateQueries({ queryKey: ['lead-lists-of', id] })
   }
 
   const refreshAfterAction = (id: string) => {
@@ -235,6 +384,8 @@ export default function Leads() {
     queryClient.invalidateQueries({ queryKey: ['lead-detail', id] })
     queryClient.invalidateQueries({ queryKey: ['lead-events', id] })
     queryClient.invalidateQueries({ queryKey: ['lead-proposals', id] })
+    queryClient.invalidateQueries({ queryKey: ['lead-lists'] })
+    queryClient.invalidateQueries({ queryKey: ['lead-lists-of', id] })
   }
 
   const leads = leadsData?.items || []
@@ -302,11 +453,12 @@ export default function Leads() {
               </span>
             )}
             <button
-              onClick={() => huntRun.mutate()}
+              onClick={() => huntRun.mutate(undefined)}
               disabled={huntRun.isPending}
+              title="Cazar en todas las fuentes sin filtros"
               className="px-4 py-2 bg-primary-500/10 text-primary-400 border border-primary-500/40 rounded-lg hover:bg-primary-500/20 transition-all shadow-neon disabled:opacity-40 disabled:cursor-wait"
             >
-              {huntRun.isPending ? '⌛ Cazando...' : '🔎 Cazar leads ahora'}
+              {huntRun.isPending ? '⌛ Cazando...' : '🔎 Cazar TODO (sin filtros)'}
             </button>
           </div>
         </div>
@@ -388,6 +540,94 @@ export default function Leads() {
           >
             ⚙ Filtros {activeFilters > 0 && `(${activeFilters})`}
           </button>
+          {/* Cazar con los filtros activos, pegadito a ellos */}
+          <button
+            onClick={() => huntRun.mutate(huntCriteriaFromFilters({ filterSource, filterRegion, filterSegment, filterIndustry }))}
+            disabled={huntRun.isPending}
+            title={
+              huntCriteriaFromFilters({ filterSource, filterRegion, filterSegment, filterIndustry })
+                ? 'Cazar leads nuevos que matcheen los filtros activos (fuente/región/segmento/sector)'
+                : 'Sin filtros de caza: buscá con ⚙ Filtros (sector/región/segmento) para acotar, o usá Cazar TODO arriba'
+            }
+            className="px-4 py-2 text-sm rounded-lg border border-primary-500/40 bg-primary-500/15 text-primary-300 hover:bg-primary-500/25 transition-all shadow-neon disabled:opacity-40 disabled:cursor-wait whitespace-nowrap"
+          >
+            {huntRun.isPending ? '⌛ Cazando...' : '🔎 Cazar leads con filtros'}
+          </button>
+        </div>
+
+        {/* Búsquedas guardadas + listas (accesos rápidos) */}
+        <div className="mt-3 pt-3 border-t border-bg-700 flex flex-wrap items-center gap-2">
+          {/* Guardar búsqueda actual */}
+          {showSaveSearch ? (
+            <div className="flex items-center gap-2">
+              <input
+                value={saveSearchName}
+                onChange={e => setSaveSearchName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && saveSearchName.trim()) saveSearch.mutate(saveSearchName.trim()) }}
+                placeholder="Nombre de la búsqueda"
+                autoFocus
+                className="px-3 py-1.5 bg-bg-950 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none focus:border-primary-500/50"
+              />
+              <button onClick={() => saveSearchName.trim() && saveSearch.mutate(saveSearchName.trim())} disabled={!saveSearchName.trim() || saveSearch.isPending} className="px-3 py-1.5 text-xs rounded border border-primary-500/40 text-primary-400 hover:bg-primary-500/10 transition-colors disabled:opacity-40">💾 Guardar</button>
+              <button onClick={() => { setShowSaveSearch(false); setSaveSearchName('') }} className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-300">✕</button>
+            </div>
+          ) : (
+            <button onClick={() => setShowSaveSearch(true)} className="px-3 py-1.5 text-xs rounded border border-bg-600 text-gray-400 hover:text-primary-300 hover:border-primary-500/50 transition-colors" title="Guardar los filtros actuales como búsqueda">
+              💾 Guardar búsqueda
+            </button>
+          )}
+
+          {/* Búsquedas guardadas */}
+          {savedSearches && savedSearches.length > 0 && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="text-[10px] text-gray-600 uppercase tracking-wider">Guardadas:</span>
+              {savedSearches.map(s => (
+                <span key={s.id} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-bg-600 text-gray-300 bg-bg-950">
+                  <button onClick={() => applySavedFilters(s, { setSearch, setFilterStatus, setFilterSource, setFilterRegion, setFilterSegment, setFilterIndustry, setFilterOnline, setFilterAge, setFilterMinScore, setFilterList, setSort })} title="Cargar esta búsqueda" className="hover:text-primary-300">
+                    🔍 {s.name}
+                  </button>
+                  <button onClick={() => deleteSearch.mutate(s.id)} title="Borrar" className="text-gray-600 hover:text-alert-400">✕</button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <span className="text-gray-800 mx-1">|</span>
+
+          {/* Lista de leads */}
+          <select
+            value={filterList}
+            onChange={e => setFilterList(e.target.value)}
+            className="px-3 py-1.5 bg-bg-950 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none focus:border-primary-500/50"
+            title="Filtrar por lista guardada"
+          >
+            <option value="">📁 Lista: todas</option>
+            {leadLists?.map(l => (
+              <option key={l.id} value={l.id}>{l.name} ({l.lead_count})</option>
+            ))}
+          </select>
+          {filterList && (
+            <button onClick={() => deleteList.mutate(filterList)} className="text-[10px] text-gray-600 hover:text-alert-400" title="Eliminar lista actual">🗑 lista</button>
+          )}
+          {showNewList ? (
+            <div className="flex items-center gap-2">
+              <input
+                value={newListName}
+                onChange={e => setNewListName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && newListName.trim()) createList.mutate(newListName.trim()) }}
+                placeholder="Nombre de la lista"
+                autoFocus
+                className="px-3 py-1.5 bg-bg-950 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none focus:border-primary-500/50"
+              />
+              <button onClick={() => newListName.trim() && createList.mutate(newListName.trim())} disabled={!newListName.trim() || createList.isPending} className="px-3 py-1.5 text-xs rounded border border-primary-500/40 text-primary-400 hover:bg-primary-500/10 transition-colors disabled:opacity-40">+ Crear</button>
+              <button onClick={() => { setShowNewList(false); setNewListName('') }} className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-300">✕</button>
+            </div>
+          ) : (
+            <button onClick={() => setShowNewList(true)} className="px-3 py-1.5 text-xs rounded border border-bg-600 text-gray-400 hover:text-primary-300 hover:border-primary-500/50 transition-colors" title="Crear una lista para agrupar leads (ej: seguimiento, región)">
+              📁 + Nueva lista
+            </button>
+          )}
+          {listMsg && <span className="text-[11px] text-primary-400">{listMsg}</span>}
         </div>
 
         {showFilters && (
@@ -455,13 +695,22 @@ export default function Leads() {
                 className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50"
               />
             </div>
-            <div className="col-span-2 flex items-end">
+            <div className="col-span-2 flex items-end gap-2">
               <button
-                onClick={() => { setFilterRegion(''); setFilterSegment(''); setFilterIndustry(''); setFilterOnline(''); setFilterAge(''); setFilterMinScore(''); setFilterStatus(''); setFilterSource(''); setSearch('') }}
+                onClick={() => { setFilterRegion(''); setFilterSegment(''); setFilterIndustry(''); setFilterOnline(''); setFilterAge(''); setFilterMinScore(''); setFilterStatus(''); setFilterSource(''); setFilterList(''); setSearch('') }}
                 className="px-4 py-2 text-sm rounded-lg border border-bg-600 text-gray-400 hover:text-primary-300 hover:border-primary-500/50 transition-colors"
               >
                 ⟲ Limpiar filtros
               </button>
+              {huntCriteriaFromFilters({ filterSource, filterRegion, filterSegment, filterIndustry }) && (
+                <button
+                  onClick={() => huntRun.mutate(huntCriteriaFromFilters({ filterSource, filterRegion, filterSegment, filterIndustry }))}
+                  disabled={huntRun.isPending}
+                  className="px-4 py-2 text-sm rounded-lg border border-primary-500/40 bg-primary-500/15 text-primary-300 hover:bg-primary-500/25 transition-all disabled:opacity-40"
+                >
+                  {huntRun.isPending ? '⌛ Cazando...' : `🔎 Cazar: ${[filterIndustry, filterSegment, filterRegion, filterSource].filter(Boolean).join(' · ')}`}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -479,9 +728,9 @@ export default function Leads() {
         />
       ) : (
         <div className="bg-bg-900 border border-bg-700 rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
+          <div className="overflow-auto max-h-[calc(100vh-320px)]">
+            <table className="w-full text-sm min-w-[1000px]">
+              <thead className="sticky top-0 z-10 bg-bg-900">
                 <tr className="border-b border-bg-700 text-left text-xs uppercase tracking-wider text-gray-500">
                   <th className="px-4 py-3">Empresa</th>
                   <th className="px-4 py-3">Contacto</th>
@@ -638,7 +887,7 @@ function PipelineBoard({ leads, onSelect, onMove, busy }: {
   }
 
   return (
-    <div className="overflow-x-auto pb-2 -mx-1 px-1">
+    <div className="overflow-auto max-h-[calc(100vh-320px)] pb-2 -mx-1 px-1">
       <div className="flex gap-3 min-w-[900px]">
         {PIPELINE_COLUMNS.map(col => {
           const items = byStatus(col.status)
@@ -710,7 +959,9 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [setupCta, setSetupCta] = useState<string | null>(null)
+  const [addListId, setAddListId] = useState('')
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const { data: events } = useQuery<LeadEvent[]>({
     queryKey: ['lead-events', lead.id],
@@ -727,7 +978,36 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
     queryFn: () => leadsApi.getById(lead.id).then(res => res.data),
   })
 
+  const { data: leadLists } = useQuery<LeadList[]>({
+    queryKey: ['lead-lists-of', lead.id],
+    queryFn: () => leadsApi.leadLists(lead.id).then(res => res.data),
+  })
+
+  const { data: allLists } = useQuery<LeadList[]>({
+    queryKey: ['lead-lists'],
+    queryFn: () => leadsApi.lists().then(res => res.data),
+  })
+
   const current = detail || lead
+
+  const toggleList = async (listId: string, isIn: boolean) => {
+    setBusy(true)
+    try {
+      if (isIn) {
+        await leadsApi.listRemoveLead(listId, current.id)
+      } else {
+        await leadsApi.listAddLead(listId, current.id)
+      }
+      onAction(current.id)
+      queryClient.invalidateQueries({ queryKey: ['lead-lists'] })
+      queryClient.invalidateQueries({ queryKey: ['lead-lists-of', current.id] })
+      setAddListId('')
+    } catch (e: any) {
+      setMsg(`Error con lista: ${e.response?.data?.detail || e.message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const doAction = async (action: string, body?: any) => {
     setBusy(true)
@@ -803,6 +1083,8 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
       } else if (sr?.method === 'mailto') {
         setMsg('📧 SMTP no configurado — se abrió tu cliente de correo')
         if (sr?.url) window.open(sr.url, '_blank')
+      } else if (res.data?.status === 'failed' || sr?.sent === false) {
+        setMsg(`❌ No se pudo enviar: ${sr?.error || sr?.reason || 'error desconocido'}`)
       } else {
         setMsg('✉️ Propuesta marcada como enviada')
       }
@@ -882,6 +1164,12 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
               {current.phone && <p><span className="text-gray-500">Tel:</span> <span className="text-gray-200">{current.phone}</span></p>}
               {current.website && <p><span className="text-gray-500">Web:</span> <a className="text-primary-400 hover:underline break-all" href={current.website} target="_blank" rel="noreferrer">{current.website}</a></p>}
               {current.notes && <p className="pt-2 border-t border-bg-700"><span className="text-gray-500">Notas:</span> <span className="text-gray-300">{current.notes}</span></p>}
+              {(current.metadata as any)?.analysis && (
+                <div className="pt-2 border-t border-bg-700">
+                  <p className="text-gray-500 text-xs mb-1">✦ Análisis IA:</p>
+                  <pre className="text-[11px] text-gray-400 whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">{(current.metadata as any).analysis}</pre>
+                </div>
+              )}
               <div className="pt-2 border-t border-bg-700">
                 <span className="text-gray-500 text-xs">Presencia online: </span>
                 <span className="text-xs text-gray-300">
@@ -932,6 +1220,40 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
                 </p>
               )}
             </div>
+
+            <div className="bg-bg-950 border border-bg-700 rounded-lg p-4">
+              <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-3">LISTAS</h3>
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {(!leadLists || leadLists.length === 0) && (
+                  <span className="text-xs text-gray-600">No está en ninguna lista.</span>
+                )}
+                {leadLists?.map(l => (
+                  <span key={l.id} className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded border border-primary-500/40 bg-primary-500/10 text-primary-300">
+                    📁 {l.name}
+                    <button onClick={() => toggleList(l.id, true)} disabled={busy} title="Sacar de la lista" className="text-gray-500 hover:text-alert-400 disabled:opacity-40">✕</button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={addListId}
+                  onChange={e => setAddListId(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none focus:border-primary-500/50"
+                >
+                  <option value="">Agregar a lista...</option>
+                  {(allLists || [])
+                    .filter(l => !(leadLists || []).some(x => x.id === l.id))
+                    .map(l => <option key={l.id} value={l.id}>{l.name} ({l.lead_count})</option>)}
+                </select>
+                <button
+                  onClick={() => addListId && toggleList(addListId, false)}
+                  disabled={!addListId || busy}
+                  className="px-3 py-2 text-xs rounded-lg border border-bg-600 text-gray-300 hover:text-primary-300 hover:border-primary-500/50 transition-colors disabled:opacity-40"
+                >
+                  +
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Columna der: timeline + propuestas */}
@@ -965,7 +1287,9 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
                       <p className="text-xs font-medium text-gray-200">{p.title || `Propuesta ${fmtDateTime(p.created_at)}`}</p>
                       <div className="flex items-center gap-2">
                         {p.model && <span className="text-[10px] text-gray-600">{p.model}</span>}
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded border ${p.status === 'sent' ? 'text-primary-400 border-primary-500/40' : 'text-gray-500 border-bg-600'}`}>{p.status}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded border ${proposalStatusStyle[p.status] || proposalStatusStyle.draft}`}>
+                          {p.status === 'sent' && p.sent_at ? `sent ${fmtDateTime(p.sent_at)}` : p.status}
+                        </span>
                         {p.status !== 'sent' && (
                           <div className="flex gap-1">
                             <button onClick={() => sendProposal(p.id, 'email')} disabled={busy} title="Enviar por email (SMTP)" className="text-[10px] px-1.5 py-1 rounded border border-primary-500/40 text-primary-400 hover:bg-primary-500/10 transition-colors disabled:opacity-40">📧</button>
