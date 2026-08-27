@@ -127,12 +127,23 @@ export default function Settings() {
   const [lhCron, setLhCron] = useState('')
   const [lhBbox, setLhBbox] = useState('')
   const [lhScope, setLhScope] = useState('bbox')
+  // Search Geography (spec §7-9): país default PY, allowlist, scope explícito
+  const [geoCountry, setGeoCountry] = useState('')
+  const [geoAllowed, setGeoAllowed] = useState('')
+  const [geoRegion, setGeoRegion] = useState('')
+  const [geocity, setGeocity] = useState('')
+  const [geoSearchScope, setGeoSearchScope] = useState('')
   const [lhMsg, setLhMsg] = useState('')
   const saveLh = useMutation({
     mutationFn: () => Promise.all([
       settingsApi.set('LEADHUNTER_CRON', lhCron.trim()),
       settingsApi.set('LEADHUNTER_BBOX', lhBbox.trim()),
       settingsApi.set('LEADHUNTER_SCOPE', lhScope),
+      ...(geoCountry.trim() ? [settingsApi.set('SEARCH_DEFAULT_COUNTRY', geoCountry.trim().toUpperCase())] : []),
+      ...(geoAllowed.trim() ? [settingsApi.set('SEARCH_ALLOWED_COUNTRIES', geoAllowed.trim().toUpperCase())] : []),
+      ...(geoRegion.trim() ? [settingsApi.set('SEARCH_DEFAULT_REGION', geoRegion.trim())] : []),
+      ...(geocity.trim() ? [settingsApi.set('SEARCH_DEFAULT_CITY', geocity.trim())] : []),
+      ...(geoSearchScope ? [settingsApi.set('SEARCH_SCOPE', geoSearchScope)] : []),
     ]),
     onSuccess: () => { setLhMsg('Config de Lead Hunter guardada'); queryClient.invalidateQueries({ queryKey: ['integrations'] }); setTimeout(() => setLhMsg(''), 4000) },
     onError: (e: any) => { setLhMsg(e.response?.data?.detail || 'Error al guardar'); setTimeout(() => setLhMsg(''), 5000) },
@@ -580,7 +591,8 @@ export default function Settings() {
         <Card title="LEAD HUNTER" subtitle="Configuración del descubrimiento automático de leads">
           <div className="flex items-center gap-2 mb-4">
             <StatusBadge ok={!!lh?.cron} label={`Cron: ${lh?.cron || 'deshabilitado'}`} />
-            <StatusBadge ok={lh?.scope === 'country'} label={`Scope: ${lh?.scope}`} />
+            <StatusBadge ok={lh?.scope === 'country'} label={`Scope legacy: ${lh?.scope}`} />
+            <StatusBadge ok label={`País default: ${lh?.geo?.default_country || 'PY'}`} />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
@@ -599,6 +611,40 @@ export default function Settings() {
               <input value={lhBbox} onChange={e => setLhBbox(e.target.value)} placeholder={lh?.bbox} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono" />
             </div>
           </div>
+
+          {/* Search Geography (spec §7-9) */}
+          <div className="mt-4 pt-4 border-t border-bg-700">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Search Geography — país default, allowlist y scope explícito</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">País default</label>
+                <input value={geoCountry} onChange={e => setGeoCountry(e.target.value)} placeholder={lh?.geo?.default_country || 'PY'} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono uppercase" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Países permitidos (CSV)</label>
+                <input value={geoAllowed} onChange={e => setGeoAllowed(e.target.value)} placeholder={lh?.geo?.allowed_countries || 'PY,BR,AR,UY'} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono uppercase" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Región default</label>
+                <input value={geoRegion} onChange={e => setGeoRegion(e.target.value)} placeholder={lh?.geo?.default_region || 'vacío'} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Ciudad default</label>
+                <input value={geocity} onChange={e => setGeocity(e.target.value)} placeholder={lh?.geo?.default_city || 'vacío'} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Scope de búsqueda (SEARCH_SCOPE)</label>
+                <select value={geoSearchScope} onChange={e => setGeoSearchScope(e.target.value)} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50">
+                  <option value="">Default (env / legacy)</option>
+                  <option value="city">Ciudad</option>
+                  <option value="region">Región</option>
+                  <option value="country">País</option>
+                  <option value="multi">Múltiples países</option>
+                  <option value="global">Global (requiere confirmación en cada caza)</option>
+                </select>
+              </div>
+            </div>
+          </div>
           <div className="flex justify-end mt-3">
             <button
               onClick={() => saveLh.mutate()}
@@ -611,7 +657,8 @@ export default function Settings() {
           {lhMsg && <p className="text-xs text-gray-400 mt-2">{lhMsg}</p>}
           <p className="text-xs text-gray-600 mt-3">
             💡 Scope «Todo Paraguay» busca en todo el país sin restricción geográfica local.
-            El cron vacío deshabilita la caza automática.
+            El cron vacío deshabilita la caza automática. El país default (PY) y los países
+            permitidos evitan consultas al mundo por accidente (spec §9).
           </p>
         </Card>
 

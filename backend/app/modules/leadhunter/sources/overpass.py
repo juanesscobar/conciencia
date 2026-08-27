@@ -26,6 +26,34 @@ OVERPASS_ENDPOINTS = [
 # Área de Paraguay (relation 2870777) para búsqueda a nivel país (LEADHUNTER_SCOPE=country)
 PARAGUAY_AREA = 3602870777
 
+
+def _build_global_query() -> str:
+    """Query sin restricción geográfica (todo el mundo).
+
+    SOLO se usa cuando el usuario pide scope global explícitamente (allow_global).
+    """
+    parts = [f"  {q};" for q, _, _ in CATEGORIES]
+    body = "\n".join(parts)
+    return (
+        "[out:json][timeout:120];\n(\n"
+        + body
+        + "\n);\nout center tags;"
+    )
+
+
+def _build_area_query(area_id: int) -> str:
+    """Query a nivel de un área/país cualquiera (usa la relación admin_level=2 de OSM)."""
+    parts = []
+    for q, industry, segment in CATEGORIES:
+        q2 = q.replace("(", f"(area:{area_id})", 1)
+        parts.append(f"  {q2};")
+    body = "\n".join(parts)
+    return (
+        "[out:json][timeout:120];\n(\n"
+        + body
+        + "\n);\nout center tags;"
+    )
+
 # Entes públicos / postas de salud / no-B2B que ensucian el pipeline
 EXCLUDE_NAME_RE = re.compile(
     r"^(ministerio|direcci|mspbs|senadis|inat|centro nacional|instituto nacional|"
@@ -119,17 +147,11 @@ def _build_query(bbox: str) -> str:
 
 
 def _build_country_query(area_id: int) -> str:
-    """Query a nivel país (sin restricción geográfica local): usa el área de Paraguay."""
-    parts = []
-    for q, industry, segment in CATEGORIES:
-        q2 = q.replace("(", f"(area:{area_id})", 1)
-        parts.append(f"  {q2};")
-    body = "\n".join(parts)
-    return (
-        "[out:json][timeout:120];\n(\n"
-        + body
-        + "\n);\nout center tags;"
-    )
+    """Query a nivel país (sin restricción geográfica local): usa el área de Paraguay.
+
+    Compat: equivalente a _build_area_query; se mantiene por retrocompatibilidad.
+    """
+    return _build_area_query(area_id)
 
 
 @register_source
@@ -143,11 +165,41 @@ class OverpassSource(BaseLeadSource):
         self.bbox = os.getenv("LEADHUNTER_BBOX", "-25.55,-57.75,-25.15,-57.40")
         self.scope = os.getenv("LEADHUNTER_SCOPE", "bbox").strip().lower()
 
-    def fetch(self, limit: Optional[int] = None) -> List[dict]:
+    def _resolve_query(self, geo: Optional[dict]) -> str:
+        """Elige la query Overpass según el contexto geográfico efectivo (geo.build_geo_context).
+
+        Prioridad:
+          1. geo global → sin restricción de área (solo si allow_global explícito)
+          2. area_id conocido (país) → query a nivel país
+          3. bbox resuelto (región/ciudad) → query por bbox
+          4. fallback → bbox de env (compat: Gran Asunción)
+        """
+        if geo is not None:
+            if geo.get("is_global"):
+                return _build_global_query()
+            area_id = geo.get("area_id")
+            if area_id:
+                return _build_area_query(area_id)
+            bbox = geo.get("bbox")
+            if bbox and len(bbox) == 4:
+                return _build_query(",".join(str(x) for x in bbox))
+            # scope multi/global sin bbox → país default como salvaguarda
+            country = (geo.get("scope") or {}).default_country
+            area_id = geo.get("area_id")
+            if not area_id:
+                from ..geo import COUNTRY_AREAS
+
+                area_id = COUNTRY_AREAS.get(country or "PY")
+            if area_id:
+                return _build_area_query(area_id)
+        # Fallback compat: env
         if self.scope == "country":
-            query = _build_country_query(PARAGUAY_AREA)
-        else:
-            query = _build_query(self.bbox)
+            return _build_country_query(PARAGUAY_AREA)
+        return _build_query(self.bbox)
+
+    def fetch(self, limit: Optional[int] = None, geo: Optional[dict] = None) -> List[dict]:
+        query = self._resolve_query(geo)
+        timeout = 150 if (geo is None and self.scope == "country") or (geo and not geo.get("bbox")) else 120
         last_error: Optional[Exception] = None
 
         for endpoint in OVERPASS_ENDPOINTS:
@@ -156,8 +208,8 @@ class OverpassSource(BaseLeadSource):
                     resp = httpx.post(
                         endpoint,
                         data={"data": query},
-                        timeout=150 if self.scope == "country" else 120,
-                        headers={"User-Agent": "ConcienciaPlatform-LeadHunter/2.0 (contact: juanesscobar)"},
+                        timeout=timeout,
+                        headers={"User-Agent": "ConcienciaPlatform-LeadHunter/2.1 (contact: juanesscobar)"},
                     )
                     if resp.status_code == 429:
                         retry_after = int(resp.headers.get("Retry-After", 60))
@@ -170,7 +222,7 @@ class OverpassSource(BaseLeadSource):
                 except RateLimitError:
                     raise
                 except httpx.TimeoutException as e:
-                    last_error = SourceTimeoutError("overpass", 150 if self.scope == "country" else 120)
+                    last_error = SourceTimeoutError("overpass", timeout)
                     time.sleep(2 ** attempt)
                     continue
                 except httpx.HTTPStatusError as e:

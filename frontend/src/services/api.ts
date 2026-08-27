@@ -121,6 +121,7 @@ export const leadsApi = {
   huntRun: (params?: any) => api.post('/api/v1/leads/hunt/run', null, { params }),
   huntSources: () => api.get('/api/v1/leads/hunt/sources'),
   huntRuns: () => api.get('/api/v1/leads/hunt/runs', { params: { limit: 5 } }),
+  geoScope: (params?: any) => api.get('/api/v1/leads/geo/scope', { params }),
   regions: () => api.get('/api/v1/leads/regions'),
   searches: () => api.get('/api/v1/leads/searches'),
   searchSave: (data: any) => api.post('/api/v1/leads/searches', data),

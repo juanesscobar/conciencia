@@ -89,11 +89,16 @@ def run_discovery(
     limit: Optional[int] = None,
     job_id: Optional[str] = None,
     filters: Optional[dict] = None,
+    geo: Optional[dict] = None,
 ) -> dict:
     """Corre una (o todas) las fuentes y agrega leads nuevos. Devuelve resumen.
 
     filters: {industry?, segment?, region?} para acotar la caza a los criterios
     elegidos (mismo formato que el filtro de la UI de Leads).
+
+    geo: contexto geográfico efectivo de geo.build_geo_context(). Si es None,
+    cada fuente usa su configuración de env (compat). Nunca debe permitirse una
+    caza global sin allow_global explícito (spec §9).
     """
     sources = get_all_sources()
     if source:
@@ -112,7 +117,7 @@ def run_discovery(
         db.commit()
 
         try:
-            items = src.fetch(limit=limit)
+            items = src.fetch(limit=limit, geo=geo)
             added = 0
             dupes = 0
             filtered = 0

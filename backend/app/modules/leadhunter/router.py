@@ -48,6 +48,7 @@ from .service import compute_score, enrich_with_ai
 from .sources import get_all_sources
 from .discovery import run_discovery, add_event
 from .enrich import enrich_from_website
+from .geo import build_geo_context, get_geo_provider, GeoScopeError
 
 router = APIRouter(prefix="/api/v1/leads", tags=["leadhunter"], dependencies=[Depends(get_current_user)])
 
@@ -243,29 +244,64 @@ def hunt_sources():
     ]
 
 
+@router.get("/geo/scope", response_model=dict)
+def geo_scope(
+    country: Optional[str] = None,
+    region: Optional[str] = None,
+    city: Optional[str] = None,
+):
+    """Scope geográfico efectivo: defaults de Settings + contexto resuelto (bbox/área).
+
+    Permite a la UI mostrar el ámbito vigente (ej: PY · país) y validar antes de cazar.
+    """
+    try:
+        ctx = build_geo_context(country=country, region=region, city=city)
+    except GeoScopeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    ctx["provider"] = get_geo_provider().name
+    ctx["scope_dict"] = ctx["scope"].to_dict()
+    return ctx
+
+
 @router.post("/hunt/run", response_model=HuntSummary)
 def hunt_run(
     source: Optional[str] = None,
     industry: Optional[str] = None,
     segment: Optional[str] = None,
     region: Optional[str] = None,
+    country: Optional[str] = None,
+    city: Optional[str] = None,
+    allow_global: bool = Query(False, description="Permite scope global SOLO si se pide explícitamente (spec §9)"),
     limit: Optional[int] = Query(None, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
     """Ejecuta el descubrimiento ahora (todas las fuentes o una sola).
 
-    Acepta los mismos criterios que el filtro de la UI: industry, segment, region.
-    Así se puede cazar directamente "farmacias de Luque" o "distribuidoras con score alto".
+    Acepta los mismos criterios que el filtro de la UI: industry, segment, region,
+    más geografía first-class: country, city. El scope efectivo se resuelve desde
+    Settings (SEARCH_DEFAULT_COUNTRY=PY por defecto); nunca se caza el mundo salvo
+    allow_global=true explícito (spec §7-9).
     """
     filters = {}
     if industry:
         filters["industry"] = industry
     if segment:
         filters["segment"] = segment
-    if region:
+    # El match de items se hace contra la localidad más específica (ciudad > región)
+    if city:
+        filters["region"] = city
+    elif region:
         filters["region"] = region
     try:
-        return run_discovery(db, source=source, limit=limit, filters=filters or None)
+        geo_ctx = build_geo_context(
+            country=country,
+            region=region,
+            city=city,
+            allow_global=allow_global,
+        )
+        return run_discovery(db, source=source, limit=limit, filters=filters or None, geo=geo_ctx)
+    except GeoScopeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

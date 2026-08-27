@@ -279,6 +279,11 @@ export default function Leads() {
     queryFn: () => leadsApi.huntSources().then(res => res.data),
   })
 
+  const { data: geoScope } = useQuery({
+    queryKey: ['lead-geo-scope'],
+    queryFn: () => leadsApi.geoScope().then(res => res.data),
+  })
+
   const { data: huntRuns } = useQuery<HuntRun[]>({
     queryKey: ['hunt-runs'],
     queryFn: () => leadsApi.huntRuns().then(res => res.data),
@@ -452,13 +457,25 @@ export default function Leads() {
                 último: {fmtDateTime(huntRuns[0].started_at)} · {huntRuns[0].found} encontrados / {huntRuns[0].added} nuevos
               </span>
             )}
+            <span
+              className="text-xs px-2 py-1 rounded border border-bg-600 text-gray-400"
+              title="Scope geográfico efectivo (Settings → Search Geography)"
+            >
+              {geoScope?.is_global ? '🌍 Global' : `📍 ${geoScope?.country || 'PY'} · ${
+                geoScope?.scope === 'city' ? 'Ciudad' : geoScope?.scope === 'region' ? 'Región' : 'País'
+              }`}
+            </span>
             <button
-              onClick={() => huntRun.mutate(undefined)}
+              onClick={() => huntRun.mutate({
+                ...(huntCriteriaFromFilters({ filterSource, filterRegion, filterSegment, filterIndustry }) || {}),
+                country: geoScope?.country || undefined,
+                city: geoScope?.city || undefined,
+              })}
               disabled={huntRun.isPending}
-              title="Cazar en todas las fuentes sin filtros"
+              title="Cazar con los filtros activos dentro del scope geográfico configurado"
               className="px-4 py-2 bg-primary-500/10 text-primary-400 border border-primary-500/40 rounded-lg hover:bg-primary-500/20 transition-all shadow-neon disabled:opacity-40 disabled:cursor-wait"
             >
-              {huntRun.isPending ? '⌛ Cazando...' : '🔎 Cazar TODO (sin filtros)'}
+              {huntRun.isPending ? '⌛ Cazando...' : '🔎 Cazar leads'}
             </button>
           </div>
         </div>
