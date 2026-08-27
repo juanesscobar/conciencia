@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from .models import Lead, LeadHuntRun, LeadStatus, LeadEvent
 from .sources import get_all_sources
 from .service import compute_score
+from .normalization import normalize_company, domain_of
+from .entity import is_duplicate, apply_normalization
 
 # Sufijos legales que no cuentan para dedupe
 LEGAL_SUFFIX_RE = re.compile(
@@ -38,20 +40,8 @@ def domain_of(url: Optional[str]) -> Optional[str]:
 
 
 def _is_duplicate(db: Session, company: str, website: Optional[str], phone: Optional[str]) -> bool:
-    norm = normalize_company(company)
-    if not norm:
-        return False
-    domain = domain_of(website)
-
-    existing = db.query(Lead).all()
-    for lead in existing:
-        if normalize_company(lead.company or "") == norm:
-            return True
-        if domain and domain_of(lead.website) == domain and domain:
-            return True
-        if phone and lead.phone and re.sub(r"\D", "", phone)[-8:] == re.sub(r"\D", "", lead.phone)[-8:]:
-            return True
-    return False
+    """Compat (dedupe v2 indexado): se delega en entity.is_duplicate."""
+    return is_duplicate(db, company=company, website=website, phone=phone)
 
 
 def add_event(db: Session, lead_id: str, event_type: str, description: Optional[str] = None) -> LeadEvent:
@@ -148,6 +138,7 @@ def run_discovery(
                     meta=item.get("meta") or {},
                     job_id=job_id,
                 )
+                apply_normalization(lead)
                 lead.score = compute_score(
                     company=lead.company,
                     industry=lead.industry or "",

@@ -28,6 +28,9 @@ class Lead(Base):
 
     # Datos de contacto
     company = Column(String, nullable=False, index=True)
+    normalized_name = Column(String, nullable=True, index=True)  # dedupe v2: normalize_company()
+    normalized_domain = Column(String, nullable=True, index=True)  # dedupe v2: domain_of(website)
+    normalized_phone = Column(String, nullable=True, index=True)  # dedupe v2: norm_phone() (últimos 8 dígitos)
     contact_name = Column(String, nullable=True)
     email = Column(String, nullable=True, index=True)
     phone = Column(String, nullable=True)

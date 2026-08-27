@@ -870,6 +870,7 @@ async def import_leads_csv(file: UploadFile = File(...), db: Session = Depends(g
         raise HTTPException(status_code=400, detail="CSV vacío o sin encabezados")
 
     from .discovery import _is_duplicate
+    from .entity import apply_normalization
 
     added = duplicates = errors = 0
     total = 0
@@ -898,6 +899,7 @@ async def import_leads_csv(file: UploadFile = File(...), db: Session = Depends(g
                 notes=(row.get("notes") or row.get("notas") or "").strip() or None,
                 meta={"source_detail": "csv_import"},
             )
+            apply_normalization(lead)
             _recompute_score(lead)
             db.add(lead)
             db.flush()
@@ -930,6 +932,7 @@ def create_lead(req: LeadCreate, db: Session = Depends(get_db)):
         notes=req.notes,
         meta=req.metadata,
     )
+    apply_normalization(lead)
     _recompute_score(lead)
     db.add(lead)
     db.flush()
@@ -980,6 +983,9 @@ def update_lead(lead_id: str, req: LeadUpdate, db: Session = Depends(get_db)):
     data = req.model_dump(exclude_unset=True)
     for field, value in data.items():
         setattr(lead, field, value)
+
+    from .entity import apply_normalization
+    apply_normalization(lead)
 
     _recompute_score(lead)
     db.commit()
