@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -49,6 +50,8 @@ from .sources import get_all_sources
 from .discovery import run_discovery, add_event
 from .enrich import enrich_from_website
 from .geo import build_geo_context, get_geo_provider, GeoScopeError
+from .search import SearchEngine, SearchQuery, SearchResult
+from .nlu import interpret as nlu_interpret, interpret_with_llm_fallback
 
 router = APIRouter(prefix="/api/v1/leads", tags=["leadhunter"], dependencies=[Depends(get_current_user)])
 
@@ -183,6 +186,31 @@ def list_leads(
         page=page,
         page_size=page_size,
     )
+
+
+# ================== SEARCH CANÓNICO + NL (Fase 2, aditivo) ==================
+
+
+class InterpretRequest(BaseModel):
+    """Texto libre a interpretar como SearchQuery."""
+    text: str
+    default_country: Optional[str] = None
+
+
+@router.post("/search/interpret", response_model=SearchQuery)
+def interpret_search(body: InterpretRequest):
+    """NL → SearchQuery: convierte 'playas de autos usados en Ciudad del Este'
+    en filtros estructurados (categoría, región, país). Fallback LLM opcional."""
+    return interpret_with_llm_fallback(
+        body.text,
+        default_country=body.default_country or "PY",
+    )
+
+
+@router.post("/search", response_model=SearchResult)
+def search_leads(body: SearchQuery, db: Session = Depends(get_db)):
+    """Ejecuta un SearchQuery canónico (misma lógica que UI/CLI/Agentes)."""
+    return SearchEngine().execute(db, body)
 
 
 @router.get("/regions", response_model=list[str])

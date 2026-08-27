@@ -232,6 +232,10 @@ export default function Leads() {
   const [newListName, setNewListName] = useState('')
   const [showNewList, setShowNewList] = useState(false)
   const [listMsg, setListMsg] = useState('')
+  const [nlQuery, setNlQuery] = useState('')
+  const [nlResult, setNlResult] = useState<any>(null)
+  const [nlBusy, setNlBusy] = useState(false)
+  const [nlDisabled, setNlDisabled] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
@@ -383,6 +387,48 @@ export default function Leads() {
     queryClient.invalidateQueries({ queryKey: ['lead-lists-of', id] })
   }
 
+  // --- Búsqueda en lenguaje natural (Fase 2: interpret → chips editables) ---
+  const interpretNl = async () => {
+    if (!nlQuery.trim()) return
+    setNlBusy(true)
+    try {
+      const { data } = await leadsApi.searchInterpret(nlQuery.trim())
+      setNlResult(data)
+      setNlDisabled([])
+    } catch (e: any) {
+      setNlResult({ error: e.response?.data?.detail || e.message })
+    } finally {
+      setNlBusy(false)
+    }
+  }
+
+  const nlChips = (() => {
+    if (!nlResult || nlResult.error) return []
+    const chips: { key: string; label: string }[] = []
+    if (nlResult.query) chips.push({ key: 'query', label: `🔎 ${nlResult.query}` })
+    if (nlResult.category) chips.push({ key: 'category', label: `🏷️ ${nlResult.category}` })
+    if (nlResult.region) chips.push({ key: 'region', label: `📍 ${nlResult.region}` })
+    if (nlResult.city) chips.push({ key: 'city', label: `🏙️ ${nlResult.city}` })
+    if (nlResult.country) chips.push({ key: 'country', label: `🌎 ${nlResult.country}` })
+    if (nlResult.required_fields?.length) chips.push({ key: 'required', label: `📡 ${nlResult.required_fields.join(' + ')}` })
+    if (nlResult.online) chips.push({ key: 'online', label: `🌐 ${nlResult.online}` })
+    return chips.filter(c => !nlDisabled.includes(c.key))
+  })()
+
+  const toggleNlChip = (key: string) => {
+    setNlDisabled(d => d.includes(key) ? d.filter(k => k !== key) : [...d, key])
+  }
+
+  const applyNl = () => {
+    if (!nlResult || nlResult.error) return
+    setSearch(nlResult.query || '')
+    setFilterRegion(nlResult.region || '')
+    setFilterIndustry(nlResult.industry || '')
+    setFilterOnline(nlResult.online || (nlResult.required_fields?.length ? 'any' : ''))
+    setNlResult(null)
+    setNlQuery('')
+  }
+
   const refreshAfterAction = (id: string) => {
     queryClient.invalidateQueries({ queryKey: ['leads'] })
     queryClient.invalidateQueries({ queryKey: ['lead-stats'] })
@@ -518,6 +564,58 @@ export default function Leads() {
 
       {/* Filtros */}
       <div className="bg-bg-900 border border-bg-700 rounded-lg p-4 mb-4">
+        {/* Búsqueda en lenguaje natural (Fase 2) */}
+        <div className="mb-3 pb-3 border-b border-bg-700">
+          <div className="flex flex-col md:flex-row gap-2">
+            <input
+              type="text"
+              value={nlQuery}
+              onChange={e => setNlQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') interpretNl() }}
+              placeholder='🧠 Buscar en lenguaje natural: "playas de autos usados en Ciudad del Este"'
+              className="flex-1 px-4 py-2 bg-bg-950 border border-bg-700 rounded-lg text-sm text-gray-200 focus:outline-none focus:border-primary-500/50"
+            />
+            <button
+              onClick={interpretNl}
+              disabled={nlBusy || !nlQuery.trim()}
+              className="px-4 py-2 text-sm rounded-lg border border-primary-500/40 bg-primary-500/15 text-primary-300 hover:bg-primary-500/25 transition-all shadow-neon disabled:opacity-40 whitespace-nowrap"
+            >
+              {nlBusy ? '⏳ Interpretando...' : '🧠 Interpretar'}
+            </button>
+          </div>
+          {nlResult?.error && (
+            <p className="text-xs text-alert-400 mt-2">{nlResult.error}</p>
+          )}
+          {nlResult && !nlResult.error && nlChips.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-[10px] text-gray-600 uppercase tracking-wider">Filtros detectados:</span>
+              {nlChips.map(c => (
+                <button
+                  key={c.key}
+                  onClick={() => toggleNlChip(c.key)}
+                  title={nlDisabled.includes(c.key) ? 'Quitado — click para volver a incluirlo' : 'Click para quitar este filtro'}
+                  className={`text-[11px] px-2 py-1 rounded border font-mono transition-colors ${nlDisabled.includes(c.key) ? 'border-bg-600 text-gray-600 line-through' : 'border-primary-500/40 text-primary-300 bg-primary-500/10 hover:bg-primary-500/20'}`}
+                >
+                  {c.label} ✕
+                </button>
+              ))}
+              <div className="flex items-center gap-2 ml-1">
+                <button
+                  onClick={applyNl}
+                  className="text-[11px] px-3 py-1 rounded border border-primary-500/50 text-primary-300 bg-primary-500/20 hover:bg-primary-500/30 transition-colors"
+                >
+                  Aplicar búsqueda
+                </button>
+                <button
+                  onClick={() => { setNlResult(null); setNlQuery(''); setNlDisabled([]) }}
+                  className="text-[11px] px-2 py-1 rounded text-gray-500 hover:text-gray-300 transition-colors"
+                >
+                  Limpiar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
         <div className="flex flex-col md:flex-row gap-3">
           <input
             type="text"
