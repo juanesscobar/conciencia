@@ -177,7 +177,7 @@ UI (Leads.tsx, 1335 ln)
 
 **Migración:** ninguna. **Tests:** `test_cli.py` (runner con `CliRunner` de typer sobre DB de test).
 
-**Resultado (commit `[PENDIENTE]`):**
+**Resultado (commit `6d119fd`):**
 - `backend/cli.py` (typer + rich) + `pyproject.toml` con entry point `conciencia` (pip install -e .).
 - Comandos: `health`, `search` (misma lógica que POST /search, con `--country/--region/--category/--online/--min-score/--sort/--json`), `leads list`, `leads export --format csv|json [--out]`, `lead inspect|score|enrich <id>` (inspect/score integran Fase 4: lead_score/opportunity/data_quality/reasons), `hunt run --source --region --industry`, `config get|set search.country PY` (mapea claves cortas → settings), `agents` (tabla real), `modules` (registry spec §21).
 - `_make_session()` respeta `DATABASE_URL` (tests/deploy) y agrega backend/ al sys.path para correr desde cualquier CWD.
@@ -198,7 +198,7 @@ UI (Leads.tsx, 1335 ln)
 
 **Migración:** ninguna. **Tests:** correr toda la suite existente (regresión = señal de éxito).
 
-**Resultado (commit `[PENDIENTE]`):**
+**Resultado (commit `6d119fd`):**
 - Backend: `router.py` 1126 → 52 ln (agregador); handlers movidos a `endpoints/` (search/hunt/lists/proposals/leads) + `helpers.py` compartido; 48 rutas + intake idénticas (app 177 rutas).
 - `service.compute_score` ahora es wrapper de `ranking._blocks()` (única fuente de verdad; HIGH_VALUE_INDUSTRY/SOURCE_BONUS viven en ranking).
 - `app/core/` nuevo: `config.py` (settings unificados env+DB: search_defaults/ranking_weights/embedding_config) + `interfaces.py` (Protocols GeoProvider/VectorBackend/LeadSource, spec §10/§14/§11).
