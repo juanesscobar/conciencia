@@ -153,6 +153,16 @@ export default function Settings() {
     onSuccess: () => { setRankMsg('Pesos guardados — aplican a búsquedas y detalles'); queryClient.invalidateQueries({ queryKey: ['ranking-weights'] }); setTimeout(() => setRankMsg(''), 5000) },
     onError: (e: any) => { setRankMsg(e.response?.data?.detail || e.message || 'Error al guardar'); setTimeout(() => setRankMsg(''), 6000) },
   })
+  // ---- Semantic Search (Fase 5, spec §14) ----
+  const [embEnabled, setEmbEnabled] = useState('')
+  const [embModel, setEmbModel] = useState('')
+  const [embProvider, setEmbProvider] = useState('')
+  const [embBackend, setEmbBackend] = useState('')
+  const [embBaseUrl, setEmbBaseUrl] = useState('')
+  const { data: semStatus } = useQuery({
+    queryKey: ['semantic-status'],
+    queryFn: () => leadsApi.semanticStatus().then(res => res.data),
+  })
   const saveLh = useMutation({
     mutationFn: () => Promise.all([
       settingsApi.set('LEADHUNTER_CRON', lhCron.trim()),
@@ -163,8 +173,13 @@ export default function Settings() {
       ...(geoRegion.trim() ? [settingsApi.set('SEARCH_DEFAULT_REGION', geoRegion.trim())] : []),
       ...(geocity.trim() ? [settingsApi.set('SEARCH_DEFAULT_CITY', geocity.trim())] : []),
       ...(geoSearchScope ? [settingsApi.set('SEARCH_SCOPE', geoSearchScope)] : []),
+      ...(embEnabled ? [settingsApi.set('EMBEDDING_ENABLED', embEnabled)] : []),
+      ...(embModel.trim() ? [settingsApi.set('EMBEDDING_MODEL', embModel.trim())] : []),
+      ...(embProvider ? [settingsApi.set('EMBEDDING_PROVIDER', embProvider)] : []),
+      ...(embBackend ? [settingsApi.set('EMBEDDING_BACKEND', embBackend)] : []),
+      ...(embBaseUrl.trim() ? [settingsApi.set('EMBEDDING_BASE_URL', embBaseUrl.trim())] : []),
     ]),
-    onSuccess: () => { setLhMsg('Config de Lead Hunter guardada'); queryClient.invalidateQueries({ queryKey: ['integrations'] }); setTimeout(() => setLhMsg(''), 4000) },
+    onSuccess: () => { setLhMsg('Config de Lead Hunter guardada'); queryClient.invalidateQueries({ queryKey: ['integrations'] }); queryClient.invalidateQueries({ queryKey: ['semantic-status'] }); setTimeout(() => setLhMsg(''), 4000) },
     onError: (e: any) => { setLhMsg(e.response?.data?.detail || 'Error al guardar'); setTimeout(() => setLhMsg(''), 5000) },
   })
 
@@ -686,6 +701,58 @@ export default function Settings() {
               </button>
             </div>
             {rankMsg && <p className="text-xs text-gray-400 mt-2">{rankMsg}</p>}
+          </div>
+
+          {/* Semantic Search (spec §14) */}
+          <div className="mt-4 pt-4 border-t border-bg-700">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wider">Semantic Search — embeddings (spec §14)</p>
+              <StatusBadge
+                ok={!!semStatus?.enabled}
+                label={semStatus?.enabled
+                  ? `Indexados: ${semStatus?.indexed ?? 0} · ${semStatus?.backend}${semStatus?.simulated ? ' (simulado)' : ''}`
+                  : 'Deshabilitado (501)'}
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Habilitado</label>
+                <select value={embEnabled} onChange={e => setEmbEnabled(e.target.value)} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50">
+                  <option value="">Default (env)</option>
+                  <option value="1">Sí — EMBEDDING_ENABLED=1</option>
+                  <option value="0">No</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Backend vectorial</label>
+                <select value={embBackend} onChange={e => setEmbBackend(e.target.value)} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50">
+                  <option value="">Default (memory)</option>
+                  <option value="memory">InMemory (numpy — dev/SQLite)</option>
+                  <option value="pgvector">pgvector (Postgres + extensión)</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Modelo</label>
+                <input value={embModel} onChange={e => setEmbModel(e.target.value)} placeholder={semStatus?.model || 'text-embedding-3-small'} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Provider</label>
+                <select value={embProvider} onChange={e => setEmbProvider(e.target.value)} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50">
+                  <option value="">Default (openai)</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="ollama">Ollama (local)</option>
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Base URL (opcional, OpenAI-compatible)</label>
+                <input value={embBaseUrl} onChange={e => setEmbBaseUrl(e.target.value)} placeholder="https://... (vacío = default del provider)" className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono" />
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-600 mt-2">
+              Sin API key de embeddings corre en modo simulado (determinístico, útil para demo).
+              Con OPENAI_API_KEY (u otro provider) usa embeddings reales. El botón 🧬 Semántica en Leads indexa y busca automáticamente.
+            </p>
           </div>
 
           <div className="flex justify-end mt-3">

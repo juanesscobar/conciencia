@@ -229,6 +229,10 @@ export default function Leads() {
   const [showFilters, setShowFilters] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
+  // --- Búsqueda semántica (Fase 5, spec §14) ---
+  const [semanticRes, setSemanticRes] = useState<{ items: Lead[]; query: string } | null>(null)
+  const [semanticBusy, setSemanticBusy] = useState(false)
+  const [semanticErr, setSemanticErr] = useState('')
   const [viewMode, setViewMode] = useState<'table' | 'pipeline'>('table')
   const [huntResult, setHuntResult] = useState<HuntSummary | null>(null)
   const [importMsg, setImportMsg] = useState('')
@@ -392,6 +396,20 @@ export default function Leads() {
     queryClient.invalidateQueries({ queryKey: ['lead-lists-of', id] })
   }
 
+  const runSemantic = async () => {
+    const text = (nlQuery.trim() || search.trim())
+    if (!text) { setSemanticErr('Escribí una consulta (arriba o en el campo de búsqueda)'); return }
+    setSemanticBusy(true); setSemanticErr('')
+    try {
+      const { data } = await leadsApi.semanticSearch(text, 25)
+      if (data.items.length === 0) setSemanticErr('Sin resultados semánticos — probá otra redacción o habilitá embeddings reales en Settings')
+      setSemanticRes({ items: data.items as Lead[], query: data.query })
+    } catch (e: any) {
+      setSemanticErr(e.response?.data?.detail || e.message || 'Error en búsqueda semántica')
+    } finally {
+      setSemanticBusy(false)
+    }
+  }
   // --- Búsqueda en lenguaje natural (Fase 2: interpret → chips editables) ---
   const interpretNl = async () => {
     if (!nlQuery.trim()) return
@@ -587,7 +605,18 @@ export default function Leads() {
             >
               {nlBusy ? '⏳ Interpretando...' : '🧠 Interpretar'}
             </button>
+            <button
+              onClick={runSemantic}
+              disabled={semanticBusy || !(nlQuery.trim() || search.trim())}
+              title="Búsqueda semántica: embed la consulta y rankea por similitud (Fase 5)"
+              className="px-4 py-2 text-sm rounded-lg border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 transition-all disabled:opacity-40 whitespace-nowrap"
+            >
+              {semanticBusy ? '⏳ Buscando...' : '🧬 Semántica'}
+            </button>
           </div>
+          {semanticErr && (
+            <p className="text-xs text-alert-400 mt-2">{semanticErr}</p>
+          )}
           {nlResult?.error && (
             <p className="text-xs text-alert-400 mt-2">{nlResult.error}</p>
           )}
@@ -841,13 +870,26 @@ export default function Leads() {
         <div className="text-primary-400 animate-blink">Loading leads...</div>
       ) : viewMode === 'pipeline' ? (
         <PipelineBoard
-          leads={leads}
+          leads={semanticRes ? semanticRes.items : leads}
           onSelect={setSelectedLead}
           onMove={(id, status) => leadsApi.action(id, status).then(() => refreshAfterAction(id))}
           busy={!!(enrichWebsite.isPending || enrichAi.isPending)}
         />
       ) : (
         <div className="bg-bg-900 border border-bg-700 rounded-lg overflow-hidden">
+          {semanticRes && (
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-cyan-500/30 bg-cyan-500/5">
+              <p className="text-xs text-cyan-300">
+                🧬 Resultados semánticos para «{semanticRes.query}» — {semanticRes.items.length} matches
+              </p>
+              <button
+                onClick={() => { setSemanticRes(null); setSemanticErr('') }}
+                className="text-[11px] px-2 py-1 rounded border border-bg-600 text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                ← volver a lista normal
+              </button>
+            </div>
+          )}
           <div className="overflow-auto max-h-[calc(100vh-320px)]">
             <table className="w-full text-sm min-w-[1000px]">
               <thead className="sticky top-0 z-10 bg-bg-900">
@@ -864,14 +906,14 @@ export default function Leads() {
                 </tr>
               </thead>
               <tbody>
-                {leads.length === 0 && (
+                {(semanticRes ? semanticRes.items : leads).length === 0 && (
                   <tr>
                     <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
                       Sin leads con esos filtros — apretá «Cazar leads ahora» o importá un CSV
                     </td>
                   </tr>
                 )}
-                {leads.map(lead => (
+                {(semanticRes ? semanticRes.items : leads).map(lead => (
                   <tr
                     key={lead.id}
                     className="border-b border-bg-800 hover:bg-bg-800/50 transition-colors cursor-pointer"
@@ -912,12 +954,12 @@ export default function Leads() {
                         <span className={`inline-flex px-2 py-0.5 rounded border ${scoreColor(lead.score)} text-xs font-mono`}>
                           {lead.score}
                         </span>
-                        {(lead.data_quality != null || lead.opportunity_score != null) && (
+                        {(lead.data_quality != null || lead.opportunity_score != null || lead.search_relevance != null) && (
                           <span
                             title={(lead.reasons || []).join('\n') || 'Sin razones'}
                             className="text-[10px] font-mono text-gray-500 cursor-help"
                           >
-                            O:{lead.opportunity_score ?? '–'} · Q:{lead.data_quality ?? '–'}
+                            {lead.search_relevance != null ? `R:${Math.round(lead.search_relevance)} ` : ''}O:{lead.opportunity_score ?? '–'} · Q:{lead.data_quality ?? '–'}
                           </span>
                         )}
                       </div>
@@ -964,7 +1006,7 @@ export default function Leads() {
             </table>
           </div>
           <div className="px-4 py-3 text-xs text-gray-600 border-t border-bg-700">
-            {total} leads · {leads.filter(l => l.status === 'new').length} nuevos en esta vista
+            {semanticRes ? semanticRes.items.length : total} leads{semanticRes ? ' (semánticos)' : ` · ${leads.filter(l => l.status === 'new').length} nuevos en esta vista`}
           </div>
         </div>
       )}

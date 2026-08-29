@@ -124,6 +124,8 @@ export const leadsApi = {
   geoScope: (params?: any) => api.get('/api/v1/leads/geo/scope', { params }),
   searchInterpret: (text: string) => api.post('/api/v1/leads/search/interpret', { text }),
   search: (query: any) => api.post('/api/v1/leads/search', query),
+  semanticSearch: (query: string, top_k = 20) => api.post('/api/v1/leads/search/semantic', { query, top_k }),
+  semanticStatus: () => api.get('/api/v1/leads/search/semantic/status'),
   rankingWeights: () => api.get('/api/v1/leads/ranking/weights'),
   rankingWeightsSave: (data: any) => api.put('/api/v1/leads/ranking/weights', data),
   regions: () => api.get('/api/v1/leads/regions'),

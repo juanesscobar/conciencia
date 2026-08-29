@@ -43,6 +43,13 @@ SEARCH_SCOPE = os.getenv("SEARCH_SCOPE", "") or None  # city|region|country|mult
 SEARCH_GEO_PROVIDER = os.getenv("SEARCH_GEO_PROVIDER", "osm")
 SEARCH_CACHE_TTL = int(os.getenv("SEARCH_CACHE_TTL", "86400"))  # segundos (24h)
 
+# Fase 5 — búsqueda semántica (spec §14)
+EMBEDDING_ENABLED = os.getenv("EMBEDDING_ENABLED", "0")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai")  # openai | deepseek | ollama | otro OpenAI-compatible
+EMBEDDING_BACKEND = os.getenv("EMBEDDING_BACKEND", "memory")  # memory | pgvector
+EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "")
+
 
 def get_cors_origins() -> List[str]:
     origins_str = os.getenv("CORS_ORIGINS", "")

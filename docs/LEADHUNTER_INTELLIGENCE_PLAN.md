@@ -139,7 +139,7 @@ UI (Leads.tsx, 1335 ln)
 
 ---
 
-### FASE 5 — Búsqueda semántica foundation (spec P6, §14) 🧬
+### FASE 5 — Búsqueda semántica foundation (spec P6, §14) 🧬 ✅ HECHA (29/08)
 **Objetivo:** arquitectura lista para embeddings, sin vector DB externa.
 
 1. **`leadhunter/embeddings.py` (NUEVO)**: `VectorBackend` abstracto (`upsert`, `search`) + `PgVectorBackend` (pgvector, solo si postgres + extensión) + `InMemoryBackend` (cosine en numpy, SQLite dev).
@@ -148,6 +148,15 @@ UI (Leads.tsx, 1335 ln)
 4. **Settings**: `EMBEDDING_MODEL`, `EMBEDDING_ENABLED`.
 
 **Migración:** opcional `pgvector` en prod (flag), cero en dev. **Tests:** `test_semantic.py` con InMemoryBackend + modelo fake.
+
+**Resultado (commit `[PENDIENTE]`):**
+- `embeddings.py` nuevo: `VectorBackend` abstracto (upsert/search/delete/count) + `InMemoryBackend` (cosine numpy, dev) + `PgVectorBackend` (pgvector autocontenido, fallback a memory si no hay extensión).
+- `embed_text()`: OpenAI-compatible si hay API key; modo SIMULADO determinístico (n-grams hasheados dim 384) sin key → demo/tests nunca rompen.
+- `BusinessDocument` como JSONB en `leads.meta["semantic"]` (provenance: text/model/dim/indexed_at) — sin migración en dev.
+- `POST /api/v1/leads/search/semantic` (501 si EMBEDDING_ENABLED no está) + `GET /search/semantic/status` (backend/modelo/indexados/simulado). Indexación lazy incremental (`reindex_if_needed`).
+- Settings: EMBEDDING_ENABLED/MODEL/PROVIDER/BACKEND/BASE_URL (VISIBLE_KEYS + UI en Lead Hunter); `numpy` agregado a requirements.
+- UI: botón 🧬 Semántica en Leads (usa la consulta NL o el buscador), banner de resultados semánticos + R: en badges; Settings muestra estado con contador.
+- 13 tests nuevos; suite F1-F5: 94 verdes. tsc + build OK.
 
 **DoD Fase 5:** el endpoint existe, es abstracto, y funciona end-to-end con un embedding model barato (p.ej. `text-embedding-3-small` o local) o en modo simulado; no introduce Qdrant/Weaviate.
 
@@ -288,7 +297,7 @@ UI (Leads.tsx, 1335 ln)
 - [ ] NL query funciona · [ ] Filtros estructurados editables · [ ] Search y filtros no se contradicen
 - [ ] OSM/provider abstraído · [ ] Rate limits respetados · [ ] Resultados normalizados · [ ] Duplicados reducidos
 - [x] Relevance rankeada · [x] Lead Score independiente de relevance · [x] Data quality visible · [ ] Provenance preservada
-- [ ] Fundación semántica · [ ] Search reutilizable por agentes · [ ] CLI usa mismos services · [ ] API y UI misma lógica
+- [ ] Fundación semántica · [x] Search reutilizable por agentes · [ ] CLI usa mismos services · [ ] API y UI misma lógica
 - [ ] Tests críticos · [ ] Funcionalidad existente intacta
 
 **Meta final (spec §52):** el usuario escribe "Find vehicle dealerships in Alto Paraná that have a website, phone number and appear to be active businesses" y Conciencia lo entiende, infiere PY, filtra, busca, normaliza, deduplica, rankea, explica, muestra calidad, permite enrich/save/CRM/CLI/agente.

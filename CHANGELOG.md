@@ -15,7 +15,12 @@
 
 ---
 
-## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-4)
+## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-5)
+
+### Fase 5 — Búsqueda semántica foundation (spec §14)
+- **Archivos:** `backend/app/modules/leadhunter/embeddings.py` (nuevo), `router.py`, `schemas.py`, `config.py`, `routers/settings.py` (VISIBLE_KEYS), `requirements.txt` (+numpy), `tests/test_semantic.py` (nuevo); frontend `pages/Leads.tsx` (botón 🧬 + banner), `pages/Settings.tsx` (Semantic Search), `services/api.ts`
+- **Cambio:** VectorBackend abstracto + InMemoryBackend (numpy) + PgVectorBackend (pgvector autocontenido, fallback); embed real OpenAI-compatible o simulado determinístico (sin key); BusinessDocument en `leads.meta.semantic`; `POST /search/semantic` (501 si deshabilitado) + `GET /search/semantic/status`; indexación lazy incremental; settings EMBEDDING_*; UI: botón 🧬 Semántica + banner resultados + R: en badges + bloque Semantic Search en Settings
+- **Resultado:** 13 tests nuevos, suite F1-F5 94 verdes, tsc + build OK — estado done
 
 ### Fase 4 — Ranking + Scoring separados + Data Quality (spec §15/§16/§34/§35)
 - **Archivos:** `backend/app/modules/leadhunter/ranking.py` (nuevo), `service.py` (refactor a bloques, contrato intacto), `schemas.py`, `search.py`, `router.py`, `routers/settings.py` (VISIBLE_KEYS), `tests/test_ranking.py` (nuevo); frontend `pages/Leads.tsx`, `pages/Settings.tsx`, `services/api.ts`

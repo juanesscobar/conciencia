@@ -259,3 +259,26 @@ class RankingWeights(BaseModel):
     relevance: Dict[str, float] = Field(default_factory=dict)
     lead: Dict[str, float] = Field(default_factory=dict)
     opportunity: Dict[str, float] = Field(default_factory=dict)
+
+
+# --- Fase 5: búsqueda semántica (spec §14) ---
+class SemanticSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500)
+    top_k: int = Field(20, ge=1, le=100)
+
+
+class SemanticSearchResult(BaseModel):
+    items: List[LeadResponse] = []
+    total: int = 0
+    query: str
+    backend: str
+    model: str
+    simulated: bool = False
+
+
+class SemanticStatus(BaseModel):
+    enabled: bool
+    backend: str
+    model: str
+    simulated: bool
+    indexed: int

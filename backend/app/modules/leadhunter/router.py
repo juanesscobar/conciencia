@@ -45,6 +45,9 @@ from .schemas import (
     LeadSavedSearchCreate,
     LeadSavedSearchResponse,
     RankingWeights,
+    SemanticSearchRequest,
+    SemanticSearchResult,
+    SemanticStatus,
 )
 from .service import compute_score, enrich_with_ai
 from .sources import get_all_sources
@@ -54,6 +57,10 @@ from .geo import build_geo_context, get_geo_provider, GeoScopeError
 from .search import SearchEngine, SearchQuery, SearchResult
 from .nlu import interpret as nlu_interpret, interpret_with_llm_fallback
 from .ranking import get_ranking_weights, set_ranking_weights, enrich_lead_dict
+from .embeddings import (
+    embeddings_enabled, embedding_model, embedding_backend_name, embedding_provider,
+    get_backend, reindex_if_needed, semantic_search, _api_key,
+)
 
 router = APIRouter(prefix="/api/v1/leads", tags=["leadhunter"], dependencies=[Depends(get_current_user)])
 
@@ -233,6 +240,65 @@ def update_weights(body: RankingWeights, db: Session = Depends(get_db),
         raise HTTPException(status_code=403, detail="Admin privileges required")
     merged = set_ranking_weights(db, body.model_dump(exclude_none=True))
     return RankingWeights(**merged)
+
+
+# ============ Fase 5 — Búsqueda semántica (spec §14, aditivo) ============
+
+
+def _semantic_simulated() -> bool:
+    """True si estamos en modo simulado (sin API key real de embeddings)."""
+    return not bool(_api_key(embedding_provider())) or embedding_provider() == "ollama"
+
+
+@router.get("/search/semantic/status", response_model=SemanticStatus)
+def semantic_status(db: Session = Depends(get_db)):
+    """Estado del backend semántico: enabled, backend activo, modelo, indexados."""
+    if not embeddings_enabled():
+        return SemanticStatus(enabled=False, backend=embedding_backend_name(),
+                              model=embedding_model(), simulated=True, indexed=0)
+    return SemanticStatus(
+        enabled=True,
+        backend=get_backend().name,
+        model=embedding_model(),
+        simulated=_semantic_simulated(),
+        indexed=get_backend().count(),
+    )
+
+
+@router.post("/search/semantic", response_model=SemanticSearchResult)
+def search_semantic(body: SemanticSearchRequest, db: Session = Depends(get_db)):
+    """Búsqueda semántica: embed query → vector search → leads rankeados por similitud.
+
+    Requiere EMBEDDING_ENABLED=1; sin API key de embeddings corre en modo simulado
+    (determinístico, útil para demo/tests). Devuelve 501 si está deshabilitado.
+    """
+    if not embeddings_enabled():
+        raise HTTPException(
+            status_code=501,
+            detail="embedding model not configured: set EMBEDDING_ENABLED=1 (Settings → Lead Hunter → Semantic Search)",
+        )
+
+    reindex_if_needed(db)
+    hits = semantic_search(db, body.query, top_k=body.top_k)
+    weights = get_ranking_weights(db)
+
+    items = []
+    for lead, sim in hits:
+        d = enrich_lead_dict(lead, db=db, sq=None)
+        d["search_relevance"] = round(sim * 100, 1)
+        reasons = list(d.get("reasons") or [])
+        reasons.insert(0, f"Match semántico: {round(sim * 100)}% de similitud")
+        d["reasons"] = reasons
+        items.append(LeadResponse(**d))
+
+    return SemanticSearchResult(
+        items=items,
+        total=len(items),
+        query=body.query,
+        backend=get_backend().name,
+        model=embedding_model(),
+        simulated=_semantic_simulated(),
+    )
 
 
 @router.get("/regions", response_model=list[str])
