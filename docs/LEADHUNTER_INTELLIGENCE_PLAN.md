@@ -128,7 +128,7 @@ UI (Leads.tsx, 1335 ln)
 
 **Migración:** ninguna (campos calculados). **Tests:** `test_ranking.py` — weights default, separación scores, reasons.
 
-**Resultado (commit `[PENDIENTE]`):**
+**Resultado (commit `8aa7989`):**
 - `ranking.py` nuevo: `SearchRelevance` (category/geo/keyword), `LeadScore` ponderado por bloques (reusa `_blocks` de service sin romper `compute_score`), `OpportunityScore`, `DataQualityScore` (completitud+frescura+fuente), `RankingWeights` configurables, `explain()` → razones.
 - `RANKING_WEIGHTS` (JSON) en Settings (VISIBLE_KEYS) + `GET/PUT /api/v1/leads/ranking/weights` (PUT solo admin/owner/ceo).
 - `LeadResponse` gana `search_relevance`, `opportunity_score`, `data_quality`, `reasons[]` (aditivo, sin romper frontend).
