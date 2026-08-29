@@ -15,7 +15,12 @@
 
 ---
 
-## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-6)
+## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-7)
+
+### Fase 7 — Boundaries de core + slimming (spec §42/§48)
+- **Archivos:** backend `router.py` (1126→52 ln), `helpers.py` (nuevo), `endpoints/` (search/hunt/lists/proposals/leads — nuevo), `service.py` (wrapper de ranking), `app/core/{__init__,config,interfaces}.py` (nuevo); frontend `pages/Leads.tsx` (1629→476 ln), `components/leads/` (LeadFilters, LeadTable, LeadDetail, PipelineBoard, LeadModal, types — nuevos)
+- **Cambio:** router.py queda como agregador delgado; handlers en endpoints/ con helpers compartidos; compute_score delega en ranking._blocks (única fuente de verdad); core/ con config unificada (env+DB) e interfaces (Protocols); UI de Leads dividida en componentes (refactor puro, comportamiento idéntico); fix de tipos (LeadPage vs LeadList)
+- **Resultado:** DoD cumplido (router < 400 ln, Leads.tsx < 600 ln), suite F1-F7 108 verdes, tsc + build OK — estado done
 
 ### Fase 6 — CLI `conciencia` (spec §19/§41)
 - **Archivos:** `backend/cli.py` (nuevo), `backend/pyproject.toml` (nuevo, entry point `conciencia`), `requirements.txt` (+typer +rich), `tests/test_cli.py` (nuevo)

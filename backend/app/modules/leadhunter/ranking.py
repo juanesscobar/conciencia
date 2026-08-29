@@ -67,6 +67,32 @@ STOPWORDS = {
     "necesito", "quiero", "hay", "tengan", "tiene", "son", "ser",
 }
 
+# Palabras que suman puntos según el sector objetivo de Conciencia
+# (viven acá — única fuente de verdad; service.compute_score las reutiliza).
+HIGH_VALUE_INDUSTRY = {
+    "cooperativa": 25,
+    "cooperativas": 25,
+    "hospital": 20,
+    "clinica": 20,
+    "clínica": 20,
+    "salud": 15,
+    "distribuidora": 20,
+    "industria": 15,
+    "comercio": 10,
+    "logistica": 15,
+    "logística": 15,
+    "farmacia": 15,
+    "agro": 10,
+    "financiero": 15,
+}
+
+SOURCE_BONUS = {
+    "conciencia": 15,   # viene caliente del diagnóstico
+    "referral": 20,     # recomendación = alta confianza
+    "web": 10,
+    "linkedin": 10,
+}
+
 
 def _norm(s: Optional[str]) -> str:
     """Minúsculas, sin acentos, espacios colapsados."""
@@ -189,8 +215,6 @@ def _blocks(company: str = "", industry: str = "", source: str = "manual",
     - source: SOURCE_BONUS → máx 20
     - metadata: ≥3 respuestas → máx 10
     """
-    from .service import HIGH_VALUE_INDUSTRY, SOURCE_BONUS
-
     completeness = 0.0
     if email:
         completeness += 20
