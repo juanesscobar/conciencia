@@ -15,7 +15,12 @@
 
 ---
 
-## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-5)
+## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-6)
+
+### Fase 6 — CLI `conciencia` (spec §19/§41)
+- **Archivos:** `backend/cli.py` (nuevo), `backend/pyproject.toml` (nuevo, entry point `conciencia`), `requirements.txt` (+typer +rich), `tests/test_cli.py` (nuevo)
+- **Cambio:** CLI typer+rich con los mismos services que la API: `health`, `search` (igual que POST /search, con --country/--region/--category/--online/--min-score/--json), `leads list|export` (csv/json), `lead inspect|score|enrich` (con scores Fase 4 + reasons), `hunt run`, `config get|set search.country PY`, `agents`, `modules`; `_make_session` respeta DATABASE_URL
+- **Resultado:** 14 tests nuevos, suite F1-F6 108 verdes — estado done
 
 ### Fase 5 — Búsqueda semántica foundation (spec §14)
 - **Archivos:** `backend/app/modules/leadhunter/embeddings.py` (nuevo), `router.py`, `schemas.py`, `config.py`, `routers/settings.py` (VISIBLE_KEYS), `requirements.txt` (+numpy), `tests/test_semantic.py` (nuevo); frontend `pages/Leads.tsx` (botón 🧬 + banner), `pages/Settings.tsx` (Semantic Search), `services/api.ts`

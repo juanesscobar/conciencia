@@ -162,7 +162,7 @@ UI (Leads.tsx, 1335 ln)
 
 ---
 
-### FASE 6 — CLI `conciencia` (spec P7, §19/§41) 💻
+### FASE 6 — CLI `conciencia` (spec P7, §19/§41) 💻 ✅ HECHA (29/08)
 **Objetivo:** misma lógica de dominio que UI/API, cero backend duplicado.
 
 1. **`backend/cli.py` + pyproject entry point `conciencia`** (typer + rich; agregar a requirements).
@@ -176,6 +176,13 @@ UI (Leads.tsx, 1335 ln)
 2. Usa **los mismos services** (`search.py`, `discovery.py`, `geo.py`) con su propia sesión DB (`SessionLocal`).
 
 **Migración:** ninguna. **Tests:** `test_cli.py` (runner con `CliRunner` de typer sobre DB de test).
+
+**Resultado (commit `[PENDIENTE]`):**
+- `backend/cli.py` (typer + rich) + `pyproject.toml` con entry point `conciencia` (pip install -e .).
+- Comandos: `health`, `search` (misma lógica que POST /search, con `--country/--region/--category/--online/--min-score/--sort/--json`), `leads list`, `leads export --format csv|json [--out]`, `lead inspect|score|enrich <id>` (inspect/score integran Fase 4: lead_score/opportunity/data_quality/reasons), `hunt run --source --region --industry`, `config get|set search.country PY` (mapea claves cortas → settings), `agents` (tabla real), `modules` (registry spec §21).
+- `_make_session()` respeta `DATABASE_URL` (tests/deploy) y agrega backend/ al sys.path para correr desde cualquier CWD.
+- typer+rich en requirements; numpy ya estaba. 14 tests nuevos; suite F1-F6: 108 verdes.
+- Fix test: `config set` escribe os.environ directo → limpiar con `os.environ.pop` (monkeypatch.delenv restaura el valor en su undo y contaminaba test_geo).
 
 **DoD Fase 6:** `conciencia search "empresas logísticas" --country PY` devuelve los mismos leads (orden/score) que `GET /api/v1/leads/search`.
 
@@ -297,7 +304,7 @@ UI (Leads.tsx, 1335 ln)
 - [ ] NL query funciona · [ ] Filtros estructurados editables · [ ] Search y filtros no se contradicen
 - [ ] OSM/provider abstraído · [ ] Rate limits respetados · [ ] Resultados normalizados · [ ] Duplicados reducidos
 - [x] Relevance rankeada · [x] Lead Score independiente de relevance · [x] Data quality visible · [ ] Provenance preservada
-- [ ] Fundación semántica · [x] Search reutilizable por agentes · [ ] CLI usa mismos services · [ ] API y UI misma lógica
+- [ ] Fundación semántica · [x] Search reutilizable por agentes · [x] CLI usa mismos services · [x] API y UI misma lógica
 - [ ] Tests críticos · [ ] Funcionalidad existente intacta
 
 **Meta final (spec §52):** el usuario escribe "Find vehicle dealerships in Alto Paraná that have a website, phone number and appear to be active businesses" y Conciencia lo entiende, infiere PY, filtra, busca, normaliza, deduplica, rankea, explica, muestra calidad, permite enrich/save/CRM/CLI/agente.
