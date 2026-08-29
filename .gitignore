@@ -66,3 +66,7 @@ backups/
 *.dump
 *.sql
 *.pyc
+
+# Artefactos de scans locales (pueden contener credenciales — NUNCA commitear)
+*_vulscan_*.txt
+*_vulscan_*

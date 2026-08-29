@@ -149,7 +149,7 @@ UI (Leads.tsx, 1335 ln)
 
 **Migración:** opcional `pgvector` en prod (flag), cero en dev. **Tests:** `test_semantic.py` con InMemoryBackend + modelo fake.
 
-**Resultado (commit `[PENDIENTE]`):**
+**Resultado (commit `8a1ce4b`):**
 - `embeddings.py` nuevo: `VectorBackend` abstracto (upsert/search/delete/count) + `InMemoryBackend` (cosine numpy, dev) + `PgVectorBackend` (pgvector autocontenido, fallback a memory si no hay extensión).
 - `embed_text()`: OpenAI-compatible si hay API key; modo SIMULADO determinístico (n-grams hasheados dim 384) sin key → demo/tests nunca rompen.
 - `BusinessDocument` como JSONB en `leads.meta["semantic"]` (provenance: text/model/dim/indexed_at) — sin migración en dev.
