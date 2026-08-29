@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from .models import Lead, LeadStatus
 from .schemas import LeadResponse
+from .ranking import enrich_lead_dict
 
 ONLINE_FILTERS = {"website", "email", "phone", "any"}
 SORT_OPTIONS = {"newest", "oldest", "score", "company"}
@@ -86,8 +87,9 @@ class SearchResult(BaseModel):
     query: Optional[SearchQuery] = None
 
 
-def _to_response(lead: Lead) -> LeadResponse:
-    return LeadResponse(**lead.to_dict())
+def _to_response(lead: Lead, db: Optional[Session] = None, sq: Optional[SearchQuery] = None) -> LeadResponse:
+    """LeadResponse + campos de Fase 4 (relevance/quality/opportunity/reasons)."""
+    return LeadResponse(**enrich_lead_dict(lead, db=db, sq=sq))
 
 
 def _encode_cursor(lead: Lead) -> str:
@@ -221,7 +223,7 @@ class SearchEngine:
                 rows = rows[:page_size]
 
         return SearchResult(
-            items=[_to_response(r) for r in rows],
+            items=[_to_response(r, db=db, sq=sq) for r in rows],
             total=total,
             page=page,
             page_size=page_size,

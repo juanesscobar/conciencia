@@ -112,7 +112,7 @@ UI (Leads.tsx, 1335 ln)
 
 ---
 
-### FASE 4 — Ranking + Scoring separados + Data Quality (spec P5, §15/§16/§34/§35) 📊
+### FASE 4 — Ranking + Scoring separados + Data Quality (spec P5, §15/§16/§34/§35) 📊 ✅ HECHA (29/08)
 **Objetivo:** relevancia ≠ lead score ≠ opportunity; weights configurables; "why this match".
 
 1. **`leadhunter/ranking.py` (NUEVO)**:
@@ -127,6 +127,13 @@ UI (Leads.tsx, 1335 ln)
 4. **Frontend**: en lead detail y filas, mostrar score breakdown + razones.
 
 **Migración:** ninguna (campos calculados). **Tests:** `test_ranking.py` — weights default, separación scores, reasons.
+
+**Resultado (commit `[PENDIENTE]`):**
+- `ranking.py` nuevo: `SearchRelevance` (category/geo/keyword), `LeadScore` ponderado por bloques (reusa `_blocks` de service sin romper `compute_score`), `OpportunityScore`, `DataQualityScore` (completitud+frescura+fuente), `RankingWeights` configurables, `explain()` → razones.
+- `RANKING_WEIGHTS` (JSON) en Settings (VISIBLE_KEYS) + `GET/PUT /api/v1/leads/ranking/weights` (PUT solo admin/owner/ceo).
+- `LeadResponse` gana `search_relevance`, `opportunity_score`, `data_quality`, `reasons[]` (aditivo, sin romper frontend).
+- UI: tabla muestra `O:n · Q:n` con tooltip de razones; LeadDetail gana card "Score Intelligence" con 4 barras + "¿Por qué este lead?"; Settings → Ranking & Scoring con editor JSON de pesos.
+- 21 tests nuevos (`test_ranking.py`); suite F1-F4: 81 tests verdes. Typecheck + build OK.
 
 **DoD Fase 4:** un lead con relevance 92% puede tener lead score 81 y opportunity 74 (ejemplo spec §16); el admin cambia pesos sin tocar código.
 
@@ -280,7 +287,7 @@ UI (Leads.tsx, 1335 ln)
 - [ ] Search funciona E2E · [ ] Country default PY · [ ] Scope configurable · [ ] No se puede consultar el mundo por accidente
 - [ ] NL query funciona · [ ] Filtros estructurados editables · [ ] Search y filtros no se contradicen
 - [ ] OSM/provider abstraído · [ ] Rate limits respetados · [ ] Resultados normalizados · [ ] Duplicados reducidos
-- [ ] Relevance rankeada · [ ] Lead Score independiente de relevance · [ ] Data quality visible · [ ] Provenance preservada
+- [x] Relevance rankeada · [x] Lead Score independiente de relevance · [x] Data quality visible · [ ] Provenance preservada
 - [ ] Fundación semántica · [ ] Search reutilizable por agentes · [ ] CLI usa mismos services · [ ] API y UI misma lógica
 - [ ] Tests críticos · [ ] Funcionalidad existente intacta
 

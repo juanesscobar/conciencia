@@ -79,6 +79,11 @@ class LeadResponse(BaseModel):
     online_presence: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    # --- Fase 4: ranking/scoring separados + data quality (aditivo) ---
+    search_relevance: Optional[float] = None      # 0-100, dependiente de la query
+    opportunity_score: Optional[int] = None       # 0-100, señales comerciales
+    data_quality: Optional[int] = None            # 0-100, completitud+frescura+fuente
+    reasons: Optional[List[str]] = None           # "Why this lead matches" (spec §34)
 
 
 class LeadListResponse(BaseModel):
@@ -247,3 +252,10 @@ class LeadHunterJobResponse(BaseModel):
 class LeadHunterJobListResponse(BaseModel):
     items: List[LeadHunterJobResponse]
     total: int
+
+
+# --- Fase 4: RankingWeights (spec §15/§16) ---
+class RankingWeights(BaseModel):
+    relevance: Dict[str, float] = Field(default_factory=dict)
+    lead: Dict[str, float] = Field(default_factory=dict)
+    opportunity: Dict[str, float] = Field(default_factory=dict)

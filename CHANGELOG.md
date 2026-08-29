@@ -13,6 +13,15 @@
 - resultado / estado
 ```
 
+---
+
+## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-4)
+
+### Fase 4 — Ranking + Scoring separados + Data Quality (spec §15/§16/§34/§35)
+- **Archivos:** `backend/app/modules/leadhunter/ranking.py` (nuevo), `service.py` (refactor a bloques, contrato intacto), `schemas.py`, `search.py`, `router.py`, `routers/settings.py` (VISIBLE_KEYS), `tests/test_ranking.py` (nuevo); frontend `pages/Leads.tsx`, `pages/Settings.tsx`, `services/api.ts`
+- **Cambio:** SearchRelevance (por query) ≠ LeadScore (independiente, ponderado) ≠ OpportunityScore; DataQualityScore 0-100 (completitud+frescura+fuente); RankingWeights configurables via `RANKING_WEIGHTS` (Settings JSON) + `GET/PUT /api/v1/leads/ranking/weights` (PUT solo admin); `explain()` → "Why this lead matches"; LeadResponse gana `search_relevance/opportunity_score/data_quality/reasons`; UI: tabla con `O:n · Q:n` + tooltip razones, LeadDetail "Score Intelligence", Settings "Ranking & Scoring"
+- **Resultado:** 21 tests nuevos, suite F1-F4 81 verdes, tsc + build OK — estado done
+
 ## Convenciones
 
 - Cada PR = una entrada en este changelog

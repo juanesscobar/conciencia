@@ -44,6 +44,7 @@ from .schemas import (
     SavedLeadListAddRequest,
     LeadSavedSearchCreate,
     LeadSavedSearchResponse,
+    RankingWeights,
 )
 from .service import compute_score, enrich_with_ai
 from .sources import get_all_sources
@@ -52,6 +53,7 @@ from .enrich import enrich_from_website
 from .geo import build_geo_context, get_geo_provider, GeoScopeError
 from .search import SearchEngine, SearchQuery, SearchResult
 from .nlu import interpret as nlu_interpret, interpret_with_llm_fallback
+from .ranking import get_ranking_weights, set_ranking_weights, enrich_lead_dict
 
 router = APIRouter(prefix="/api/v1/leads", tags=["leadhunter"], dependencies=[Depends(get_current_user)])
 
@@ -70,8 +72,9 @@ def _norm(s: str) -> str:
     return "".join(c for c in s if not unicodedata.combining(c)).lower().strip()
 
 
-def _to_response(lead: Lead) -> LeadResponse:
-    return LeadResponse(**lead.to_dict())
+def _to_response(lead: Lead, db: Optional[Session] = None, sq: Optional[SearchQuery] = None) -> LeadResponse:
+    """LeadResponse + campos de Fase 4 (data_quality, opportunity, relevance, reasons)."""
+    return LeadResponse(**enrich_lead_dict(lead, db=db, sq=sq))
 
 
 def _get_lead_or_404(db: Session, lead_id: str) -> Lead:
@@ -181,7 +184,7 @@ def list_leads(
     leads = query.offset((page - 1) * page_size).limit(page_size).all()
 
     return LeadListResponse(
-        items=[_to_response(l) for l in leads],
+        items=[_to_response(l, db=db) for l in leads],
         total=total,
         page=page,
         page_size=page_size,
@@ -211,6 +214,25 @@ def interpret_search(body: InterpretRequest):
 def search_leads(body: SearchQuery, db: Session = Depends(get_db)):
     """Ejecuta un SearchQuery canónico (misma lógica que UI/CLI/Agentes)."""
     return SearchEngine().execute(db, body)
+
+
+# ============ Fase 4 — RankingWeights (spec §15/§16, configurable sin código) ============
+
+
+@router.get("/ranking/weights", response_model=RankingWeights)
+def get_weights(db: Session = Depends(get_db)):
+    """Pesos actuales de ranking/scoring (merged con defaults)."""
+    return RankingWeights(**get_ranking_weights(db))
+
+
+@router.put("/ranking/weights", response_model=RankingWeights)
+def update_weights(body: RankingWeights, db: Session = Depends(get_db),
+                   current_user: User = Depends(get_current_user)):
+    """Actualiza RANKING_WEIGHTS (persistido en Settings, JSON). Solo admin/owner/ceo."""
+    if current_user.role not in ("admin", "owner", "ceo"):
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    merged = set_ranking_weights(db, body.model_dump(exclude_none=True))
+    return RankingWeights(**merged)
 
 
 @router.get("/regions", response_model=list[str])
@@ -973,7 +995,7 @@ def intake_lead(req: LeadIntake, db: Session = Depends(get_db)):
 @router.get("/{lead_id}", response_model=LeadResponse)
 def get_lead(lead_id: str, db: Session = Depends(get_db)):
     lead = _get_lead_or_404(db, lead_id)
-    return _to_response(lead)
+    return _to_response(lead, db=db)
 
 
 @router.patch("/{lead_id}", response_model=LeadResponse)
@@ -990,7 +1012,7 @@ def update_lead(lead_id: str, req: LeadUpdate, db: Session = Depends(get_db)):
     _recompute_score(lead)
     db.commit()
     db.refresh(lead)
-    return _to_response(lead)
+    return _to_response(lead, db=db)
 
 
 @router.delete("/{lead_id}", status_code=204)

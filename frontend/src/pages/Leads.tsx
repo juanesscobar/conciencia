@@ -20,6 +20,11 @@ interface Lead {
   metadata: any
   online_presence?: { website: boolean; email: boolean; phone: boolean; social: boolean }
   created_at: string | null
+  // --- Fase 4: ranking/scoring separados ---
+  search_relevance?: number | null
+  opportunity_score?: number | null
+  data_quality?: number | null
+  reasons?: string[] | null
 }
 
 interface LeadEvent {
@@ -903,9 +908,19 @@ export default function Leads() {
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-400">{lead.segment || '—'}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex px-2 py-0.5 rounded border ${scoreColor(lead.score)} text-xs font-mono`}>
-                        {lead.score}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className={`inline-flex px-2 py-0.5 rounded border ${scoreColor(lead.score)} text-xs font-mono`}>
+                          {lead.score}
+                        </span>
+                        {(lead.data_quality != null || lead.opportunity_score != null) && (
+                          <span
+                            title={(lead.reasons || []).join('\n') || 'Sin razones'}
+                            className="text-[10px] font-mono text-gray-500 cursor-help"
+                          >
+                            O:{lead.opportunity_score ?? '–'} · Q:{lead.data_quality ?? '–'}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <select
@@ -1291,6 +1306,43 @@ function LeadDetail({ lead, onClose, onAction, onEnrichWebsite, onEnrichAi }: {
                   {op?.website ? '🌐 web' : ''} {op?.email ? '✉ email' : ''} {op?.phone ? '📞 tel' : ''}
                   {!(op?.website || op?.email || op?.phone) && <span className="text-gray-600">sin canales digitales</span>}
                 </span>
+              </div>
+            </div>
+
+            <div className="bg-bg-950 border border-bg-700 rounded-lg p-4">
+              <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-3">SCORE INTELLIGENCE</h3>
+              <div className="space-y-2.5">
+                {[
+                  { label: 'Lead score', value: current.score, color: 'bg-primary-500' },
+                  { label: 'Oportunidad', value: current.opportunity_score ?? null, color: 'bg-yellow-500' },
+                  { label: 'Calidad de datos', value: current.data_quality ?? null, color: 'bg-purple-500' },
+                  { label: 'Relevancia (búsqueda)', value: current.search_relevance ?? null, color: 'bg-cyan-500' },
+                ].map(m => (
+                  <div key={m.label}>
+                    <div className="flex justify-between text-[11px] text-gray-500 mb-0.5">
+                      <span>{m.label}</span>
+                      <span className="font-mono text-gray-300">{m.value != null ? `${m.value}/100` : '—'}</span>
+                    </div>
+                    <div className="h-1.5 bg-bg-800 rounded overflow-hidden">
+                      <div
+                        className={`h-full ${m.color} rounded transition-all`}
+                        style={{ width: `${m.value != null ? Math.max(2, Math.min(100, m.value)) : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+                {(current.reasons?.length ?? 0) > 0 && (
+                  <div className="pt-2 border-t border-bg-700">
+                    <p className="text-[11px] text-gray-500 uppercase tracking-wider mb-1">¿Por qué este lead?</p>
+                    <ul className="space-y-1">
+                      {(current.reasons || []).map((r, i) => (
+                        <li key={i} className="text-[11px] text-gray-400 flex gap-1.5">
+                          <span className="text-primary-500">▸</span>{r}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
 

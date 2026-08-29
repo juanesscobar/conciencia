@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { settingsApi, whatsappApi, emailApi, mcpApi } from '../services/api'
-import { useState } from 'react'
+import { settingsApi, whatsappApi, emailApi, mcpApi, leadsApi } from '../services/api'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
 const PROVIDERS = [
@@ -134,6 +134,25 @@ export default function Settings() {
   const [geocity, setGeocity] = useState('')
   const [geoSearchScope, setGeoSearchScope] = useState('')
   const [lhMsg, setLhMsg] = useState('')
+  // ---- Ranking & Scoring (Fase 4, spec §15/§16) ----
+  const [rankWeights, setRankWeights] = useState('')
+  const [rankMsg, setRankMsg] = useState('')
+  const { data: rankData } = useQuery({
+    queryKey: ['ranking-weights'],
+    queryFn: () => leadsApi.rankingWeights().then(res => res.data),
+  })
+  useEffect(() => {
+    if (rankData && !rankWeights) setRankWeights(JSON.stringify(rankData, null, 2))
+  }, [rankData, rankWeights])
+  const saveRank = useMutation({
+    mutationFn: () => {
+      let parsed: any
+      try { parsed = JSON.parse(rankWeights) } catch { throw new Error('JSON inválido') }
+      return leadsApi.rankingWeightsSave(parsed)
+    },
+    onSuccess: () => { setRankMsg('Pesos guardados — aplican a búsquedas y detalles'); queryClient.invalidateQueries({ queryKey: ['ranking-weights'] }); setTimeout(() => setRankMsg(''), 5000) },
+    onError: (e: any) => { setRankMsg(e.response?.data?.detail || e.message || 'Error al guardar'); setTimeout(() => setRankMsg(''), 6000) },
+  })
   const saveLh = useMutation({
     mutationFn: () => Promise.all([
       settingsApi.set('LEADHUNTER_CRON', lhCron.trim()),
@@ -645,6 +664,30 @@ export default function Settings() {
               </div>
             </div>
           </div>
+
+          {/* Ranking & Scoring (spec §15/§16) */}
+          <div className="mt-4 pt-4 border-t border-bg-700">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Ranking & Scoring — relevancia ≠ lead score ≠ oportunidad (pesos configurables)</p>
+            <textarea
+              value={rankWeights}
+              onChange={e => setRankWeights(e.target.value)}
+              rows={9}
+              spellCheck={false}
+              className="w-full px-3 py-2 bg-bg-950 border border-bg-700 rounded text-xs text-gray-300 focus:outline-none focus:border-primary-500/50 font-mono"
+              placeholder='{"relevance": {...}, "lead": {...}, "opportunity": {...}}'
+            />
+            <div className="flex justify-end mt-2">
+              <button
+                onClick={() => saveRank.mutate()}
+                disabled={saveRank.isPending || !isAdmin}
+                className="px-3 py-1.5 text-xs bg-purple-500/10 text-purple-400 border border-purple-500/40 rounded-lg hover:bg-purple-500/20 transition-all disabled:opacity-40"
+              >
+                {saveRank.isPending ? 'Guardando...' : 'Guardar pesos'}
+              </button>
+            </div>
+            {rankMsg && <p className="text-xs text-gray-400 mt-2">{rankMsg}</p>}
+          </div>
+
           <div className="flex justify-end mt-3">
             <button
               onClick={() => saveLh.mutate()}

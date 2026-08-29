@@ -32,36 +32,64 @@ SOURCE_BONUS = {
 }
 
 
-def compute_score(company: str = "", industry: str = "", source: str = "manual",
+def _score_blocks(company: str = "", industry: str = "", source: str = "manual",
                   email: str = "", phone: str = "", notes: str = "",
-                  metadata: Optional[dict] = None) -> int:
-    """Score heurístico 0-100 basado en completitud y contexto."""
-    score = 0
+                  metadata: Optional[dict] = None) -> dict:
+    """Bloques base del scoring (Fase 4: reutilizado por ranking.lead_score).
 
+    - completeness: email 20 + phone 15 + company 10 → máx 45
+    - industry: primera keyword de HIGH_VALUE_INDUSTRY → máx 25
+    - source: SOURCE_BONUS → máx 20
+    - metadata: ≥3 respuestas → máx 10
+    """
     # Completitud de datos
+    completeness = 0
     if email:
-        score += 20
+        completeness += 20
     if phone:
-        score += 15
+        completeness += 15
     if company:
-        score += 10
+        completeness += 10
 
     # Sector objetivo (Conciencia: cooperativas, hospitales, distribuidoras)
     haystack = f"{company} {industry} {notes or ''}".lower()
+    industry_pts = 0
     for keyword, points in HIGH_VALUE_INDUSTRY.items():
         if keyword in haystack:
-            score += points
+            industry_pts = points
             break  # un solo sector cuenta
 
     # Fuente
-    score += SOURCE_BONUS.get(source, 0)
+    source_pts = SOURCE_BONUS.get(source, 0)
 
     # El diagnóstico de Conciencia con respuestas completas = lead caliente
+    meta_pts = 0
     if metadata and isinstance(metadata, dict):
         n_answers = sum(1 for v in metadata.values() if v)
         if n_answers >= 3:
-            score += 10
+            meta_pts = 10
 
+    return {
+        "completeness": completeness,
+        "industry": industry_pts,
+        "source": source_pts,
+        "metadata": meta_pts,
+    }
+
+
+def compute_score(company: str = "", industry: str = "", source: str = "manual",
+                  email: str = "", phone: str = "", notes: str = "",
+                  metadata: Optional[dict] = None) -> int:
+    """Score heurístico 0-100 basado en completitud y contexto.
+
+    Contrato histórico preservado (mismos valores); internamente suma los
+    bloques de `_score_blocks` para que ranking.py pueda reutilizarlos.
+    """
+    blocks = _score_blocks(
+        company=company, industry=industry, source=source,
+        email=email, phone=phone, notes=notes, metadata=metadata,
+    )
+    score = sum(blocks.values())
     return max(0, min(100, score))
 
 
