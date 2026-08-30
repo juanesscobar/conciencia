@@ -30,6 +30,38 @@ docker compose up -d --build
 
 Abrí `http://localhost` (o la IP del server). Solo nginx expone puertos; Postgres y Redis quedan en red interna.
 
+### Opción C — Terminal local (Windows/Git Bash, recomendada para uso diario)
+
+Instalá el wrapper global `conciencia` (apunta al venv del backend, fuerza UTF-8 y usa la DB local con ruta absoluta):
+
+```bash
+# El venv del backend ya tiene el entry point instalado (pip install -e .)
+# Copiá los scripts a ~/bin (ya está en PATH en Git Bash):
+cp backend/.venv/Scripts/conciencia.exe /c/Users/juane/bin/ 2>/dev/null || true
+# (o simplemente usá el wrapper bash si existe en ~/bin)
+```
+
+Uso desde cualquier directorio:
+
+```bash
+conciencia health          # DB local (SQLite, 835 leads)
+conciencia search "farmacias" --country PY
+conciencia leads list --status qualified
+conciencia map
+```
+
+**Modo PROD (datos reales de Hetzner vía túnel SSH):**
+
+```bash
+conciencia-prod-setup       # abre túnel + guarda credenciales en ~/.config/conciencia/prod.env
+CONCIENCIA_ENV=prod conciencia health    # 799 leads reales de prod
+```
+
+Notas:
+- El wrapper fuerza `PYTHONIOENCODING=utf-8` (rich/typer necesitan UTF-8 en Windows).
+- El modo prod descubre la IP interna del contenedor `db` (el compose NO publica 5432) y tunela por SSH.
+- Los scripts viven en `~/bin/conciencia` y `~/bin/conciencia-prod-setup` (fuera del repo).
+
 ### Opción B — Desarrollo local sin Docker
 
 ```bash
