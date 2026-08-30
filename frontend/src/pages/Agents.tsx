@@ -22,6 +22,17 @@ interface AgentFile {
   content: string
 }
 
+interface RuntimeConfig {
+  name: string
+  type: string
+  label: string
+  enabled: boolean
+  command: string
+  cwd: string
+  timeout_s: number
+  online: boolean
+}
+
 const statusColors: Record<string, string> = {
   working: 'bg-primary-500/10 text-primary-400 border border-primary-500/50 animate-pulse-glow',
   idle: 'bg-gray-500/10 text-gray-400 border border-gray-500/40',
@@ -50,12 +61,19 @@ export default function Agents() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [runOutput, setRunOutput] = useState<string>('')
   const [runTask, setRunTask] = useState('')
+  const [runRuntime, setRunRuntime] = useState('')
   const [running, setRunning] = useState(false)
 
   const { data: agents, isLoading } = useQuery<Agent[]>({
     queryKey: ['agents'],
     queryFn: () => agentsApi.getAll().then(res => res.data),
     refetchInterval: 15000,
+  })
+
+  // Fase 9: configs de runtimes (CLI externos habilitados por el dueño)
+  const { data: runtimes } = useQuery<RuntimeConfig[]>({
+    queryKey: ['agent-runtimes-config'],
+    queryFn: () => agentsApi.runtimeConfigs().then(res => res.data),
   })
 
   const { data: agentFiles } = useQuery<AgentFile[]>({
@@ -72,8 +90,8 @@ export default function Agents() {
   })
 
   const runMutation = useMutation({
-    mutationFn: ({ id, task }: { id: string, task: string }) =>
-      agentsApi.run(id, { task_text: task }),
+    mutationFn: ({ id, task, runtime }: { id: string, task: string, runtime?: string }) =>
+      agentsApi.run(id, { task_text: task, runtime: runtime || undefined }),
     onSuccess: (res) => {
       const data = res.data
       if (data.status === 'completed') {
@@ -98,7 +116,7 @@ export default function Agents() {
     setRunning(true)
     setRunOutput('$ agent.execute --task "' + runTask.slice(0, 60) + '"...')
     runMutation.mutate(
-      { id: selected.id, task: runTask.trim() },
+      { id: selected.id, task: runTask.trim(), runtime: runRuntime || undefined },
       {
         onSettled: () => setRunning(false),
       }
@@ -171,6 +189,25 @@ export default function Agents() {
                 className="hack-input"
                 placeholder={`Ej: Analiza el backlog y sugiere prioridades...`}
               />
+              {/* Fase 9: selector de runtime externo (CLI habilitados por el dueño) */}
+              <div className="mt-2 flex items-center gap-2">
+                <label className="text-[10px] text-gray-600 uppercase tracking-wider whitespace-nowrap">Runtime</label>
+                <select
+                  value={runRuntime}
+                  onChange={e => setRunRuntime(e.target.value)}
+                  className="flex-1 px-3 py-1.5 bg-bg-950 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none focus:border-primary-500/50"
+                  title="Override de runtime: motor embebido o CLI externo (claude_code/codex/opencode/openclaw)"
+                >
+                  <option value="">Motor embebido (default del agente)</option>
+                  {(runtimes || [])
+                    .filter(r => r.enabled && r.type !== 'internal')
+                    .map(r => (
+                      <option key={r.name} value={r.name}>
+                        {r.label} {r.online ? '' : '⚠ (no instalado)'}
+                      </option>
+                    ))}
+                </select>
+              </div>
               <button
                 onClick={handleRun}
                 disabled={running || !runTask.trim()}

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { settingsApi, whatsappApi, emailApi, mcpApi, leadsApi } from '../services/api'
+import { settingsApi, whatsappApi, emailApi, mcpApi, leadsApi, agentsApi } from '../services/api'
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -181,6 +181,27 @@ export default function Settings() {
     ]),
     onSuccess: () => { setLhMsg('Config de Lead Hunter guardada'); queryClient.invalidateQueries({ queryKey: ['integrations'] }); queryClient.invalidateQueries({ queryKey: ['semantic-status'] }); setTimeout(() => setLhMsg(''), 4000) },
     onError: (e: any) => { setLhMsg(e.response?.data?.detail || 'Error al guardar'); setTimeout(() => setLhMsg(''), 5000) },
+  })
+
+  // ---- Agent Runtimes (Fase 9: multi-runtime CLI) ----
+  const { data: rtConfigs, refetch: rtRefetch } = useQuery({
+    queryKey: ['agent-runtimes-config'],
+    queryFn: () => agentsApi.runtimeConfigs().then(res => res.data),
+  })
+  const [rtEdit, setRtEdit] = useState<Record<string, any>>({})
+  const [rtMsg, setRtMsg] = useState('')
+  const saveRuntimes = useMutation({
+    mutationFn: () => agentsApi.runtimeConfigsSave(
+      (rtConfigs || []).map((c: any) => ({
+        name: c.name,
+        enabled: (rtEdit[c.name]?.enabled ?? c.enabled),
+        command: (rtEdit[c.name]?.command ?? c.command),
+        cwd: (rtEdit[c.name]?.cwd ?? c.cwd),
+        timeout_s: Number(rtEdit[c.name]?.timeout_s ?? c.timeout_s),
+      })),
+    ),
+    onSuccess: () => { setRtMsg('Runtimes guardados — los CLI externos solo corren si están habilitados'); rtRefetch(); setRtEdit({}); setTimeout(() => setRtMsg(''), 5000) },
+    onError: (e: any) => { setRtMsg(e.response?.data?.detail || e.message || 'Error al guardar'); setTimeout(() => setRtMsg(''), 6000) },
   })
 
   // ---- Email (SMTP) ----
@@ -619,6 +640,76 @@ export default function Settings() {
             ))}
             {(mcpServers || []).length === 0 && <p className="text-xs text-gray-600">Sin servidores MCP registrados.</p>}
           </div>
+        </Card>
+
+        {/* Agent Runtimes (Fase 9: multi-runtime CLI) */}
+        <Card title="AGENT RUNTIMES" subtitle="Multi-runtime: corré agentes en Claude Code, Codex, OpenCode u OpenClaw desde la plataforma (solo si el dueño los habilita)">
+          <div className="space-y-2">
+            {(rtConfigs || []).map((cfg: any) => (
+              <div key={cfg.name} className="bg-bg-950 border border-bg-700 rounded-lg p-3 grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+                <div className="md:col-span-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={rtEdit[cfg.name]?.enabled ?? cfg.enabled}
+                      onChange={e => setRtEdit(prev => ({ ...prev, [cfg.name]: { ...(prev[cfg.name] || {}), enabled: e.target.checked } }))}
+                      disabled={!isAdmin}
+                      className="accent-primary-500"
+                    />
+                    <div>
+                      <p className="text-xs font-bold text-gray-200 font-mono">{cfg.name}</p>
+                      <p className="text-[10px] text-gray-600">{cfg.label}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="md:col-span-2">
+                  <StatusBadge ok={cfg.online} label={cfg.online ? 'online' : 'no instalado'} />
+                </div>
+                <div className="md:col-span-3">
+                  <input
+                    value={rtEdit[cfg.name]?.command ?? cfg.command}
+                    onChange={e => setRtEdit(prev => ({ ...prev, [cfg.name]: { ...(prev[cfg.name] || {}), command: e.target.value } }))}
+                    disabled={!isAdmin || cfg.type === 'internal' || cfg.type === 'mcp'}
+                    placeholder="comando"
+                    className="w-full px-2 py-1.5 bg-bg-900 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono"
+                  />
+                </div>
+                <div className="md:col-span-3">
+                  <input
+                    value={rtEdit[cfg.name]?.cwd ?? cfg.cwd}
+                    onChange={e => setRtEdit(prev => ({ ...prev, [cfg.name]: { ...(prev[cfg.name] || {}), cwd: e.target.value } }))}
+                    disabled={!isAdmin || cfg.type === 'internal' || cfg.type === 'mcp'}
+                    placeholder="cwd (vacío = home)"
+                    className="w-full px-2 py-1.5 bg-bg-900 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono"
+                  />
+                </div>
+                <div className="md:col-span-1">
+                  <input
+                    type="number"
+                    value={rtEdit[cfg.name]?.timeout_s ?? cfg.timeout_s}
+                    onChange={e => setRtEdit(prev => ({ ...prev, [cfg.name]: { ...(prev[cfg.name] || {}), timeout_s: e.target.value } }))}
+                    disabled={!isAdmin}
+                    title="Timeout en segundos"
+                    className="w-full px-2 py-1.5 bg-bg-900 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end mt-3">
+            <button
+              onClick={() => saveRuntimes.mutate()}
+              disabled={saveRuntimes.isPending || !isAdmin}
+              className="px-4 py-2 text-sm bg-primary-500/10 text-primary-400 border border-primary-500/40 rounded-lg hover:bg-primary-500/20 transition-all disabled:opacity-40"
+            >
+              {saveRuntimes.isPending ? 'Guardando...' : 'Guardar runtimes'}
+            </button>
+          </div>
+          {rtMsg && <p className="text-xs text-gray-400 mt-2">{rtMsg}</p>}
+          <p className="text-[11px] text-gray-600 mt-2">
+            🔒 Seguridad: los CLIs corren en subproceso con timeout y sin shell; la tarea se pasa como
+            argumento y el cwd debe existir. Ningún runtime externo corre si no está habilitado acá.
+          </p>
         </Card>
 
         {/* Lead Hunter */}

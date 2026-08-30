@@ -72,6 +72,7 @@ class RunRequest(BaseModel):
     task_id: Optional[UUID] = None
     task_text: Optional[str] = None
     context: Optional[str] = None
+    runtime: Optional[str] = None  # Fase 9: override a runtime externo (claude_code|codex|opencode|openclaw)
 
 
 class RunResponse(BaseModel):
@@ -93,6 +94,33 @@ class RunResponse(BaseModel):
 def get_agents(db: Session = Depends(get_db)):
     agents = db.query(Agent).all()
     return agents
+
+
+@router.get("/runtimes/config", response_model=List[dict])
+def runtime_configs(db: Session = Depends(get_db)):
+    """Configs de runtimes (Fase 9) + estado de salud de cada binario."""
+    from app.core.agent_runtime import get_runtime_configs, check_runtime_health
+
+    return [
+        {**cfg.to_dict(), **check_runtime_health(cfg)}
+        for cfg in get_runtime_configs(db)
+    ]
+
+
+class RuntimesUpdate(BaseModel):
+    configs: List[dict]
+
+
+@router.put("/runtimes/config", response_model=List[dict])
+def update_runtime_configs(req: RuntimesUpdate, db: Session = Depends(get_db),
+                           current_user=Depends(get_current_user)):
+    """Persiste la config de runtimes (solo admin/owner/ceo)."""
+    if current_user.role not in ("admin", "owner", "ceo"):
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    from app.core.agent_runtime import save_runtime_configs, check_runtime_health
+
+    saved = save_runtime_configs(db, req.configs)
+    return [{**cfg.to_dict(), **check_runtime_health(cfg)} for cfg in saved]
 
 
 @router.get("/runtimes", response_model=List[dict])
@@ -209,12 +237,20 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
     provider_name = provider_name.value if hasattr(provider_name, "value") else (provider_name or "deepseek")
     model = getattr(agent, "model", None) or None
 
-    adapter = get_adapter(runtime_name)
-    if not adapter:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Runtime '{runtime_name}' no tiene adapter registrado. Disponibles: generic, openclaw",
-        )
+    # Fase 9: override de runtime (claude_code|codex|opencode|openclaw) vía CLI externo
+    override = (req.runtime or "").strip().lower()
+    if override and override != runtime_name:
+        runtime_name = override
+        provider_name = "cli"
+        model = "external-cli"
+        adapter = None
+    else:
+        adapter = get_adapter(runtime_name)
+        if not adapter:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Runtime '{runtime_name}' no tiene adapter registrado. Disponibles: generic, openclaw",
+            )
 
     # Leer SOUL.md (el adapter generic lo recorta a presupuesto de tokens)
     system_prompt = load_agent_persona(agent.role.value)
@@ -255,7 +291,19 @@ def run_agent(agent_id: UUID, req: RunRequest, db: Session = Depends(get_db)):
     db.commit()
 
     try:
-        result = adapter.dispatch_task(identity, task_text, req.context)
+        if adapter is None:
+            # Fase 9: runtime externo (CLI subprocess seguro con timeout)
+            from app.core.agent_runtime import run_in_runtime
+            from app.adapters.base import DispatchResult
+
+            cli = run_in_runtime(db, runtime_name, task_text, req.context)
+            result = DispatchResult(
+                ok=cli.ok, status=cli.status, output=cli.output, error=cli.error,
+                runtime=cli.runtime, duration_ms=cli.duration_ms, simulated=cli.simulated,
+                meta={"exit_code": cli.exit_code},
+            )
+        else:
+            result = adapter.dispatch_task(identity, task_text, req.context)
 
         if not result.ok or result.status == "failed":
             execution.status = ExecutionStatus.FAILED

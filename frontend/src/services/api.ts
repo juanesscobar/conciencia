@@ -69,6 +69,8 @@ export const agentsApi = {
   getActivity: (id: string) => api.get(`/api/v1/agents/${id}/activity`),
   getFiles: (id: string) => api.get(`/api/v1/agents/${id}/files`),
   run: (id: string, data: any) => api.post(`/api/v1/agents/${id}/run`, data),
+  runtimeConfigs: () => api.get('/api/v1/agents/runtimes/config'),
+  runtimeConfigsSave: (configs: any[]) => api.put('/api/v1/agents/runtimes/config', { configs }),
 }
 
 export const metricsApi = {

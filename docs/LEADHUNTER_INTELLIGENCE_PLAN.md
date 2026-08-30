@@ -230,7 +230,7 @@ UI (Leads.tsx, 1335 ln)
 
 ---
 
-### FASE 9 — Multi-Runtime Agent Integration: Conciencia como Control Plane del dueño (requisito CEO, 23/08) 🔌
+### FASE 9 — Multi-Runtime Agent Integration: Conciencia como Control Plane del dueño (requisito CEO, 23/08) 🔌 ✅ HECHA (30/08)
 **Objetivo:** Conciencia = dashboard centralizado adaptado al dueño. Poder operar agentes externos reales (Claude Code, Codex, OpenCode, OpenClaw, etc.) desde la plataforma, además del runtime interno DeepSeek/LLM. Alineado con spec §17/§18/§27/§28 y con la Integration Layer de la landing (adapters runtime-agnostic).
 
 1. **`backend/app/core/agent_runtime.py` (NUEVO)**: abstracción `AgentRuntime` con `run(task, context, tools) -> RunResult` + registry de runtimes:
@@ -247,6 +247,13 @@ UI (Leads.tsx, 1335 ln)
 6. **Reuso**: los agentes LeadHunter (Fase 8) pueden correr en cualquier runtime configurado.
 
 **Migración:** tabla `agent_runtimes` (o settings JSON). **Tests:** `test_agent_runtimes.py` — registry, run con mock CLI, permisos, audit.
+
+**Resultado (commit `[PENDIENTE]`):**
+- `app/core/agent_runtime.py` nuevo: `RuntimeConfig` + registry persistido en Settings (`AGENT_RUNTIMES` JSON, 6 runtimes default: generic/claude_code/codex/opencode/openclaw/mcp) + `run_in_runtime()` con SUBPROCESO seguro (timeout, sin shell, tarea como argumento, cwd validado, comando solo de config) + `check_runtime_health()` (binario en PATH).
+- Router agents: `GET/PUT /api/v1/agents/runtimes/config` (PUT solo admin/owner/ceo) + `POST /agents/{id}/run` gana `runtime` override (aditivo) → corre en el CLI externo; ejecución + audit igual que el flujo interno (§29).
+- UI: Settings → card "AGENT RUNTIMES" (toggle habilitado, comando, cwd, timeout, status online) + Agents → selector de runtime en la consola de ejecución (solo habilitados, avisa si no está instalado).
+- Seguridad §47: ningún CLI corre si no está habilitado por el dueño; sin shell=True; cwd debe existir.
+- 10 tests nuevos (mock subprocess + admin); suite F1-F9: 127 verdes. tsc + build OK.
 
 **DoD Fase 9:** desde Conciencia se dispara un agente en Claude Code / Codex / OpenCode / OpenClaw y el resultado (output/archivos/status) vuelve al dashboard; cada ejecución auditable y aprobada por el dueño.
 

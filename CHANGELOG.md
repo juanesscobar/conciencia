@@ -15,7 +15,12 @@
 
 ---
 
-## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-8)
+## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-9)
+
+### Fase 9 — Multi-Runtime Agent Integration (requisito CEO)
+- **Archivos:** backend `app/core/agent_runtime.py` (nuevo), `app/routers/agents.py` (runtimes/config + runtime override en run), `tests/test_agent_runtimes.py` (nuevo); frontend `pages/Agents.tsx` (selector runtime), `pages/Settings.tsx` (card AGENT RUNTIMES), `services/api.ts`
+- **Cambio:** registry de runtimes en Settings (AGENT_RUNTIMES JSON: generic/claude_code/codex/opencode/openclaw/mcp); runner CLI seguro (subprocess con timeout, sin shell, cwd validado); GET/PUT /agents/runtimes/config (admin); POST /agents/{id}/run acepta runtime override → ejecuta en CLI externo con execution + audit; UI: toggles + comando/cwd/timeout + status online; selector en consola de Agents
+- **Resultado:** 10 tests nuevos, suite F1-F9 127 verdes, tsc + build OK — estado done
 
 ### Fase 8 — Agentes LeadHunter mínimos (spec §17/§18/§27/§28)
 - **Archivos:** backend `app/models/agent.py` (3 roles nuevos), `agents/lead_research|business_classification|contact_discovery/SOUL.md` (nuevos), `scripts/seed_agents.py` (11 agentes + permisos), `app/modules/leadhunter/agents.py` (nuevo), `endpoints/leads_endpoints.py` (POST /{id}/enrich/agent), `tests/test_leadhunter_agents.py` (nuevo)
