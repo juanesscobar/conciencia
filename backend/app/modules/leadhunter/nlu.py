@@ -203,6 +203,14 @@ def interpret(text: str, default_country: str = "PY") -> SearchQuery:
 
     residual = _residual_query(ntext, matched)
 
+    # Si se detectaron filtros estructurados, un residuo de 0-1 tokens es ruido
+    # de sinónimos (ej: "playas" tras detectar automotriz en "playas de autos
+    # usados") — descartarlo evita que el full-text contradiga los filtros (spec §5).
+    if (city or dept or category or required) and residual:
+        rwords = [w for w in residual.split() if w not in STOPWORDS and len(w) > 1]
+        if len(rwords) <= 1:
+            residual = None
+
     # Si no se interpretó NADA con estructura (solo texto), el texto completo
     # va como full-text query.
     if not (city or dept or category or required or residual):

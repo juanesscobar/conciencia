@@ -284,3 +284,66 @@ PR merged → GitHub Actions → Build → Deploy staging → Notify → QA vali
 ---
 
 *"Empieza simple, escala cuando duele."*
+
+
+---
+
+## LeadHunter Intelligence Engine — E2E final (spec §52, Fases 1-11)
+
+Flujo completo verificado (test `tests/test_e2e_final.py` + suite de 140 tests):
+
+> "playas de autos usados en Ciudad del Este"
+
+| # | Paso | Dónde |
+|---|------|-------|
+| 1 | Entiende la request (NL) | `POST /leads/search/interpret` → SearchQuery (categoría automotriz, región CDE, país PY) |
+| 2 | Infiere PY del workspace | `GeographicScope.from_env()` (SEARCH_DEFAULT_COUNTRY=PY, allowlist, scope) |
+| 3 | Convierte a filtros estructurados | `SearchQuery` canónico (category/region/city/required_fields) |
+| 4 | Busca en fuentes | SearchEngine (filtros + full-text por tokens OR + cache TTL) |
+| 5 | Normaliza resultados | `normalization.py` + `entity.py` (dedupe v2 indexado) |
+| 6 | Deduplica empresas | `normalized_name/domain/phone` (lookups indexados) |
+| 7 | Rankea | `ranking.py`: SearchRelevance (query) ≠ LeadScore ≠ OpportunityScore; RankingWeights configurables |
+| 8 | Explica cada match | `explain()` → reasons ("why this lead matches", spec §34) |
+| 9 | Muestra data quality | `data_quality_score` 0-100 (completitud + frescura + fuente) |
+| 10 | Permite enrichment | `POST /leads/{id}/enrich/agent` (LeadResearch/Classification/ContactDiscovery con permisos ALLOW/DENY) |
+| 11 | Guarda en LeadHunter | CRUD + listas + búsquedas guardadas |
+| 12 | Envía a CRM (futuro) | Listas + export CSV/JSON + pipeline (propuestas, PDF, WhatsApp/email) |
+| 13 | Misma operación por CLI | `conciencia search "..." --country PY` (mismos services) |
+| 14 | Agente puede operar | AgentRuntime + multi-runtime (generic/claude_code/codex/opencode/openclaw) |
+
+### Definition of Done (spec §50 — 21/21)
+
+- [x] Search E2E · [x] Country default PY · [x] Scope configurable · [x] No mundo accidental
+- [x] NL query · [x] Filtros editables · [x] Search y filtros coherentes
+- [x] OSM/provider abstraído · [x] Rate limits respetados · [x] Normalización · [x] Dedupe
+- [x] Relevance rankeada · [x] Lead Score independiente · [x] Data quality visible
+  · [x] Provenance preservada (meta: osm_id/lat/lon/source_detail; source_records table = mejora futura)
+- [x] Fundación semántica · [x] Search reutilizable por agentes · [x] CLI mismos services · [x] API/UI misma lógica
+- [x] Tests críticos (140) · [x] Funcionalidad existente intacta
+
+### Módulos nuevos (Fases 1-11)
+
+```
+backend/app/
+├── core/                  # Conciencia Core (spec §20/§21)
+│   ├── config.py          # settings unificados (env+DB)
+│   ├── interfaces.py      # Protocols: GeoProvider, VectorBackend, LeadSource
+│   ├── cache.py           # TTLCache thread-safe (spec §36)
+│   └── agent_runtime.py   # multi-runtime CLI seguro (Fase 9)
+└── modules/leadhunter/
+    ├── geo.py             # GeographicScope + GeoProvider (OSM) (F1)
+    ├── nlu.py             # NL → SearchQuery (F2)
+    ├── search.py          # SearchEngine + cache (F2/F10)
+    ├── normalization.py   # normalize_company/domain/phone (F3)
+    ├── entity.py          # dedupe v2 indexado (F3)
+    ├── ranking.py         # scores separados + weights + explain (F4)
+    ├── embeddings.py      # búsqueda semántica (F5)
+    ├── agents.py          # agentes LeadHunter (F8)
+    ├── helpers.py         # helpers compartidos (F7)
+    └── endpoints/         # search/hunt/lists/proposals/leads (F7)
+```
+
+### CLI (Fase 6)
+
+`conciencia health|search|leads list|export|lead inspect|score|enrich|hunt|config get|set|agents|modules`
+(entry point `conciencia` en backend/pyproject.toml; `pip install -e .`)

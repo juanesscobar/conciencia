@@ -15,7 +15,12 @@
 
 ---
 
-## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-10)
+## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-11) 🏁 COMPLETO
+
+### Fase 11 — E2E final + Definition of Done (spec §39/§50/§52)
+- **Archivos:** backend `tests/test_e2e_final.py` (nuevo), `nlu.py` (residuo ≤1 token descartado cuando hay filtros estructurados), `docs/ARCHITECTURE.md` (sección E2E final + DoD §50)
+- **Cambio:** test E2E del flujo §52 completo (interpret → search → ranking → detail → enrich agente → lista → export); fix real: el residuo "playas" (ruido de sinónimos) contradecía los filtros → se descarta (spec §5); documentación final con los 14 pasos + checklist 21/21
+- **Resultado:** suite final 140 verdes — **plan LeadHunter Intelligence COMPLETO (F1-F11, 30/08/2026)**
 
 ### Fase 10 — Cache + Exports + Benchmark (spec §36/§37/§38/§40)
 - **Archivos:** backend `app/core/cache.py` (nuevo), `search.py` (cache + free-text por tokens OR + SearchQuery.source), `endpoints/search_endpoints.py` (GET /export), `routers/settings.py` (SEARCH_QUERY_CACHE_TTL), `scripts/benchmark_search.py` (nuevo), `tests/test_cache_exports.py` (nuevo)
