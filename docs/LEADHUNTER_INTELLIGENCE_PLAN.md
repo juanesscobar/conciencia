@@ -219,7 +219,7 @@ UI (Leads.tsx, 1335 ln)
 
 **Migración:** seed de agents. **Tests:** `test_leadhunter_agents.py` con LLM mockeado.
 
-**Resultado (commit `[PENDIENTE]`):**
+**Resultado (commit `5d2cfd0`):**
 - 3 roles nuevos en `AgentRole`: lead_research / business_classification / contact_discovery + SOUL.md en `agents/<role>/` (formato de output estricto, permisos declarados).
 - `scripts/seed_agents.py` extendido (11 agentes, idempotente) con `config.permissions` (allow/deny spec §28).
 - `leadhunter/agents.py` nuevo: `run_lead_agent()` (permisos → contexto del lead → adapter generic → AgentExecution + audit spec §29), `check_permissions`, `build_lead_context`; contact_discovery corre la herramienta real `website_fetch` (enrich_from_website) y la pasa como contexto.
@@ -248,7 +248,7 @@ UI (Leads.tsx, 1335 ln)
 
 **Migración:** tabla `agent_runtimes` (o settings JSON). **Tests:** `test_agent_runtimes.py` — registry, run con mock CLI, permisos, audit.
 
-**Resultado (commit `[PENDIENTE]`):**
+**Resultado (commit `5d2cfd0`):**
 - `app/core/agent_runtime.py` nuevo: `RuntimeConfig` + registry persistido en Settings (`AGENT_RUNTIMES` JSON, 6 runtimes default: generic/claude_code/codex/opencode/openclaw/mcp) + `run_in_runtime()` con SUBPROCESO seguro (timeout, sin shell, tarea como argumento, cwd validado, comando solo de config) + `check_runtime_health()` (binario en PATH).
 - Router agents: `GET/PUT /api/v1/agents/runtimes/config` (PUT solo admin/owner/ceo) + `POST /agents/{id}/run` gana `runtime` override (aditivo) → corre en el CLI externo; ejecución + audit igual que el flujo interno (§29).
 - UI: Settings → card "AGENT RUNTIMES" (toggle habilitado, comando, cwd, timeout, status online) + Agents → selector de runtime en la consola de ejecución (solo habilitados, avisa si no está instalado).
@@ -265,7 +265,7 @@ UI (Leads.tsx, 1335 ln)
 3. **Search benchmark** (spec §40): `scripts/benchmark_search.py` con las 5 queries de referencia, mide precision/recall aprox/latency/dupes.
 4. **Paginación cursor** en `/search` (ya preparada en F2).
 
-**Resultado (commit `[PENDIENTE]`):**
+**Resultado (commit `5d2cfd0`):**
 - `app/core/cache.py` nuevo: TTLCache thread-safe + helpers (get/set/delete/clear/invalidate_prefix).
 - SearchEngine cachea por firma de query (TTL `SEARCH_QUERY_CACHE_TTL` default 300s, configurable por env/settings); invalidación en create/update/delete/import/intake/hunt (spec §36).
 - **Mejora real detectada por el benchmark**: el free-text era AND de la frase literal → ahora OR por tokens (sin stopwords) — "distribuidoras de bebidas" ya no exige la subcadena exacta.
@@ -282,7 +282,7 @@ UI (Leads.tsx, 1335 ln)
 2. **Checklist §50** completo (21 items) + **test §52** (14 pasos) documentado en `docs/ARCHITECTURE.md`.
 3. Commits: cada fase con su tag/mensaje; docs de arquitectura BEFORE/AFTER (spec §48).
 
-**Resultado (commit `[PENDIENTE]`):**
+**Resultado (commit `5d2cfd0`):**
 - `tests/test_e2e_final.py`: flujo §52 completo (interpret → search → ranking → detail → enrich agente → lista → export), con LLM/red mockeado; 1 test E2E integrador.
 - Fix real detectado por el E2E: el NL parser dejaba residuo de 1 token ("playas") que contradecía los filtros → se descarta el residuo ≤1 token cuando hay filtros estructurados (spec §5).
 - `docs/ARCHITECTURE.md`: sección "LeadHunter Intelligence Engine — E2E final" con la tabla §52 (14 pasos) + DoD §50 21/21 + mapa de módulos + CLI.
