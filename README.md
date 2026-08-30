@@ -6,12 +6,13 @@
 
 **AI agents are easy to build. Running them reliably in production is the hard part.**
 
-[![Version](https://img.shields.io/badge/version-0.1.0--alpha-00ff41?style=flat-square&labelColor=0a0f1a)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.0-00ff41?style=flat-square&labelColor=0a0f1a)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-00ff41?style=flat-square&labelColor=0a0f1a)](LICENSE)
 [![Stack](https://img.shields.io/badge/stack-FastAPI%20%2B%20React-00d9ff?style=flat-square&labelColor=0a0f1a)]()
+[![Tests](https://img.shields.io/badge/tests-140%20green-00ff41?style=flat-square&labelColor=0a0f1a)]()
 [![Made with ❤️](https://img.shields.io/badge/made%20with-❤️-ff4d4d?style=flat-square&labelColor=0a0f1a)]()
 
-[▶ Try the live demo](https://mc.46.62.196.151.sslip.io) · [Website](https://conciencia-software.vercel.app) · [Docs](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
+[▶ Try the live demo](https://mc.46.62.196.151.sslip.io) · [Website](https://conciencia-software.vercel.app) · [Docs](docs/ARCHITECTURE.md) · [Usage guide](docs/USAGE.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -60,8 +61,11 @@ Then open `http://localhost` — login with the admin seeded from
 
 **Prefer local dev without Docker?** See [Quickstart local](docs/DEVELOPMENT.md).
 
-> 🧪 No API keys? The LLM Harness runs in **simulated mode** so you can explore
-> the whole control plane without spending a cent.
+> 🧪 No API keys? The LLM Harness runs in **simulated mode** and semantic search
+> uses deterministic simulated embeddings — explore the whole control plane
+> without spending a cent.
+
+**Complete walkthrough** (web UI, CLI and API): [📖 docs/USAGE.md](docs/USAGE.md)
 
 ---
 
@@ -131,19 +135,60 @@ Full details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## ✨ Features
 
-- 🤖 **8 agents** with `SOUL.md` identities + agent registry in DB
-- 🧠 **LLM Harness** — multimodal, fallback, cost & latency tracking
+- 🤖 **11 agents** with `SOUL.md` identities (8 core roles + 3 LeadHunter:
+  research / classify / contacts), permissions ALLOW/DENY, full audit
+- 🧠 **LLM Harness** — multi-provider (DeepSeek, OpenAI, Anthropic, Google,
+  OpenRouter, Ollama), fallback, cost & latency tracking, token budgets
+- 🔀 **Multi-Runtime agent execution** — generic, claude_code, codex, opencode,
+  openclaw, mcp (secure subprocess runner, no shell)
 - ⚙️ **Workflows + approval gates** — human-in-the-loop execution
 - 🔀 **Task DAG** — dependencies with READY/ASSIGNED/BLOCKED states
 - 📬 **Email module** — multi-provider (Gmail/Outlook/generic), IMAP read +
   SMTP send, encrypted credentials (Fernet), exposed as MCP tools
 - 🔌 **MCP Tool Registry** — attach any stdio MCP server
-- 💰 **Lead Hunter** — Overpass/OSM discovery, dedupe, AI enrichment, scoring,
-  proposals in PDF, delivery by email/WhatsApp
+- 🎯 **Lead Hunter Intelligence** — the flagship pipeline (see below)
 - 📊 **Governance** — projects, sprints, metrics, reports, decisions
 - 👤 **User memory** — persistent per-operator context
+- 🖥️ **CLI `conciencia`** — same domain logic as web/API, zero duplicated code
 - 🔒 **Security by default** — nginx-only exposure, internal Postgres/Redis,
   encrypted secrets, full audit
+
+### 🎯 Lead Hunter Intelligence (F1-F11, spec complete ✅)
+
+Full prospecting pipeline — hunt → enrich → rank → qualify → propose → deliver:
+
+- **Discovery**: Overpass/OSM (no API key), configurable bbox, dedupe by
+  normalized name/domain/phone, async jobs + APScheduler cron
+- **NL search**: free-text interpretation + structured filters (country, region,
+  city, category, industry, segment, online presence, min score)
+- **Semantic search**: vector backend (InMemory / pgvector), real or simulated
+  embeddings (OpenAI-compatible provider)
+- **Score Intelligence**: 4 explainable scores — Search Relevance, Lead Score,
+  Opportunity Score, Data Quality — with configurable weights and "why this
+  match" reasons
+- **Enrichment**: website scraping (email/phone, anti-junk) + AI agents
+- **Proposals**: PDF generation + delivery by email/WhatsApp
+- **Pipeline kanban**: new → contacted → qualified → proposal → won/lost
+- **Exports**: CSV/JSON · **Saved searches & lead lists**
+
+### 🖥️ CLI `conciencia`
+
+```bash
+pip install -e backend/          # installs the `conciencia` entry point
+
+conciencia health
+conciencia search "empresas logísticas" --country PY --online website
+conciencia leads list --status qualified
+conciencia leads export --format csv --out leads.csv
+conciencia lead inspect <id>     # full detail + reasons
+conciencia lead score <id>       # 4 explainable scores
+conciencia lead enrich <id>      # enrich from website
+conciencia hunt --industry distribuidoras
+conciencia config get            # settings (get/set)
+conciencia agents · conciencia modules
+```
+
+Full CLI reference: [docs/USAGE.md](docs/USAGE.md#4-uso-cli)
 
 ---
 
@@ -156,11 +201,14 @@ _Coming soon — see the live demo meanwhile: https://mc.46.62.196.151.sslip.io_
 
 ## 🗺️ Roadmap
 
-- **v0.1** — current: control plane, missions, workflows, MCP, email, lead pipeline
-- **v0.2** — agent marketplace, model/tool registry UI, more MCP servers
-- **v0.3** — Conciencia Cloud (managed), enterprise integrations, teams
+- **v0.6** — current: control plane + Lead Hunter Intelligence complete
+  (F1-F11, 140 backend tests, DoD 21/21)
+- **v0.7** — model/tool registry UI, source_records provenance, pgvector in prod
+- **v0.8** — agent marketplace, more MCP servers
+- **v1.0** — Conciencia Cloud (managed), enterprise integrations, teams
 
-See [CHANGELOG.md](CHANGELOG.md) and open issues for details.
+See [CHANGELOG.md](CHANGELOG.md), [docs/LEADHUNTER_INTELLIGENCE_PLAN.md](docs/LEADHUNTER_INTELLIGENCE_PLAN.md)
+and open issues for details.
 
 ---
 
