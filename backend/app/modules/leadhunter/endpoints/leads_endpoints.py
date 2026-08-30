@@ -26,6 +26,12 @@ from ..helpers import _to_response, _get_lead_or_404, _recompute_score
 from ..discovery import add_event, _is_duplicate
 from ..entity import apply_normalization
 from ..enrich import enrich_from_website
+from app.core.cache import invalidate_prefix
+
+
+def _invalidate_search_cache() -> None:
+    """Invalida el cache de búsquedas cuando cambian los leads."""
+    invalidate_prefix("search:")
 
 router = APIRouter(tags=["leadhunter"], dependencies=[Depends(get_current_user)])
 intake_router = APIRouter(tags=["leadhunter-intake"])  # webhook público, SIN auth
@@ -158,6 +164,7 @@ async def import_leads_csv(file: UploadFile = File(...), db: Session = Depends(g
             errors += 1
 
     db.commit()
+    _invalidate_search_cache()
     return ImportResult(total=total, added=added, duplicates=duplicates, errors=errors)
 
 
@@ -188,6 +195,7 @@ def create_lead(req: LeadCreate, db: Session = Depends(get_db)):
     db.add(add_event(db, lead.id, "created", "Lead creado manualmente"))
     db.commit()
     db.refresh(lead)
+    _invalidate_search_cache()
     return _to_response(lead, db=db)
 
 
@@ -216,6 +224,7 @@ def intake_lead(req: LeadIntake, db: Session = Depends(get_db)):
     db.add(add_event(db, lead.id, "created", "Lead capturado por webhook (landing/formulario)"))
     db.commit()
     db.refresh(lead)
+    _invalidate_search_cache()
     return _to_response(lead, db=db)
 
 
@@ -238,6 +247,7 @@ def update_lead(lead_id: str, req: LeadUpdate, db: Session = Depends(get_db)):
     _recompute_score(lead)
     db.commit()
     db.refresh(lead)
+    _invalidate_search_cache()
     return _to_response(lead, db=db)
 
 
@@ -246,6 +256,7 @@ def delete_lead(lead_id: str, db: Session = Depends(get_db)):
     lead = _get_lead_or_404(db, lead_id)
     db.delete(lead)
     db.commit()
+    _invalidate_search_cache()
     return None
 
 

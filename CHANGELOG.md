@@ -15,7 +15,12 @@
 
 ---
 
-## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-9)
+## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-10)
+
+### Fase 10 — Cache + Exports + Benchmark (spec §36/§37/§38/§40)
+- **Archivos:** backend `app/core/cache.py` (nuevo), `search.py` (cache + free-text por tokens OR + SearchQuery.source), `endpoints/search_endpoints.py` (GET /export), `routers/settings.py` (SEARCH_QUERY_CACHE_TTL), `scripts/benchmark_search.py` (nuevo), `tests/test_cache_exports.py` (nuevo)
+- **Cambio:** TTLCache thread-safe con invalidación por prefijo; SearchEngine cachea por firma (TTL configurable) e invalida en mutaciones; free-text multi-token ahora es OR (mejora real detectada por el benchmark); export CSV/JSON por API con los mismos filtros de /search; benchmark con las 5 queries de referencia (latencia + precision sector/geo)
+- **Resultado:** 12 tests nuevos, suite F1-F10 139 verdes — estado done
 
 ### Fase 9 — Multi-Runtime Agent Integration (requisito CEO)
 - **Archivos:** backend `app/core/agent_runtime.py` (nuevo), `app/routers/agents.py` (runtimes/config + runtime override en run), `tests/test_agent_runtimes.py` (nuevo); frontend `pages/Agents.tsx` (selector runtime), `pages/Settings.tsx` (card AGENT RUNTIMES), `services/api.ts`

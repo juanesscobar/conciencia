@@ -269,3 +269,64 @@ def lead_stats(db: Session = Depends(get_db)):
         avg_score=round(total_score / len(leads), 1) if leads else 0.0,
         top_sources=top_sources,
     )
+
+
+@router.get("/export")
+def export_leads(
+    format: str = Query("csv", regex="^(csv|json)$"),
+    limit: int = Query(5000, ge=1, le=100000),
+    search: Optional[str] = None,
+    status: Optional[str] = None,
+    source: Optional[str] = None,
+    region: Optional[str] = None,
+    industry: Optional[str] = None,
+    segment: Optional[str] = None,
+    online: Optional[str] = None,
+    min_score: Optional[int] = Query(None, ge=0, le=100),
+    sort: str = Query("newest", regex="^(newest|oldest|score|company)$"),
+    db: Session = Depends(get_db),
+):
+    """Exporta leads a CSV/JSON (spec §38) usando el SearchEngine (misma lógica que /search)."""
+    import csv as _csv
+    import io as _io
+    import json as _json
+
+    from fastapi.responses import Response
+
+    sq = SearchQuery(
+        query=search or None, status=status, source=source, region=region,
+        industry=industry, segment=segment, online=online, min_score=min_score,
+        sort=sort, page=1, page_size=min(200, limit),
+    )
+    items: list = []
+    page = 1
+    while len(items) < limit:
+        sq.page = page
+        res = SearchEngine().execute(db, sq)
+        items.extend([i.model_dump() for i in res.items])
+        if len(res.items) < sq.page_size or not res.items:
+            break
+        page += 1
+    items = items[:limit]
+
+    if format == "json":
+        payload = _json.dumps(items, ensure_ascii=False, indent=2, default=str)
+        media_type = "application/json"
+    else:
+        buf = _io.StringIO()
+        fieldnames = ["id", "company", "contact_name", "email", "phone", "website",
+                      "source", "industry", "segment", "region", "status", "score",
+                      "opportunity_score", "data_quality", "created_at"]
+        writer = _csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for r in items:
+            writer.writerow(r)
+        payload = buf.getvalue()
+        media_type = "text/csv"
+
+    filename = f"leads-{datetime.utcnow().strftime('%Y%m%d')}.{format}"
+    return Response(
+        content=payload,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

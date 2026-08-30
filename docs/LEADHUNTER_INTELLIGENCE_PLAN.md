@@ -259,11 +259,19 @@ UI (Leads.tsx, 1335 ln)
 
 ---
 
-### FASE 10 — Cache + Exports + Benchmark (spec §36/§37/§38/§40) 🚀
+### FASE 10 — Cache + Exports + Benchmark (spec §36/§37/§38/§40) 🚀 ✅ HECHA (30/08)
 1. **Cache** en geo/search/enrich (TTL configurable, `SEARCH_CACHE_TTL`), redis si está disponible, dict en local.
-2. **Exports**: `GET /api/v1/leads/export?format=csv|json` (usa el SearchQuery actual) + `conciencia leads export`.
-3. **Search benchmark** (spec §40): script `scripts/benchmark_search.py` con las 5 queries de referencia, mide precision/recall aprox/latency/dupes.
-4. **Paginación cursor** en `/search` (Fase 2 ya lo preparó).
+2. **Exports**: `GET /api/v1/leads/export?format=csv|json` (usa el SearchQuery actual) + `conciencia leads export` (ya existía de F6).
+3. **Search benchmark** (spec §40): `scripts/benchmark_search.py` con las 5 queries de referencia, mide precision/recall aprox/latency/dupes.
+4. **Paginación cursor** en `/search` (ya preparada en F2).
+
+**Resultado (commit `[PENDIENTE]`):**
+- `app/core/cache.py` nuevo: TTLCache thread-safe + helpers (get/set/delete/clear/invalidate_prefix).
+- SearchEngine cachea por firma de query (TTL `SEARCH_QUERY_CACHE_TTL` default 300s, configurable por env/settings); invalidación en create/update/delete/import/intake/hunt (spec §36).
+- **Mejora real detectada por el benchmark**: el free-text era AND de la frase literal → ahora OR por tokens (sin stopwords) — "distribuidoras de bebidas" ya no exige la subcadena exacta.
+- `GET /api/v1/leads/export?format=csv|json` (usa SearchEngine, loop de páginas, filtros iguales a /search; `SearchQuery.source` nuevo).
+- `scripts/benchmark_search.py`: 5 queries de referencia (spec §40) con interpret_ms/search_ms/precision sector+geo.
+- 12 tests nuevos; suite F1-F10: 139 verdes.
 
 **Migración:** ninguna. **Tests:** export CSV/JSON, cache hit/miss.
 

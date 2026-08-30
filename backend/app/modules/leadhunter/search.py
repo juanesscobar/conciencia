@@ -9,6 +9,7 @@ nuevo es aditivo (POST /search y POST /search/interpret).
 """
 
 import base64
+import os
 import re
 import unicodedata
 from datetime import datetime
@@ -21,6 +22,7 @@ from sqlalchemy.orm import Session
 from .models import Lead, LeadStatus
 from .schemas import LeadResponse
 from .ranking import enrich_lead_dict
+from app.core.cache import cache_get, cache_set
 
 ONLINE_FILTERS = {"website", "email", "phone", "any"}
 SORT_OPTIONS = {"newest", "oldest", "score", "company"}
@@ -40,6 +42,7 @@ class SearchQuery(BaseModel):
 
     query: Optional[str] = None            # texto libre (full-text sobre campos clave)
     entity_type: Optional[str] = None      # tipo de entidad (negocio, contacto...)
+    source: Optional[str] = None           # manual|conciencia|overpass|...
     country: Optional[str] = None          # PY por defecto (scope geográfico)
     region: Optional[str] = None           # departamento / ciudad / zona
     city: Optional[str] = None             # ciudad específica (más preciso que region)
@@ -62,6 +65,7 @@ class SearchQuery(BaseModel):
         return {
             "query": self.query,
             "entity_type": self.entity_type,
+            "source": self.source,
             "country": self.country,
             "region": self.region,
             "city": self.city,
@@ -112,27 +116,67 @@ def _decode_cursor(cursor: str) -> tuple:
 class SearchEngine:
     """Ejecuta un SearchQuery contra la base de leads (SQLAlchemy)."""
 
+    def _cache_key(self, sq: SearchQuery) -> str:
+        import json
+        payload = json.dumps({
+            **sq.filter_fields(),
+            "page": sq.page, "page_size": sq.page_size, "cursor": sq.cursor,
+        }, sort_keys=True, ensure_ascii=False)
+        return f"search:{payload}"
+
     def execute(self, db: Session, sq: SearchQuery) -> SearchResult:
+        # --- cache (spec §36): misma query dentro del TTL no reconsulta ---
+        key = self._cache_key(sq)
+        cached = cache_get(key)
+        if cached is not None:
+            try:
+                return SearchResult(**cached)
+            except Exception:
+                pass
+
         query = db.query(Lead)
 
         # --- texto libre (full-text sobre campos clave) ---
         if sq.query:
-            like = f"%{sq.query.strip()}%"
-            query = query.filter(
-                or_(
-                    Lead.company.ilike(like),
-                    Lead.contact_name.ilike(like),
-                    Lead.email.ilike(like),
-                    Lead.phone.ilike(like),
-                    Lead.notes.ilike(like),
-                    Lead.region.ilike(like),
+            from .ranking import _tokens
+            tokens = _tokens(sq.query)
+            if len(tokens) <= 1:
+                like = f"%{sq.query.strip()}%"
+                query = query.filter(
+                    or_(
+                        Lead.company.ilike(like),
+                        Lead.contact_name.ilike(like),
+                        Lead.email.ilike(like),
+                        Lead.phone.ilike(like),
+                        Lead.notes.ilike(like),
+                        Lead.region.ilike(like),
+                    )
                 )
-            )
+            else:
+                # Multi-token: OR entre tokens (AND entre campos) — una frase
+                # natural no debe exigir la subcadena literal completa.
+                token_conds = []
+                for tok in tokens:
+                    like = f"%{tok}%"
+                    token_conds.append(
+                        or_(
+                            Lead.company.ilike(like),
+                            Lead.contact_name.ilike(like),
+                            Lead.email.ilike(like),
+                            Lead.phone.ilike(like),
+                            Lead.notes.ilike(like),
+                            Lead.region.ilike(like),
+                        )
+                    )
+                query = query.filter(or_(*token_conds))
 
         # --- industria / categoría ---
         industry = sq.industry or sq.category
         if industry:
             query = query.filter(Lead.industry.ilike(f"%{industry}%"))
+
+        if sq.source:
+            query = query.filter(Lead.source == sq.source)
 
         if sq.segment:
             query = query.filter(Lead.segment == sq.segment)
@@ -222,7 +266,7 @@ class SearchEngine:
                 next_cursor = _encode_cursor(rows[page_size - 1])
                 rows = rows[:page_size]
 
-        return SearchResult(
+        result = SearchResult(
             items=[_to_response(r, db=db, sq=sq) for r in rows],
             total=total,
             page=page,
@@ -230,6 +274,10 @@ class SearchEngine:
             next_cursor=next_cursor,
             query=sq,
         )
+        # TTL configurable (spec §36): SEARCH_QUERY_CACHE_TTL en env/settings
+        ttl = int(os.getenv("SEARCH_QUERY_CACHE_TTL", "300"))
+        cache_set(key, result.model_dump(), ttl=ttl)
+        return result
 
 
 search_engine = SearchEngine()

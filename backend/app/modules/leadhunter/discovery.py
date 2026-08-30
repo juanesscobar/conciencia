@@ -167,6 +167,10 @@ def run_discovery(
             total_added += added
             total_dupes += dupes
             results.append({"source": name, "found": len(items) - filtered, "added": added, "duplicates": dupes, "status": "completed"})
+            # Fase 10: una caza cambió los leads → invalidar cache de búsquedas
+            if added:
+                from app.core.cache import invalidate_prefix
+                invalidate_prefix("search:")
         except Exception as e:  # noqa: BLE001
             run.status = "error"
             run.error = str(e)[:500]
