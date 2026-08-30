@@ -172,6 +172,16 @@ conciencia modules                           # lista módulos del sistema y su e
 conciencia modules --json
 ```
 
+### map — mapa conceptual
+
+```bash
+conciencia map                              # grafo ASCII del flujo completo de la plataforma
+```
+
+Imprime un mapa conceptual del pipeline en la terminal: cazar leads → buscar/rankear →
+enriquecer → pipeline CRM → proponer/exportar, más los comandos de operación. Ideal para
+orientarse rápido o pegar en documentación.
+
 ---
 
 ## 5. Referencia API

@@ -481,5 +481,65 @@ def module_list(json_out: bool = typer.Option(False, "--json")):
     console.print(table)
 
 
+MAP_ART = r'''
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                CONCIENCIA PLATFORM · MAPA CONCEPTUAL (CLI)                  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+  1) CAZAR LEADS ────────────────────────────────────────────────────────────
+     conciencia hunt ────────► Overpass/OSM (sin API key, bbox configurable)
+     leads import ───────────► CSV/JSON manual
+                    │ dedupe: nombre normalizado · dominio · teléfono
+                    ▼
+     ┌─────────────────────┐        ┌─────────────────────┐
+     │      DB LEADS       │◄───────│ jobs async + cron   │
+     │ (Postgres / SQLite) │        │ (APScheduler, lunes │
+     └─────────┬───────────┘        │  09:00 PY)          │
+               │                    └─────────────────────┘
+               ▼
+  2) BUSCAR / RANKEAR ───────────────────────────────────────────────────────
+     conciencia search ────► NLU: texto libre + filtros (país/industria/…)
+     búsqueda semántica ────► embeddings (simulados o reales, vía UI/API)
+                    │
+                    ▼
+     ┌─────────────────────────────────────────────┐
+     │ SCORE INTELLIGENCE (4 scores explicables)   │
+     │ · Search Relevance  (match de búsqueda)     │
+     │ · Lead Score        (calidad del lead)      │
+     │ · Opportunity Score (potencial comercial)   │
+     │ · Data Quality      (completitud)           │
+     │ + "why this match" (razones)                │
+     └─────────────────────────────────────────────┘
+               │
+               ▼
+  3) ENRIQUECER ─────────────────────────────────────────────────────────────
+     conciencia lead enrich <id> ──► website → email/tel reales (anti-junk)
+     conciencia lead enrich/agent  ─► agentes IA research/classify/contacts
+               │
+               ▼
+  4) PIPELINE CRM ───────────────────────────────────────────────────────────
+     new → contacted → qualified → proposal → won / lost
+               │
+               ▼
+  5) PROPONER / EXPORTAR ────────────────────────────────────────────────────
+     proposal generate ──► PDF ──► email / WhatsApp
+     leads export ──► CSV / JSON
+
+  OPERACIÓN:
+     conciencia health  ──► estado DB / leads / agentes / embeddings
+     conciencia agents  ──► 11 agentes (SOUL.md) + runtimes multi-proveedor
+     conciencia config  ──► settings persistentes (ranking, bbox, cron, …)
+     conciencia modules ──► catálogo de módulos (core, leadhunter, crm, …)
+
+  TIP: agregá --json a casi cualquier comando para salida máquina-parseable.
+'''
+
+
+@app.command("map")
+def platform_map():
+    """Mapa conceptual del flujo de la plataforma (ASCII, CLI-friendly)."""
+    console.print(MAP_ART)
+
+
 if __name__ == "__main__":
     app()
