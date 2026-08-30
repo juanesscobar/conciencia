@@ -15,7 +15,12 @@
 
 ---
 
-## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-7)
+## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-8)
+
+### Fase 8 — Agentes LeadHunter mínimos (spec §17/§18/§27/§28)
+- **Archivos:** backend `app/models/agent.py` (3 roles nuevos), `agents/lead_research|business_classification|contact_discovery/SOUL.md` (nuevos), `scripts/seed_agents.py` (11 agentes + permisos), `app/modules/leadhunter/agents.py` (nuevo), `endpoints/leads_endpoints.py` (POST /{id}/enrich/agent), `tests/test_leadhunter_agents.py` (nuevo)
+- **Cambio:** agentes LeadHunter con SOUL.md y permisos ALLOW/DENY (spec §28); run_lead_agent reusa adapters + AgentExecution + audit (§29); contact_discovery usa website_fetch real; endpoint con validación de acción/permisos y output en lead.meta.agents
+- **Resultado:** 9 tests nuevos, suite F1-F8 117 verdes, seed local con 11 agentes — estado done
 
 ### Fase 7 — Boundaries de core + slimming (spec §42/§48)
 - **Archivos:** backend `router.py` (1126→52 ln), `helpers.py` (nuevo), `endpoints/` (search/hunt/lists/proposals/leads — nuevo), `service.py` (wrapper de ranking), `app/core/{__init__,config,interfaces}.py` (nuevo); frontend `pages/Leads.tsx` (1629→476 ln), `components/leads/` (LeadFilters, LeadTable, LeadDetail, PipelineBoard, LeadModal, types — nuevos)

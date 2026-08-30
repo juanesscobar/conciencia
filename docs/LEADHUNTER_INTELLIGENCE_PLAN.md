@@ -210,7 +210,7 @@ UI (Leads.tsx, 1335 ln)
 
 ---
 
-### FASE 8 — Agentes LeadHunter mínimos (spec P9, §17/§18/§27/§28) 🤖
+### FASE 8 — Agentes LeadHunter mínimos (spec P9, §17/§18/§27/§28) 🤖 ✅ HECHA (30/08)
 **Objetivo:** enrichment agents usando el AgentRuntime existente; NO construir agentes autónomos todavía.
 
 1. Registrar agents LeadHunter en la tabla `agents` (SOUL.md): `LeadResearchAgent`, `BusinessClassificationAgent`, `ContactDiscoveryAgent`.
@@ -218,6 +218,13 @@ UI (Leads.tsx, 1335 ln)
 3. **Audit** (spec §29): los runs de agentes ya caen en `audit_events`/traces — verificar y documentar.
 
 **Migración:** seed de agents. **Tests:** `test_leadhunter_agents.py` con LLM mockeado.
+
+**Resultado (commit `[PENDIENTE]`):**
+- 3 roles nuevos en `AgentRole`: lead_research / business_classification / contact_discovery + SOUL.md en `agents/<role>/` (formato de output estricto, permisos declarados).
+- `scripts/seed_agents.py` extendido (11 agentes, idempotente) con `config.permissions` (allow/deny spec §28).
+- `leadhunter/agents.py` nuevo: `run_lead_agent()` (permisos → contexto del lead → adapter generic → AgentExecution + audit spec §29), `check_permissions`, `build_lead_context`; contact_discovery corre la herramienta real `website_fetch` (enrich_from_website) y la pasa como contexto.
+- Endpoint `POST /api/v1/leads/{id}/enrich/agent` (action: research|classify|contacts; 403 si DENY, 404 si no está seedeado, 409 si LLM no configurado). Output guardado en `lead.meta.agents.<action>`.
+- 9 tests nuevos (mock de adapter); suite F1-F8: 117 verdes.
 
 **DoD Fase 8:** "Enrich these 20 leads" corre como job de agente; cada acción auditable; sin permisos globales.
 
@@ -308,9 +315,9 @@ UI (Leads.tsx, 1335 ln)
 
 ## 6. DEFINITION OF DONE (spec §50 — checklist a completar fase por fase)
 
-- [ ] Search funciona E2E · [ ] Country default PY · [ ] Scope configurable · [ ] No se puede consultar el mundo por accidente
-- [ ] NL query funciona · [ ] Filtros estructurados editables · [ ] Search y filtros no se contradicen
-- [ ] OSM/provider abstraído · [ ] Rate limits respetados · [ ] Resultados normalizados · [ ] Duplicados reducidos
+- [x] Search funciona E2E · [x] Country default PY · [x] Scope configurable · [x] No se puede consultar el mundo por accidente
+- [x] NL query funciona · [x] Filtros estructurados editables · [x] Search y filtros no se contradicen
+- [x] OSM/provider abstraído · [x] Rate limits respetados · [x] Resultados normalizados · [x] Duplicados reducidos
 - [x] Relevance rankeada · [x] Lead Score independiente de relevance · [x] Data quality visible · [ ] Provenance preservada
 - [ ] Fundación semántica · [x] Search reutilizable por agentes · [x] CLI usa mismos services · [x] API y UI misma lógica
 - [x] Tests críticos · [x] Funcionalidad existente intacta

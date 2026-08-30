@@ -14,6 +14,10 @@ class AgentRole(str, enum.Enum):
     COMMS = "comms"
     FIN = "fin"
     ADMIN = "admin"
+    # --- Fase 8: agentes LeadHunter (spec §17/§18) ---
+    LEAD_RESEARCH = "lead_research"
+    BUSINESS_CLASSIFICATION = "business_classification"
+    CONTACT_DISCOVERY = "contact_discovery"
 
 class AutonomyLevel(str, enum.Enum):
     FULL = "full"

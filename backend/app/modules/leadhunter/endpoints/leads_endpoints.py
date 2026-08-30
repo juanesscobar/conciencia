@@ -2,8 +2,10 @@
 
 import csv
 import io
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -282,3 +284,59 @@ def enrich_lead_ai(lead_id: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(lead)
     return {"analysis": analysis, "score": lead.score, "lead": _to_response(lead, db=db)}
+
+
+class LeadAgentRequest(BaseModel):
+    """Ejecuta un agente LeadHunter sobre el lead (Fase 8, spec §17/§18)."""
+    action: Optional[str] = None   # research | classify | contacts
+    agent: Optional[str] = None    # role exacto: lead_research | business_classification | contact_discovery
+
+
+@router.post("/{lead_id}/enrich/agent", response_model=dict)
+def enrich_lead_agent(lead_id: str, req: LeadAgentRequest, db: Session = Depends(get_db)):
+    """Corre un agente LeadHunter sobre el lead (AgentRuntime + SOUL.md).
+
+    - action=research → LeadResearchAgent (perfil accionable)
+    - action=classify → BusinessClassificationAgent (categoría + scores)
+    - action=contacts → ContactDiscoveryAgent (+ raspado real del website)
+
+    Permisos ALLOW/DENY por agente (spec §28); cada run queda en AgentExecution + audit (§29).
+    Si el LLM no está configurado devuelve 409 (los agentes corren en modo simulado).
+    """
+    from ..agents import ACTION_TO_ROLE, get_agent_by_role, run_lead_agent, save_agent_output
+
+    lead = _get_lead_or_404(db, lead_id)
+
+    # Resolver acción + agente
+    action = (req.action or "").strip().lower()
+    if req.agent:
+        role = req.agent.strip().lower()
+        action = next((a for a, r in ACTION_TO_ROLE.items() if r == role), action or "classify")
+    else:
+        action = action or "classify"
+    if action not in ACTION_TO_ROLE:
+        raise HTTPException(status_code=400, detail=f"Acción inválida: {action}. Válidas: {', '.join(ACTION_TO_ROLE)}")
+    role = ACTION_TO_ROLE[action]
+
+    agent = get_agent_by_role(db, role)
+    if not agent:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agente '{role}' no registrado — corré `python scripts/seed_agents.py` para sembrarlo",
+        )
+
+    try:
+        result = run_lead_agent(db, agent, lead, action=action)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    if not result.get("ok"):
+        if result.get("simulated"):
+            raise HTTPException(status_code=409, detail="IA no configurada — cargá la API key en Settings → Integraciones (el agente corrió en modo simulado)")
+        raise HTTPException(status_code=502, detail=result.get("error") or "El agente falló")
+
+    save_agent_output(lead, action, result)
+    db.add(add_event(db, lead.id, "enriched", f"Agente {agent.name} ({action}) completó el análisis del lead"))
+    db.commit()
+    db.refresh(lead)
+    return {"action": action, "agent": agent.name, **result, "lead": _to_response(lead, db=db)}
