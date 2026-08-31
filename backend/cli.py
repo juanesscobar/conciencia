@@ -17,6 +17,7 @@ import io
 import json
 import os
 import sys
+import uuid
 from datetime import datetime
 from typing import List, Optional
 
@@ -40,18 +41,24 @@ from app.modules.leadhunter.ranking import (
 from app.modules.leadhunter.service import compute_score
 from app.modules.leadhunter.enrich import enrich_from_website
 from app.modules.leadhunter.discovery import run_discovery, add_event
+from app.services import mission_service
+from app.models.mission import Mission, MissionRun, MISSION_TYPES
 
 app = typer.Typer(
     name="conciencia",
-    help="Conciencia Platform — Control Plane CLI (misma lógica que UI/API).",
+    help="Conciencia Platform — Mission Orchestration Control Plane CLI (misma lógica que UI/API).",
     no_args_is_help=True,
 )
 leads_app = typer.Typer(help="Leads: listar, exportar, inspeccionar.")
 lead_app = typer.Typer(help="Lead individual: inspect, enrich, score.")
 config_app = typer.Typer(help="Configuración persistente (Settings).")
+mission_app = typer.Typer(help="Missions: crear, planear, ejecutar, inspeccionar.")
+run_app = typer.Typer(help="Runs: listar e inspeccionar ejecuciones de missions.")
 app.add_typer(leads_app, name="leads")
 app.add_typer(lead_app, name="lead")
 app.add_typer(config_app, name="config")
+app.add_typer(mission_app, name="mission")
+app.add_typer(run_app, name="run")
 
 console = Console()
 
@@ -539,6 +546,270 @@ MAP_ART = r'''
 def platform_map():
     """Mapa conceptual del flujo de la plataforma (ASCII, CLI-friendly)."""
     console.print(MAP_ART)
+
+
+# ---------------------------------------------------------------------------
+# Missions (Fase B del master prompt: Mission = unidad central de trabajo)
+# ---------------------------------------------------------------------------
+
+@mission_app.command("create")
+def mission_create(
+    name: str = typer.Argument(..., help="Nombre de la misión"),
+    objective: str = typer.Argument(..., help="Objetivo"),
+    type: str = typer.Option("research", "--type", "-t", help="Tipo: " + ", ".join(MISSION_TYPES)),
+    runtime: str = typer.Option("generic", "--runtime", help="Runtime: generic|claude_code|codex|opencode|openclaw|mcp"),
+    agents: Optional[str] = typer.Option(None, "--agents", help="IDs de agentes separados por coma"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Crea una misión (draft)."""
+    db = _make_session()
+    try:
+        m = mission_service.create_mission(
+            db,
+            name=name,
+            objective=objective,
+            type=type,
+            runtime=runtime,
+            agent_ids=[a.strip() for a in agents.split(",") if a.strip()] if agents else None,
+        )
+        if json_out:
+            _json(m.to_dict())
+        else:
+            console.print(f"✅ Misión creada: [cyan]{m.name}[/cyan] ({m.id})")
+            console.print(f"   Tipo: {m.type} · Status: {m.status} · Runtime: {m.runtime}")
+            console.print(f"   Siguiente: conciencia mission plan {m.id}")
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+    finally:
+        db.close()
+
+
+@mission_app.command("list")
+def mission_list(
+    status: Optional[str] = typer.Option(None, "--status"),
+    type: Optional[str] = typer.Option(None, "--type"),
+    limit: int = typer.Option(20, "--limit", "-n", min=1, max=100),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Lista misiones."""
+    db = _make_session()
+    try:
+        missions = mission_service.list_missions(db, status=status, type=type, limit=limit)
+        if json_out:
+            _json([m.to_dict() for m in missions])
+            return
+        if not missions:
+            console.print("Sin misiones. Creá una con: conciencia mission create", style="yellow")
+            return
+        table = Table(title=f"Missions ({len(missions)})")
+        for col in ("ID", "Nombre", "Tipo", "Status", "Runtime"):
+            table.add_column(col, style="cyan" if col == "Nombre" else None)
+        for m in missions:
+            table.add_row(str(m.id)[:8], m.name, m.type, m.status, m.runtime)
+        console.print(table)
+    finally:
+        db.close()
+
+
+@mission_app.command("inspect")
+def mission_inspect(
+    mission_id: str = typer.Argument(..., help="ID de la misión"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Muestra detalle de una misión."""
+    db = _make_session()
+    try:
+        m = db.query(Mission).filter(Mission.id == uuid.UUID(str(mission_id))).first()
+        if not m:
+            console.print(f"Misión no encontrada: {mission_id}", style="red")
+            raise typer.Exit(1)
+        if json_out:
+            _json(m.to_dict())
+            return
+        table = Table(title=m.name)
+        table.add_column("Campo", style="cyan")
+        table.add_column("Valor")
+        for k, v in m.to_dict().items():
+            table.add_row(k, str(v))
+        console.print(table)
+    finally:
+        db.close()
+
+
+@mission_app.command("plan")
+def mission_plan(
+    mission_id: str = typer.Argument(..., help="ID de la misión"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Genera el workflow por defecto para el tipo de misión."""
+    db = _make_session()
+    try:
+        m = db.query(Mission).filter(Mission.id == uuid.UUID(str(mission_id))).first()
+        if not m:
+            console.print(f"Misión no encontrada: {mission_id}", style="red")
+            raise typer.Exit(1)
+        m = mission_service.plan_mission(db, m)
+        console.print(f"✅ Misión planeada: workflow [cyan]{m.workflow_id}[/cyan] · status={m.status}")
+        console.print("   Siguiente: conciencia mission run " + mission_id)
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+    finally:
+        db.close()
+
+
+@mission_app.command("run")
+def mission_run(
+    mission_id: str = typer.Argument(..., help="ID de la misión"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Ejecuta la misión (crea MissionRun + corre el workflow)."""
+    db = _make_session()
+    try:
+        m = db.query(Mission).filter(Mission.id == uuid.UUID(str(mission_id))).first()
+        if not m:
+            console.print(f"Misión no encontrada: {mission_id}", style="red")
+            raise typer.Exit(1)
+        run = mission_service.run_mission(db, m)
+        if json_out:
+            _json(run.to_dict())
+            return
+        console.print(f"🏃 Misión ejecutada: {m.name}")
+        console.print(f"   Run: {run.id} · Status: {run.status}")
+        console.print(f"   Costo: {run.cost_usd.get('total', 0)}")
+        if run.status == "waiting_approval":
+            console.print("   ⏳ Esperando aprobación: conciencia approvals")
+        elif run.status == "failed" and run.error:
+            console.print(f"   ❌ Error: {run.error}", style="red")
+    finally:
+        db.close()
+
+
+@run_app.command("list")
+def run_list(
+    mission_id: Optional[str] = typer.Option(None, "--mission", "-m"),
+    limit: int = typer.Option(20, "--limit", "-n"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Lista runs de missions."""
+    db = _make_session()
+    try:
+        q = db.query(MissionRun).order_by(MissionRun.started_at.desc())
+        if mission_id:
+            q = q.filter(MissionRun.mission_id == uuid.UUID(str(mission_id)))
+        runs = q.limit(limit).all()
+        if json_out:
+            _json([r.to_dict() for r in runs])
+            return
+        if not runs:
+            console.print("Sin runs.", style="yellow")
+            return
+        table = Table(title=f"Mission Runs ({len(runs)})")
+        for col in ("ID", "Mission", "Status", "Costo", "Iniciado"):
+            table.add_column(col, style="cyan")
+        for r in runs:
+            table.add_row(str(r.id)[:8], str(r.mission_id)[:8], r.status, str(r.cost_usd.get("total", 0)), (r.started_at or "").strftime("%m-%d %H:%M") if r.started_at else "")
+        console.print(table)
+    finally:
+        db.close()
+
+
+@run_app.command("inspect")
+def run_inspect(
+    run_id: str = typer.Argument(..., help="ID del run"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Muestra detalle de un run (logs, costos, error)."""
+    db = _make_session()
+    try:
+        r = db.query(MissionRun).filter(MissionRun.id == uuid.UUID(str(run_id))).first()
+        if not r:
+            console.print(f"Run no encontrado: {run_id}", style="red")
+            raise typer.Exit(1)
+        if json_out:
+            _json(r.to_dict())
+            return
+        table = Table(title=f"Run {r.id}")
+        table.add_column("Campo", style="cyan")
+        table.add_column("Valor")
+        for k, v in r.to_dict().items():
+            table.add_row(k, str(v))
+        console.print(table)
+    finally:
+        db.close()
+
+
+@app.command("approvals")
+def approvals_list(json_out: bool = typer.Option(False, "--json")):
+    """Lista misiones esperando aprobación."""
+    db = _make_session()
+    try:
+        missions = mission_service.list_missions(db, status="waiting_approval")
+        if json_out:
+            _json([m.to_dict() for m in missions])
+            return
+        if not missions:
+            console.print("Sin aprobaciones pendientes.", style="green")
+            return
+        table = Table(title="Aprobaciones pendientes")
+        for col in ("Mission ID", "Nombre", "Tipo", "Workflow"):
+            table.add_column(col, style="cyan")
+        for m in missions:
+            table.add_row(str(m.id), m.name, m.type, m.workflow_id or "-")
+        console.print(table)
+        console.print("\nPara aprobar: conciencia approve <mission_id> <step_index> [--reject]")
+    finally:
+        db.close()
+
+
+@app.command("approve")
+def approve(
+    mission_id: str = typer.Argument(..., help="ID de la misión"),
+    step_index: int = typer.Argument(..., help="Índice del step a aprobar"),
+    reject: bool = typer.Option(False, "--reject", help="Rechazar en vez de aprobar"),
+):
+    """Aprueba (o rechaza) el step de aprobación de una misión."""
+    db = _make_session()
+    try:
+        run = mission_service.approve_mission_step(db, mission_id, step_index, approved=not reject)
+        console.print(f"{'❌ Rechazado' if reject else '✅ Aprobado'} step {step_index} de misión {mission_id}")
+        console.print(f"   Run status: {run.status}")
+        if run.status == "waiting_approval":
+            console.print("   ⏳ Siguiente step esperando aprobación")
+        elif run.status == "completed":
+            console.print("   🎉 Misión completada")
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+    finally:
+        db.close()
+
+
+@app.command("status")
+def status_cmd(json_out: bool = typer.Option(False, "--json")):
+    """Resumen general del sistema (misiones, runs, leads, agentes)."""
+    db = _make_session()
+    try:
+        from app.models.agent import Agent
+        from app.modules.leadhunter.models import Lead
+        missions = db.query(Mission).count()
+        runs = db.query(MissionRun).count()
+        leads = db.query(Lead).count()
+        agents = db.query(Agent).count()
+        if json_out:
+            _json({"missions": missions, "runs": runs, "leads": leads, "agents": agents})
+            return
+        table = Table(title="Conciencia status")
+        table.add_column("Componente", style="cyan")
+        table.add_column("Cantidad")
+        table.add_row("Misiones", str(missions))
+        table.add_row("Runs", str(runs))
+        table.add_row("Leads", str(leads))
+        table.add_row("Agentes", str(agents))
+        console.print(table)
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

@@ -204,6 +204,25 @@ conciencia modules                           # lista módulos del sistema y su e
 conciencia modules --json
 ```
 
+### mission — misiones (Fase B: Mission = unidad central de trabajo)
+
+```bash
+conciencia mission create "Auditar arquitectura" "Identificar deuda técnica" --type technical-audit
+conciencia mission list
+conciencia mission inspect <mission_id>
+conciencia mission plan <mission_id>      # genera workflow por defecto del tipo
+conciencia mission run <mission_id>       # crea MissionRun + ejecuta workflow
+conciencia approvals                      # misiones esperando aprobación
+conciencia approve <mission_id> <step>    # aprueba el step (--reject para rechazar)
+conciencia run list --mission <id>
+conciencia run inspect <run_id>
+conciencia status                         # resumen: misiones/runs/leads/agentes
+```
+
+Tipos de misión: research, software-development, code-review, debugging, architecture, testing, devops, deployment, technical-audit, agent-design, workflow-design, automation, integration, data-analysis, product-research, competitive-research, technical-discovery, lead-research, technical-proposal.
+
+Ciclo completo: `create → plan → run → (waiting_approval) → approve → completed`. Los workflows con step `approval: true` quedan pausados esperando decisión humana (human-in-the-loop).
+
 ### map — mapa conceptual
 
 ```bash
