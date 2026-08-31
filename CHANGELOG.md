@@ -13,6 +13,20 @@
 - resultado / estado
 ```
 
+## [Unreleased] — Mission Orchestration (master prompt: Fase A + B + C) 🎯
+
+### Fase B — Mission como unidad central (ad4d25a)
+- **Archivos:** backend `app/models/mission.py` (Mission + MissionRun, nuevo), `app/services/mission_service.py` (nuevo), `app/routers/missions.py` (nuevo), `cli.py` (mission/run/approvals/status), `app/main.py` (title "Conciencia"), `tests/test_missions.py` (6 tests), `docs/PHASE_A_AUDIT.md` (auditoría completa)
+- **Cambio:** Mission = capa de orquestación que REFERENCIA Task/Workflow/AgentExecution (no duplica); type/status como String para evitar ALTER TYPE en Postgres prod; run reusa workflow_engine (approval gates human-in-the-loop); CLI completo: mission create/list/inspect/plan/run + run list/inspect + approvals/approve + status
+- **Resultado:** suite 215 verdes (+6); CLI E2E create→plan→run→approve→completed verificado
+
+### Fase C — CLI Foundation (init/doctor/agent/workflow/runtime/tool/model/run-watch)
+- **Archivos:** backend `cli.py` (init, doctor, agent inspect/run, workflow, workflow-inspect, workflow-run, runtime, tool, model, run-watch), `tests/test_cli_phase_c.py` (11 tests), `docs/USAGE.md` (sección Fase C)
+- **Cambio:** CLI operativo de punta a punta sin web: init detecta git/stack/CI y crea .conciencia/; doctor diagnostica DB/tablas/runtimes/embeddings; agent inspect muestra SOUL/capabilities/permisos; agent run ejecuta por adapter (o runtime override); workflow list/inspect/run; runtime/tool/model listan registries; run-watch observa un run en vivo (rich Live)
+- **Resultado:** suite 226 verdes (+11); verificado en terminal local (doctor 12/12 ✅, runtimes 6, tools, models, workflow inspect)
+
+## [Unreleased] - LeadHunter Intelligence Engine (Fases 1-11) ?? COMPLETO
+
 ---
 
 ## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-11) 🏁 COMPLETO

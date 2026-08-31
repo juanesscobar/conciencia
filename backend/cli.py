@@ -54,11 +54,13 @@ lead_app = typer.Typer(help="Lead individual: inspect, enrich, score.")
 config_app = typer.Typer(help="Configuración persistente (Settings).")
 mission_app = typer.Typer(help="Missions: crear, planear, ejecutar, inspeccionar.")
 run_app = typer.Typer(help="Runs: listar e inspeccionar ejecuciones de missions.")
+agent_app = typer.Typer(help="Agente individual: inspect, run.")
 app.add_typer(leads_app, name="leads")
 app.add_typer(lead_app, name="lead")
 app.add_typer(config_app, name="config")
 app.add_typer(mission_app, name="mission")
 app.add_typer(run_app, name="run")
+app.add_typer(agent_app, name="agent")
 
 console = Console()
 
@@ -808,6 +810,489 @@ def status_cmd(json_out: bool = typer.Option(False, "--json")):
         table.add_row("Leads", str(leads))
         table.add_row("Agentes", str(agents))
         console.print(table)
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Fase C — CLI Foundation: init, doctor, agent inspect/run, workflow, runtime/tool/model
+# ---------------------------------------------------------------------------
+
+@app.command("init")
+def init_cmd(
+    dir: str = typer.Argument(".", help="Directorio del proyecto a inicializar"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Detecta contexto del proyecto (git, stack, CI) y crea .conciencia/."""
+    import subprocess
+    from pathlib import Path
+
+    root = Path(dir).resolve()
+    if not root.is_dir():
+        console.print(f"Directorio no encontrado: {root}", style="red")
+        raise typer.Exit(1)
+
+    info = {"path": str(root), "git": False, "branch": None, "remotes": [], "stack": [], "detected": []}
+
+    # git
+    if (root / ".git").exists():
+        info["git"] = True
+        try:
+            branch = subprocess.run(["git", "-C", str(root), "branch", "--show-current"], capture_output=True, text=True, timeout=10)
+            info["branch"] = branch.stdout.strip() or None
+            rem = subprocess.run(["git", "-C", str(root), "remote", "-v"], capture_output=True, text=True, timeout=10)
+            info["remotes"] = [l.split()[1] for l in rem.stdout.splitlines() if l.split()]
+        except Exception:
+            pass
+
+    # stack markers
+    markers = {
+        "Python": ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
+        "Node.js": ["package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"],
+        "FastAPI": ["app/main.py"],
+        "React": ["frontend/package.json", "vite.config.ts", "vite.config.js"],
+        "Docker": ["Dockerfile", "docker-compose.yml", "compose.yaml"],
+        "PostgreSQL": ["docker-compose.yml", "docker-compose.dev.yml"],
+        "CI": [".github/workflows", ".gitlab-ci.yml"],
+        "Tests": ["tests/", "pytest.ini", "pyproject.toml"],
+    }
+    for name, files in markers.items():
+        if any((root / f).exists() for f in files):
+            info["stack"].append(name)
+            info["detected"].append(f"{name}: {', '.join(f for f in files if (root / f).exists())}")
+
+    # crear .conciencia/
+    conf_dir = root / ".conciencia"
+    conf_dir.mkdir(exist_ok=True)
+    (conf_dir / "project.yaml").write_text(
+        f"# Generado por `conciencia init` — {datetime.utcnow().isoformat()}Z\n"
+        f"name: {root.name}\n"
+        f"path: {root}\n"
+        f"git: {str(info['git']).lower()}\n"
+        f"branch: {info['branch'] or 'none'}\n"
+        f"stack:\n" + "".join(f"  - {s}\n" for s in info["stack"]),
+        encoding="utf-8",
+    )
+    (conf_dir / "context.md").write_text(
+        f"# Contexto del proyecto: {root.name}\n\n"
+        f"- Git: {info['git']} ({info['branch'] or 'sin branch'})\n"
+        f"- Remotes: {', '.join(info['remotes']) or 'ninguno'}\n"
+        f"- Stack detectado: {', '.join(info['stack']) or 'no detectado'}\n",
+        encoding="utf-8",
+    )
+
+    if json_out:
+        _json(info)
+        return
+    console.print(f"✅ Proyecto inicializado: [cyan]{root.name}[/cyan]")
+    console.print(f"   Git: {info['git']} · Branch: {info['branch'] or '-'} · Remotes: {len(info['remotes'])}")
+    console.print(f"   Stack: {', '.join(info['stack']) or 'no detectado'}")
+    console.print(f"   Creado: {conf_dir}/project.yaml + context.md")
+
+
+@app.command("doctor")
+def doctor_cmd(json_out: bool = typer.Option(False, "--json")):
+    """Diagnóstico del sistema: DB, tablas, runtimes, embeddings, CLI."""
+    import sqlalchemy
+    from app.core.agent_runtime import get_runtime_configs, check_runtime_health
+    from app.modules.leadhunter.embeddings import embeddings_enabled, embedding_model
+
+    checks = []
+
+    def add(name, ok, detail):
+        checks.append({"name": name, "ok": ok, "detail": detail})
+
+    # DB
+    try:
+        db = _make_session()
+        db.execute(sqlalchemy.text("SELECT 1"))
+        db.close()
+        add("database", True, "conexión ok")
+    except Exception as e:  # noqa: BLE001
+        add("database", False, str(e))
+
+    # Tablas core
+    for tbl in ("missions", "mission_runs", "leads", "agents", "workflows"):
+        try:
+            db = _make_session()
+            exists = sqlalchemy.inspect(db.get_bind()).has_table(tbl)
+            db.close()
+            add(f"table:{tbl}", exists, "ok" if exists else "NO EXISTE")
+        except Exception as e:  # noqa: BLE001
+            add(f"table:{tbl}", False, str(e))
+
+    # Runtimes: deshabilitado NO es fallo (es configuración). Solo falla si
+    # está habilitado pero el binario no está disponible.
+    try:
+        db = _make_session()
+        for cfg in get_runtime_configs(db):
+            health = check_runtime_health(cfg)
+            ok = True if not cfg.enabled else health.get("status") != "missing"
+            add(f"runtime:{cfg.name}", ok, f"enabled={cfg.enabled} · {health.get('status', '?')}")
+        db.close()
+    except Exception as e:  # noqa: BLE001
+        add("runtimes", False, str(e))
+
+    # Embeddings: deshabilitado es válido (modo simulado)
+    try:
+        add("embeddings", True, f"enabled={embeddings_enabled()} · {embedding_model()}")
+    except Exception as e:  # noqa: BLE001
+        add("embeddings", False, str(e))
+
+    if json_out:
+        _json(checks)
+        return
+    table = Table(title="Conciencia doctor")
+    table.add_column("Chequeo", style="cyan")
+    table.add_column("Estado")
+    table.add_column("Detalle")
+    for c in checks:
+        table.add_row(c["name"], "✅" if c["ok"] else "❌", c["detail"])
+    console.print(table)
+    failed = [c for c in checks if not c["ok"]]
+    if failed:
+        console.print(f"\n⚠️  {len(failed)} chequeo(s) fallido(s).", style="yellow")
+        raise typer.Exit(1)
+    console.print("\n✅ Todo ok.", style="green")
+
+
+@app.command("tool")
+def tool_list(json_out: bool = typer.Option(False, "--json")):
+    """Lista tools/servidores MCP registrados."""
+    db = _make_session()
+    try:
+        from app.models.setting import Setting
+        from app.routers.mcp import MCP_SETTINGS_KEY, BUILTIN_EMAIL_SERVER
+        row = db.query(Setting).filter(Setting.key == MCP_SETTINGS_KEY).first()
+        servers = []
+        if row and row.value:
+            try:
+                servers = json.loads(row.value)
+            except Exception:
+                servers = []
+        if not any(s.get("name") == "email" for s in servers):
+            servers.append(BUILTIN_EMAIL_SERVER)
+        if json_out:
+            _json(servers)
+            return
+        table = Table(title="Tools / MCP servers")
+        for col in ("Nombre", "Tipo", "Habilitado"):
+            table.add_column(col, style="cyan")
+        for s in servers:
+            table.add_row(s.get("name", "?"), s.get("label", s.get("command", "?")), str(s.get("enabled", True)))
+        console.print(table)
+    finally:
+        db.close()
+
+
+@app.command("runtime")
+def runtime_list(json_out: bool = typer.Option(False, "--json")):
+    """Lista runtimes registrados + salud de cada binario."""
+    db = _make_session()
+    try:
+        from app.core.agent_runtime import get_runtime_configs, check_runtime_health
+        configs = get_runtime_configs(db)
+        if json_out:
+            _json([{**cfg.to_dict(), **check_runtime_health(cfg)} for cfg in configs])
+            return
+        table = Table(title="Runtimes")
+        for col in ("Nombre", "Tipo", "Habilitado", "Salud"):
+            table.add_column(col, style="cyan")
+        for cfg in configs:
+            health = check_runtime_health(cfg)
+            table.add_row(cfg.name, cfg.type, "✅" if cfg.enabled else "—", health.get("status", "?"))
+        console.print(table)
+    finally:
+        db.close()
+
+
+@agent_app.command("inspect")
+def agent_inspect(
+    agent_id: str = typer.Argument(..., help="ID o rol del agente (dev, ops, research…)"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Muestra detalle de un agente (SOUL, capabilities, runtime, permisos)."""
+    import uuid as _uuid
+
+    db = _make_session()
+    try:
+        from app.models.agent import Agent
+        from app.services.agent_soul import load_agent_persona, AGENTS_DIR
+
+        agent = None
+        try:
+            agent = db.query(Agent).filter(Agent.id == _uuid.UUID(str(agent_id))).first()
+        except Exception:
+            agent = None
+        if not agent:
+            agent = db.query(Agent).filter(Agent.role == agent_id.lower()).first()
+        if not agent:
+            console.print(f"Agente no encontrado: {agent_id}", style="red")
+            raise typer.Exit(1)
+
+        role = agent.role.value if hasattr(agent.role, "value") else str(agent.role)
+        persona = load_agent_persona(role) or ""
+        d = {
+            "id": str(agent.id),
+            "name": agent.name,
+            "emoji": agent.emoji,
+            "role": role,
+            "runtime": agent.runtime.value if hasattr(agent.runtime, "value") else agent.runtime,
+            "provider": agent.provider.value if hasattr(agent.provider, "value") else agent.provider,
+            "model": agent.model,
+            "status": agent.status.value if hasattr(agent.status, "value") else agent.status,
+            "capabilities": agent.capabilities or [],
+            "config": agent.config or {},
+            "soul": persona[:2000],
+        }
+        if json_out:
+            _json(d)
+            return
+        table = Table(title=f"{agent.emoji or ''} {agent.name} ({role})")
+        table.add_column("Campo", style="cyan")
+        table.add_column("Valor")
+        for k in ("id", "runtime", "provider", "model", "status"):
+            table.add_row(k, str(d[k]))
+        table.add_row("capabilities", ", ".join(d["capabilities"]))
+        if d.get("config", {}).get("permissions"):
+            perm = d["config"]["permissions"]
+            table.add_row("permissions", f"allow={perm.get('allow')} deny={perm.get('deny')}")
+        console.print(table)
+        if persona:
+            console.print("\n[cyan]SOUL.md (primeros 600 chars):[/cyan]")
+            console.print(persona[:600])
+    finally:
+        db.close()
+
+
+@agent_app.command("run")
+def agent_run(
+    agent_id: str = typer.Argument(..., help="ID o rol del agente (dev, ops, research…)"),
+    task: str = typer.Argument(..., help="Tarea a ejecutar"),
+    runtime: Optional[str] = typer.Option(None, "--runtime", help="Override de runtime (codex, openclaw…)"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Ejecuta el agente con una tarea (adapter de su runtime)."""
+    import uuid as _uuid
+    from datetime import datetime as _dt
+
+    db = _make_session()
+    try:
+        from app.models.agent import Agent
+        from app.models.execution import AgentExecution, ExecutionStatus
+        from app.adapters.registry import get_adapter
+        from app.adapters.base import AgentIdentity
+        from app.services.agent_soul import load_agent_persona
+
+        agent = None
+        try:
+            agent = db.query(Agent).filter(Agent.id == _uuid.UUID(str(agent_id))).first()
+        except Exception:
+            agent = None
+        if not agent:
+            agent = db.query(Agent).filter(Agent.role == agent_id.lower()).first()
+        if not agent:
+            console.print(f"Agente no encontrado: {agent_id}", style="red")
+            raise typer.Exit(1)
+
+        runtime_name = (getattr(agent, "runtime", None) or "generic")
+        runtime_name = runtime_name.value if hasattr(runtime_name, "value") else runtime_name
+        if runtime:
+            runtime_name = runtime.lower()
+
+        provider_name = getattr(agent, "provider", None)
+        provider_name = provider_name.value if hasattr(provider_name, "value") else (provider_name or "deepseek")
+        role = agent.role.value if hasattr(agent.role, "value") else str(agent.role)
+        system_prompt = load_agent_persona(role) or agent.system_prompt or agent.personality or ""
+
+        identity = AgentIdentity(
+            agent_id=str(agent.id), name=agent.name, role=role,
+            runtime=runtime_name, provider=provider_name, model=agent.model,
+            system_prompt=system_prompt, capabilities=agent.capabilities or [],
+            config=agent.config or {},
+        )
+
+        execution = AgentExecution(agent_id=agent.id, status=ExecutionStatus.RUNNING, started_at=_dt.utcnow())
+        db.add(execution)
+        db.commit()
+        db.refresh(execution)
+
+        if runtime_name == "generic" or runtime_name == getattr(agent, "runtime", None):
+            adapter = get_adapter(runtime_name)
+            if not adapter:
+                console.print(f"Runtime '{runtime_name}' sin adapter", style="red")
+                raise typer.Exit(1)
+            result = adapter.dispatch_task(identity, task, None)
+        else:
+            from app.core.agent_runtime import run_in_runtime
+            from app.adapters.base import DispatchResult
+            cli = run_in_runtime(db, runtime_name, task, None)
+            result = DispatchResult(ok=cli.ok, status=cli.status, output=cli.output, error=cli.error, runtime=cli.runtime)
+
+        if not result.ok or result.status == "failed":
+            execution.status = ExecutionStatus.FAILED
+            execution.error_message = result.error
+            execution.completed_at = _dt.utcnow()
+            db.commit()
+            console.print(f"❌ {agent.name} falló: {result.error}", style="red")
+            raise typer.Exit(1)
+
+        execution.status = ExecutionStatus.COMPLETED
+        execution.output = result.output
+        execution.completed_at = _dt.utcnow()
+        db.commit()
+
+        if json_out:
+            _json({"agent": agent.name, "status": "completed", "output": result.output, "execution_id": str(execution.id)})
+            return
+        console.print(f"✅ {agent.name} · runtime={result.runtime} · model={result.model or '-'}")
+        console.print("---")
+        console.print((result.output or "(sin output)")[:2000])
+    finally:
+        db.close()
+
+
+@app.command("model")
+def model_list(json_out: bool = typer.Option(False, "--json")):
+    """Lista providers/modelos configurados del LLM Harness."""
+    db = _make_session()
+    try:
+        from app.models.agent import Agent
+        agents = db.query(Agent).order_by(Agent.name).all()
+        seen = {}
+        for a in agents:
+            prov = getattr(a, "provider", None)
+            prov_name = prov.value if hasattr(prov, "value") else (prov or "?")
+            model = getattr(a, "model", None) or "default"
+            seen.setdefault(prov_name, set()).add(model)
+        rows = [{"provider": p, "models": sorted(m)} for p, m in seen.items()]
+        if json_out:
+            _json(rows)
+            return
+        table = Table(title="Providers / modelos en uso")
+        for col in ("Provider", "Modelos"):
+            table.add_column(col, style="cyan")
+        for r in rows:
+            table.add_row(r["provider"], ", ".join(r["models"]))
+        console.print(table)
+    finally:
+        db.close()
+
+
+@app.command("workflow")
+def workflow_list(json_out: bool = typer.Option(False, "--json")):
+    """Lista workflows (declarativos, con estado)."""
+    db = _make_session()
+    try:
+        from app.models.workflow import Workflow
+        workflows = db.query(Workflow).order_by(Workflow.created_at.desc()).limit(50).all()
+        if json_out:
+            _json([w.to_dict() for w in workflows])
+            return
+        if not workflows:
+            console.print("Sin workflows.", style="yellow")
+            return
+        table = Table(title=f"Workflows ({len(workflows)})")
+        for col in ("ID", "Nombre", "Status", "Steps", "Misión"):
+            table.add_column(col, style="cyan")
+        for w in workflows:
+            table.add_row(w.id[:12], w.name, w.status, str(len(w.definition or [])), w.project_id or "-")
+        console.print(table)
+    finally:
+        db.close()
+
+
+@app.command("workflow-inspect")
+def workflow_inspect(workflow_id: str = typer.Argument(...)):
+    """Muestra la definición de steps de un workflow."""
+    db = _make_session()
+    try:
+        from app.models.workflow import Workflow
+        wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+        if not wf:
+            console.print(f"Workflow no encontrado: {workflow_id}", style="red")
+            raise typer.Exit(1)
+        console.print(f"[cyan]{wf.name}[/cyan] · status={wf.status}")
+        for i, step in enumerate(wf.definition or []):
+            gate = "🔒 aprobación" if step.get("approval") else ""
+            caps = ",".join(step.get("capabilities") or []) or "—"
+            console.print(f"  {i}: [bold]{step.get('name', f'step_{i}')}[/bold] caps={caps} timeout={step.get('timeout', 0)}s retry={step.get('retry', 0)} {gate}")
+    finally:
+        db.close()
+
+
+@app.command("workflow-run")
+def workflow_run_cmd(workflow_id: str = typer.Argument(...), json_out: bool = typer.Option(False, "--json")):
+    """Ejecuta un workflow directamente (workflow_engine)."""
+    db = _make_session()
+    try:
+        from app.models.workflow import Workflow
+        from app.services import workflow_engine
+        wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+        if not wf:
+            console.print(f"Workflow no encontrado: {workflow_id}", style="red")
+            raise typer.Exit(1)
+        run = workflow_engine.execute_workflow(db, wf.id)
+        if json_out:
+            _json(run.to_dict())
+            return
+        console.print(f"🏃 Workflow {wf.name} · run={run.id[:12]} · status={run.status}")
+        for step in (run.step_results or []):
+            icon = "✅" if step.get("status") == "completed" else ("🔒" if step.get("status") == "waiting_approval" else "❌")
+            console.print(f"  {icon} {step.get('step_name')} · {step.get('status')} · cost={step.get('cost', 0)}")
+    finally:
+        db.close()
+
+
+@app.command("run-watch")
+def run_watch(
+    run_id: str = typer.Argument(..., help="ID del MissionRun"),
+    interval: float = typer.Option(2.0, "--interval", help="Segundos entre polls"),
+    max_waits: int = typer.Option(30, "--max-waits", help="Máximo de polls antes de salir"),
+):
+    """Observa un run de misión en vivo (logs + estado + costo)."""
+    import time as _time
+
+    db = _make_session()
+    try:
+        from rich.live import Live
+        from rich.panel import Panel
+
+        mission = None
+        r = db.query(MissionRun).filter(MissionRun.id == uuid.UUID(str(run_id))).first()
+        if not r:
+            console.print(f"Run no encontrado: {run_id}", style="red")
+            raise typer.Exit(1)
+        mission = db.query(Mission).filter(Mission.id == r.mission_id).first()
+
+        def render() -> Panel:
+            db.expire_all()
+            rr = db.query(MissionRun).filter(MissionRun.id == r.id).first()
+            lines = [
+                f"Misión: {mission.name if mission else '?'} ({rr.mission_id})",
+                f"Status: [bold]{rr.status}[/bold] · Run: {rr.id}",
+                f"Costo: ${rr.cost_usd.get('total', 0)} · Tokens: {rr.tokens.get('total', 0)}",
+                f"Iniciado: {rr.started_at} · Completado: {rr.completed_at or '—'}",
+            ]
+            if rr.error:
+                lines.append(f"Error: {rr.error}")
+            logs = rr.logs or []
+            if logs:
+                lines.append("")
+                lines.append("Logs:")
+                for lg in logs[-8:]:
+                    lines.append(f"  {lg.get('ts', '')} {lg.get('level', 'info')}: {lg.get('message', '')}")
+            return Panel("\n".join(lines), title=f"MISSION RUN {str(rr.id)[:8]}")
+
+        with Live(render(), refresh_per_second=2, console=console) as live:
+            for _ in range(max_waits):
+                live.update(render())
+                db.expire_all()
+                rr = db.query(MissionRun).filter(MissionRun.id == r.id).first()
+                if rr.status in ("completed", "failed", "cancelled"):
+                    live.update(render())
+                    break
+                _time.sleep(interval)
     finally:
         db.close()
 

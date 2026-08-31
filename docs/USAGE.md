@@ -223,6 +223,24 @@ Tipos de misión: research, software-development, code-review, debugging, archit
 
 Ciclo completo: `create → plan → run → (waiting_approval) → approve → completed`. Los workflows con step `approval: true` quedan pausados esperando decisión humana (human-in-the-loop).
 
+### Fase C — Foundation: init, doctor, agent, workflow, runtimes
+
+```bash
+conciencia init [dir]                  # detecta git/stack/CI y crea .conciencia/
+conciencia doctor                      # diagnóstico: DB, tablas, runtimes, embeddings
+conciencia agent inspect <id|rol>      # detalle: SOUL, capabilities, permisos, runtime
+conciencia agent run <id|rol> "tarea" [--runtime generic]   # ejecuta el agente
+conciencia workflow                    # lista workflows
+conciencia workflow-inspect <id>       # steps de un workflow
+conciencia workflow-run <id>           # ejecuta un workflow directo
+conciencia runtime                     # runtimes + salud de binarios
+conciencia tool                        # tools / servidores MCP
+conciencia model                       # providers/modelos en uso
+conciencia run-watch <run_id>          # observa un run en vivo (estado/costo/logs)
+```
+
+> `agent run` sin `DEEPSEEK_API_KEY` responde "LLM no configurado" (modo real requiere key en Settings; el adapter generic es el motor embebido).
+
 ### map — mapa conceptual
 
 ```bash
