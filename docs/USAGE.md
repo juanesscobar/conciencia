@@ -241,7 +241,36 @@ conciencia run-watch <run_id>          # observa un run en vivo (estado/costo/lo
 
 > `agent run` sin `DEEPSEEK_API_KEY` responde "LLM no configurado" (modo real requiere key en Settings; el adapter generic es el motor embebido).
 
-### map — mapa conceptual
+### ask - misión desde lenguaje natural (Fase E: Mission Planning)
+
+Convierte texto natural en una propuesta estructurada de misión (tipo, agentes sugeridos por capabilities, runtime, workflow, costo estimado y criterios de éxito). Funciona 100% por reglas, sin API keys. La creación requiere confirmación humana (o `--yes`).
+
+```bash
+conciencia ask "investigar el mercado de logística en Paraguay"   # propuesta → confirmar → crear
+conciencia ask "implementar un módulo de reportes" --yes          # crea directo
+conciencia ask "auditar el backend" --json                        # propuesta como JSON (no crea nada)
+```
+
+```text
+📋 Propuesta de misión — tipo: research
+   Nombre: investigar el mercado de logística en Paraguay
+   Runtime: generic
+   Costo est.: $0.0013 · 2100 tokens (deepseek/deepseek-chat)
+   Agentes sugeridos:
+     • ResearchBot (rd) — 100% match · score 100 · generic/deepseek/deepseek-chat
+   Workflow:
+     0: research
+     1: synthesis
+     2: approval 🔒 aprobación
+   Criterios de éxito:
+     • resultado documentado
+     • evidencia adjunta
+✅ Misión creada: ... · Siguiente: conciencia mission plan <id>
+```
+
+Clasificación de intentos: technical-audit, code-review, debugging, testing, deployment, devops, architecture, data-analysis, competitive-research, product-research, technical-discovery, lead-research, technical-proposal, integration, automation, agent-design, workflow-design, research, software-development (fallback). API: `POST /api/v1/ask` (propuesta) y `POST /api/v1/ask/create` (confirmación → misión).
+
+### map - mapa conceptual
 
 ```bash
 conciencia map                              # grafo ASCII del flujo completo de la plataforma

@@ -32,6 +32,7 @@ from app.routers.decisions import router as decisions_router
 from app.routers.context_packs import router as context_packs_router
 from app.routers.assistant import router as assistant_router
 from app.routers.missions import router as missions_router
+from app.routers.ask import router as ask_router
 from app.config import get_cors_origins, ENVIRONMENT
 from app.services.system_logger import setup_logging
 from app.database import Base, engine
@@ -97,6 +98,7 @@ app.include_router(decisions_router)
 app.include_router(context_packs_router)
 app.include_router(assistant_router)
 app.include_router(missions_router)
+app.include_router(ask_router)
 
 
 @app.middleware("http")

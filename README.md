@@ -186,6 +186,10 @@ conciencia lead enrich <id>      # enrich from website
 conciencia hunt --industry distribuidoras
 conciencia config get            # settings (get/set)
 conciencia agents · conciencia modules
+conciencia ask "investigar el mercado de logística"   # texto natural → propuesta de misión
+conciencia mission create|plan|run|inspect           # ciclo completo de misiones
+conciencia approve <mission> <step>                  # human-in-the-loop
+conciencia status · conciencia doctor · conciencia map
 ```
 
 Full CLI reference: [docs/USAGE.md](docs/USAGE.md#4-uso-cli)

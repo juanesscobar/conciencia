@@ -742,6 +742,60 @@ def run_inspect(
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# Fase E — Mission Planning: conciencia ask (master prompt §9/§E)
+# ---------------------------------------------------------------------------
+
+@app.command("ask")
+def ask_cmd(
+    text: str = typer.Argument(..., help="Texto natural: qué querés lograr"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirmar y crear sin preguntar"),
+    json_out: bool = typer.Option(False, "--json", help="Mostrar la propuesta como JSON (no crea nada)"),
+):
+    """Texto natural → propuesta de misión. Confirma antes de crear."""
+    from app.services import ask_service
+
+    db = _make_session()
+    try:
+        proposal = ask_service.build_proposal(db, text)
+        if json_out:
+            _json(proposal)
+            return
+
+        console.print(f"[bold cyan]📋 Propuesta de misión[/bold cyan] — tipo: {proposal['mission_type']}")
+        console.print(f"   Nombre: {proposal['name']}")
+        console.print(f"   Runtime: {proposal['runtime']}")
+        cost = proposal["cost_estimate"]
+        console.print(f"   Costo est.: ${cost['cost_usd']} · {cost['tokens_total']} tokens ({cost['model']})")
+        if proposal["agents"]:
+            console.print("   Agentes sugeridos:")
+            for a in proposal["agents"]:
+                console.print(f"     • {a['name']} ({a['role']}) — {a['coverage']}% match · score {a['score']} · {a['runtime']}/{a['model']}")
+        else:
+            console.print("   Agentes sugeridos: ninguno con match (revisá capabilities)", style="yellow")
+        console.print("   Workflow:")
+        for i, s in enumerate(proposal["workflow"]):
+            gate = " 🔒 aprobación" if s["approval"] else ""
+            console.print(f"     {i}: {s['name']}{gate}")
+        console.print("   Criterios de éxito:")
+        for c in proposal["success_criteria"]:
+            console.print(f"     • {c}")
+
+        if not yes and not typer.confirm("\n¿Crear la misión?", default=False):
+            console.print("Cancelado.", style="yellow")
+            raise typer.Exit(0)
+
+        m = ask_service.create_from_proposal(db, proposal)
+        console.print(f"✅ Misión creada: [cyan]{m.name}[/cyan] ({m.id})")
+        console.print(f"   Tipo: {m.type} · Status: {m.status} · Runtime: {m.runtime}")
+        console.print(f"   Siguiente: conciencia mission plan {m.id}")
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+    finally:
+        db.close()
+
+
 @app.command("approvals")
 def approvals_list(json_out: bool = typer.Option(False, "--json")):
     """Lista misiones esperando aprobación."""
