@@ -280,6 +280,28 @@ Ejemplo de spec:
 
 Comportamiento: instructions reemplazan el system prompt (template renderizado con el contexto de la misión), el runtime del agente debe estar en `allowed` (si no, el step falla con error claro), y el output se valida contra `output_contract`/`validation` después del dispatch (si no cumple, el step falla). API: `/api/v1/harnesses` (CRUD + `/activate` + `/archive` + `/validate`). Los steps de workflow aceptan `harness_id` propio (override del de la misión).
 
+### signal — hallazgos trazables con evidencia (Fase I)
+
+Una **Signal** es un hallazgo de una misión (insight/risk/opportunity/decision/lead/finding) con trazabilidad completa: de qué misión/run/step/agente salió y qué **Evidence** lo respalda (quote, URL, dato, tool_result). Las evidencias se agregan a `missions.evidence_ids` (vista global de la misión).
+
+```bash
+conciencia signal list [--mission <id>] [--type risk] [--status new]
+conciencia signal inspect <signal_id>      # detalle + evidencia
+conciencia signal add <mission_id> "Título" --type risk --summary "..." --evidence "..."
+conciencia signal extract <mission_id>     # extracción automática desde outputs
+```
+
+**Extracción automática**: cuando una misión se completa (o con `signal extract`), los outputs de los steps se escanean por marcadores — cada uno genera una Signal con su Evidence:
+
+```text
+SIGNAL: risk| Mercado saturado | Alta competencia en refrigerado
+EVIDENCE: competidores con flota propia en Asunción
+EVIDENCE: https://ejemplo.com/mercado
+SIGNAL: oportunidad
+```
+
+API: `/api/v1/signals` (CRUD + `/extract` + `/{id}/evidence`).
+
 ### Observabilidad (Fase H)
 
 Cada ejecución produce un **timeline estructurado** (`workflow_runs.events`): `workflow_started`, `step_started`, `step_completed`, `step_failed`, `workflow_failed`, `approval_required/approved/rejected`, `parallel_completed` — cada evento con step, agente, runtime, provider, model, tokens, costo, duración y error. Los `step_results` registran por step: **tokens** (prompt/completion/total), **costo**, **runtime**, **provider**, **model**, **duration_ms**, **actions**, **tool_calls** y **failure state** (error exacto).

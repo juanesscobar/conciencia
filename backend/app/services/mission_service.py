@@ -199,6 +199,15 @@ def run_mission(db: Session, mission: Mission) -> MissionRun:
             mission.status = "failed"
             run.error = wf_run.error
         db.commit()
+
+        # Fase I: extraer Signals (marcadores SIGNAL:/EVIDENCE:) al completar
+        if run.status == "completed":
+            try:
+                from app.services import signal_service
+
+                signal_service.extract_from_mission(db, mission, mission_run=run)
+            except Exception:  # noqa: BLE001 — la extracción nunca rompe el run
+                log.warning("signal extraction failed", exc_info=True)
     except Exception as e:  # noqa: BLE001 — registro y estado failed
         log.exception("Mission run failed")
         run.status = "failed"

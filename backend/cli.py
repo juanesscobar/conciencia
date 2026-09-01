@@ -57,6 +57,7 @@ run_app = typer.Typer(help="Runs: listar e inspeccionar ejecuciones de missions.
 agent_app = typer.Typer(help="Agente individual: inspect, run.")
 team_app = typer.Typer(help="Teams: agrupar agentes especializados (Fase F).")
 harness_app = typer.Typer(help="Harnesses: contratos versionados de ejecución (Fase G).")
+signal_app = typer.Typer(help="Signals: hallazgos trazables con evidencia (Fase I).")
 app.add_typer(leads_app, name="leads")
 app.add_typer(lead_app, name="lead")
 app.add_typer(config_app, name="config")
@@ -65,6 +66,7 @@ app.add_typer(run_app, name="run")
 app.add_typer(agent_app, name="agent")
 app.add_typer(team_app, name="team")
 app.add_typer(harness_app, name="harness")
+app.add_typer(signal_app, name="signal")
 
 console = Console()
 
@@ -1747,6 +1749,134 @@ def harness_validate(
             for e in errors:
                 console.print(f"   • {e}", style="red")
             raise typer.Exit(1)
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Fase I — Signals: hallazgos trazables con evidencia (master prompt §I)
+# ---------------------------------------------------------------------------
+
+@signal_app.command("list")
+def signal_list(
+    mission_id: Optional[str] = typer.Option(None, "--mission", "-m", help="Filtrar por misión"),
+    type: Optional[str] = typer.Option(None, "--type", "-t", help="insight|risk|opportunity|decision|lead|finding"),
+    status: Optional[str] = typer.Option(None, "--status", help="new|acknowledged|dismissed"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Lista signals (hallazgos de misiones)."""
+    from app.services import signal_service
+
+    db = _make_session()
+    try:
+        signals = signal_service.list_signals(db, mission_id=mission_id, type=type, status=status)
+        if json_out:
+            _json([s.to_dict() for s in signals])
+            return
+        if not signals:
+            console.print("Sin signals.", style="yellow")
+            return
+        table = Table(title=f"Signals ({len(signals)})")
+        for col in ("ID", "Tipo", "Título", "Status", "Misión", "Fuente"):
+            table.add_column(col, style="cyan" if col == "Título" else None)
+        for s in signals:
+            table.add_row(str(s.id)[:8], s.type, s.title[:40], s.status, str(s.mission_id)[:8], s.source_step or "-")
+        console.print(table)
+    finally:
+        db.close()
+
+
+@signal_app.command("inspect")
+def signal_inspect(
+    signal_id: str = typer.Argument(..., help="ID de la signal"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Muestra detalle de una signal + evidencia."""
+    from app.services import signal_service
+
+    db = _make_session()
+    try:
+        s = signal_service.get_signal(db, signal_id)
+        if not s:
+            console.print(f"Signal no encontrada: {signal_id}", style="red")
+            raise typer.Exit(1)
+        if json_out:
+            _json(s.to_dict())
+            return
+        table = Table(title=f"[{s.type}] {s.title}")
+        table.add_column("Campo", style="cyan")
+        table.add_column("Valor")
+        d = s.to_dict()
+        d.pop("evidence", None)
+        for k, v in d.items():
+            table.add_row(k, str(v))
+        console.print(table)
+        if s.evidences:
+            console.print("\nEvidencia:")
+            for e in s.evidences:
+                console.print(f"  • [{e.kind}] {e.content[:200]}" + (f" ({e.source})" if e.source else ""))
+    finally:
+        db.close()
+
+
+@signal_app.command("add")
+def signal_add(
+    mission_id: str = typer.Argument(..., help="ID de la misión"),
+    title: str = typer.Argument(..., help="Título del hallazgo"),
+    type: str = typer.Option("finding", "--type", "-t", help="insight|risk|opportunity|decision|lead|finding"),
+    summary: Optional[str] = typer.Option(None, "--summary", "-s"),
+    evidence: Optional[str] = typer.Option(None, "--evidence", "-e", help="Contenido de evidencia (quote)"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Registra una signal manualmente (con evidencia opcional)."""
+    from app.services import signal_service
+
+    db = _make_session()
+    try:
+        sig = signal_service.create_signal(
+            db,
+            mission_id=mission_id,
+            title=title,
+            type=type,
+            summary=summary,
+            evidences=[{"kind": "quote", "content": evidence}] if evidence else None,
+        )
+        if json_out:
+            _json(sig.to_dict())
+        else:
+            console.print(f"✅ Signal [{sig.type}]: {sig.title} ({sig.id})")
+            console.print(f"   Evidencia: {len(sig.evidences)} ítem(s) · Misión {mission_id}")
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+    finally:
+        db.close()
+
+
+@signal_app.command("extract")
+def signal_extract(
+    mission_id: str = typer.Argument(..., help="ID de la misión"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Extrae signals desde los outputs de la misión (marcadores SIGNAL:/EVIDENCE:)."""
+    from app.models.mission import Mission
+    from app.services import signal_service
+
+    db = _make_session()
+    try:
+        mission = db.query(Mission).filter(Mission.id == uuid.UUID(str(mission_id))).first()
+        if not mission:
+            console.print(f"Misión no encontrada: {mission_id}", style="red")
+            raise typer.Exit(1)
+        created = signal_service.extract_from_mission(db, mission)
+        if json_out:
+            _json([s.to_dict() for s in created])
+        elif created:
+            console.print(f"✅ {len(created)} signal(s) extraídas:")
+            for s in created:
+                console.print(f"  • [{s.type}] {s.title} — {len(s.evidences)} evidencia(s)")
+        else:
+            console.print("Sin marcadores SIGNAL: en los outputs (nada que extraer).", style="yellow")
     finally:
         db.close()
 
