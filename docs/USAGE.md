@@ -253,6 +253,33 @@ Un step puede ser un BLOQUE PARALELO (fan-out → fan-in): los children corren c
 
 El workflow default de `lead-research` ya usa un bloque paralelo (discovery ⚡ + enrich en paralelo, luego classify, luego approval). `conciencia ask` marca los steps paralelos con ⚡ y sugiere el mejor team si existe.
 
+### harness — contratos versionados de ejecución (Fase G: Harness Layer)
+
+Un Harness formaliza CÓMO ejecuta un agente, independiente de quién es: **instructions** (system prompt con placeholders `{objective}` `{project_name}` `{context_pack}`), **context** (template + max_chars), **tools** (allow/deny), **validation** (reglas de input/output), **guardrails** (constraints), **runtime** (allowed runtimes) y **output_contract** (formato + campos requeridos, validado post-dispatch). Se versiona con `new_version` (historial en `versions`) y se reutiliza entre misiones.
+
+```bash
+conciencia harness create "Research Harness" --spec harness_spec.json   # spec JSON → draft
+conciencia harness activate <harness_id>                                # solo activos se usan
+conciencia harness list [--status active]
+conciencia harness inspect <harness_id>                                 # spec + historial
+conciencia harness validate <harness_id> "output real"                  # prueba contra el contrato
+conciencia mission create "..." "..." --harness <harness_id>            # misión con harness
+```
+
+Ejemplo de spec:
+```json
+{
+  "instructions": "Eres un investigador senior. Objetivo: {objective}.",
+  "context": {"template": "Misión: {objective}", "max_chars": 4000},
+  "tools": {"allow": ["web_search", "read"], "deny": ["write"]},
+  "guardrails": ["no_network"],
+  "runtime": {"default": "generic", "allowed": ["generic", "claude_code"]},
+  "output_contract": {"format": "json", "required_fields": ["summary", "findings"]}
+}
+```
+
+Comportamiento: instructions reemplazan el system prompt (template renderizado con el contexto de la misión), el runtime del agente debe estar en `allowed` (si no, el step falla con error claro), y el output se valida contra `output_contract`/`validation` después del dispatch (si no cumple, el step falla). API: `/api/v1/harnesses` (CRUD + `/activate` + `/archive` + `/validate`). Los steps de workflow aceptan `harness_id` propio (override del de la misión).
+
 ### Fase C — Foundation: init, doctor, agent, workflow, runtimes
 
 ```bash

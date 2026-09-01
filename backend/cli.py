@@ -56,6 +56,7 @@ mission_app = typer.Typer(help="Missions: crear, planear, ejecutar, inspeccionar
 run_app = typer.Typer(help="Runs: listar e inspeccionar ejecuciones de missions.")
 agent_app = typer.Typer(help="Agente individual: inspect, run.")
 team_app = typer.Typer(help="Teams: agrupar agentes especializados (Fase F).")
+harness_app = typer.Typer(help="Harnesses: contratos versionados de ejecución (Fase G).")
 app.add_typer(leads_app, name="leads")
 app.add_typer(lead_app, name="lead")
 app.add_typer(config_app, name="config")
@@ -63,6 +64,7 @@ app.add_typer(mission_app, name="mission")
 app.add_typer(run_app, name="run")
 app.add_typer(agent_app, name="agent")
 app.add_typer(team_app, name="team")
+app.add_typer(harness_app, name="harness")
 
 console = Console()
 
@@ -564,6 +566,7 @@ def mission_create(
     runtime: str = typer.Option("generic", "--runtime", help="Runtime: generic|claude_code|codex|opencode|openclaw|mcp"),
     agents: Optional[str] = typer.Option(None, "--agents", help="IDs de agentes separados por coma"),
     team: Optional[str] = typer.Option(None, "--team", help="ID del team (Fase F): runtime default + miembros"),
+    harness: Optional[str] = typer.Option(None, "--harness", help="ID del harness activo (Fase G): contrato de ejecución"),
     json_out: bool = typer.Option(False, "--json"),
 ):
     """Crea una misión (draft)."""
@@ -577,12 +580,13 @@ def mission_create(
             runtime=runtime,
             agent_ids=[a.strip() for a in agents.split(",") if a.strip()] if agents else None,
             team_id=team,
+            harness_id=harness,
         )
         if json_out:
             _json(m.to_dict())
         else:
             console.print(f"✅ Misión creada: [cyan]{m.name}[/cyan] ({m.id})")
-            console.print(f"   Tipo: {m.type} · Status: {m.status} · Runtime: {m.runtime}" + (f" · Team: {m.team_id}" if m.team_id else ""))
+            console.print(f"   Tipo: {m.type} · Status: {m.status} · Runtime: {m.runtime}" + (f" · Team: {m.team_id}" if m.team_id else "") + (f" · Harness: {m.harness_id}" if m.harness_id else ""))
             console.print(f"   Siguiente: conciencia mission plan {m.id}")
     except ValueError as e:
         console.print(f"Error: {e}", style="red")
@@ -1549,6 +1553,157 @@ def team_match(
         for m in matches:
             table.add_row(m["team_id"][:8], m["name"], f"{m['coverage']}%", str(m["score"]), str(m["members_count"]), m["default_runtime"])
         console.print(table)
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Fase G — Harnesses: contratos versionados de ejecución (master prompt §G)
+# ---------------------------------------------------------------------------
+
+@harness_app.command("create")
+def harness_create(
+    name: str = typer.Argument(..., help="Nombre del harness"),
+    spec_file: Optional[str] = typer.Option(None, "--spec", "-f", help="Archivo JSON con el spec ({instructions, runtime.allowed, ...})"),
+    version: str = typer.Option("1.0.0", "--version"),
+    description: Optional[str] = typer.Option(None, "--description", "-d"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Crea un harness (draft). --spec apunta a un archivo JSON con el spec."""
+    from app.services import harness_service
+
+    spec = None
+    if spec_file:
+        import pathlib
+
+        p = pathlib.Path(spec_file)
+        if not p.is_file():
+            console.print(f"Archivo de spec no encontrado: {spec_file}", style="red")
+            raise typer.Exit(1)
+        try:
+            spec = json.loads(p.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            console.print(f"Spec inválido (JSON): {e}", style="red")
+            raise typer.Exit(1)
+
+    db = _make_session()
+    try:
+        h = harness_service.create_harness(db, name=name, description=description, spec=spec, version=version)
+        if json_out:
+            _json(h.to_dict())
+        else:
+            console.print(f"✅ Harness creado: [cyan]{h.name}[/cyan] v{h.version} ({h.id})")
+            console.print(f"   Status: {h.status} · Activalo con: conciencia harness activate {h.id}")
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+    finally:
+        db.close()
+
+
+@harness_app.command("list")
+def harness_list(
+    status: Optional[str] = typer.Option(None, "--status", help="draft|active|archived"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Lista harnesses."""
+    from app.services import harness_service
+
+    db = _make_session()
+    try:
+        harnesses = harness_service.list_harnesses(db, status=status)
+        if json_out:
+            _json([h.to_dict() for h in harnesses])
+            return
+        if not harnesses:
+            console.print("Sin harnesses. Creá uno con: conciencia harness create", style="yellow")
+            return
+        table = Table(title=f"Harnesses ({len(harnesses)})")
+        for col in ("ID", "Nombre", "Versión", "Status", "Runtime allowed"):
+            table.add_column(col, style="cyan" if col == "Nombre" else None)
+        for h in harnesses:
+            allowed = ", ".join((h.spec or {}).get("runtime", {}).get("allowed", [])) or "-"
+            table.add_row(str(h.id)[:8], h.name, h.version, h.status, allowed)
+        console.print(table)
+    finally:
+        db.close()
+
+
+@harness_app.command("inspect")
+def harness_inspect(
+    harness_id: str = typer.Argument(..., help="ID del harness"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Muestra detalle de un harness (spec + historial de versiones)."""
+    from app.services import harness_service
+
+    db = _make_session()
+    try:
+        h = harness_service.get_harness(db, harness_id)
+        if not h:
+            console.print(f"Harness no encontrado: {harness_id}", style="red")
+            raise typer.Exit(1)
+        if json_out:
+            _json(h.to_dict())
+            return
+        table = Table(title=f"{h.name} v{h.version}")
+        table.add_column("Campo", style="cyan")
+        table.add_column("Valor")
+        for k, v in h.to_dict().items():
+            table.add_row(k, json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v))
+        console.print(table)
+    finally:
+        db.close()
+
+
+@harness_app.command("activate")
+def harness_activate(
+    harness_id: str = typer.Argument(..., help="ID del harness"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Activa un harness (solo activos se pueden usar en misiones)."""
+    from app.services import harness_service
+
+    db = _make_session()
+    try:
+        h = harness_service.get_harness(db, harness_id)
+        if not h:
+            console.print(f"Harness no encontrado: {harness_id}", style="red")
+            raise typer.Exit(1)
+        h = harness_service.set_status(db, h, "active")
+        if json_out:
+            _json(h.to_dict())
+        else:
+            console.print(f"✅ Harness activado: [cyan]{h.name}[/cyan] v{h.version}")
+    finally:
+        db.close()
+
+
+@harness_app.command("validate")
+def harness_validate(
+    harness_id: str = typer.Argument(..., help="ID del harness"),
+    output: str = typer.Argument(..., help="Output real del agente a validar"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Prueba un output contra el output_contract del harness."""
+    from app.services import harness_service
+
+    db = _make_session()
+    try:
+        h = harness_service.get_harness(db, harness_id)
+        if not h:
+            console.print(f"Harness no encontrado: {harness_id}", style="red")
+            raise typer.Exit(1)
+        ok, errors = harness_service.validate_output(h, output)
+        if json_out:
+            _json({"ok": ok, "errors": errors})
+        elif ok:
+            console.print("✅ Output válido contra el contrato", style="green")
+        else:
+            console.print("❌ Output inválido:", style="red")
+            for e in errors:
+                console.print(f"   • {e}", style="red")
+            raise typer.Exit(1)
     finally:
         db.close()
 

@@ -34,16 +34,25 @@ log = logging.getLogger("workflows")
 
 
 def execute_workflow(db: Session, workflow_id: str, run_id: str | None = None,
-                     team_id: str | None = None) -> WorkflowRun:
+                     team_id: str | None = None,
+                     harness_id: str | None = None,
+                     mission_ctx: Optional[dict] = None,
+                     agent_pool: Optional[List[str]] = None) -> WorkflowRun:
     """Ejecuta un workflow sincrónicamente (o continúa un run existente).
 
     team_id: contexto de team para resolver steps por capabilities dentro del
     team primero (Fase F — Mission coordina agentes de un team).
+    harness_id: Harness versionado que formaliza CÓMO ejecutan los agentes
+    (Fase G — instructions/context/tools/guardrails/runtime/output contract).
+    agent_pool: IDs de agentes que la misión seleccionó explícitamente — se
+    prefieren en el matching por capabilities (después del team, antes del
+    registry global).
     """
     wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
     if not wf:
         raise ValueError("Workflow not found")
 
+    harness = _load_harness(db, harness_id)
     run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first() if run_id else None
     if not run:
         run = start_run(db, wf)
@@ -86,7 +95,7 @@ def execute_workflow(db: Session, workflow_id: str, run_id: str | None = None,
 
         # bloque paralelo (fan-out → fan-in)
         if step.get("parallel") and step.get("steps"):
-            output, error, cost, children = _run_parallel_block(db, step, wf, team_id)
+            output, error, cost, children = _run_parallel_block(db, step, wf, team_id, harness, mission_ctx, agent_pool)
             results.append({
                 "step_index": idx,
                 "step_name": step_name,
@@ -111,7 +120,8 @@ def execute_workflow(db: Session, workflow_id: str, run_id: str | None = None,
             continue
 
         # ejecutar el step (si tiene agente o task_text)
-        output, error, cost = _run_step(db, step, wf, team_id=team_id)
+        output, error, cost = _run_step(db, step, wf, team_id=team_id, harness=harness,
+                                        mission_ctx=mission_ctx, agent_pool=agent_pool)
         results.append({
             "step_index": idx,
             "step_name": step_name,
@@ -141,14 +151,20 @@ def execute_workflow(db: Session, workflow_id: str, run_id: str | None = None,
 
 
 def _run_step(db: Session, step: dict, wf: Workflow,
-              team_id: Optional[str] = None) -> Tuple[Optional[str], Optional[str], float]:
+              team_id: Optional[str] = None,
+              harness: Optional[Any] = None,
+              mission_ctx: Optional[dict] = None,
+              agent_pool: Optional[List[str]] = None) -> Tuple[Optional[str], Optional[str], float]:
     """Ejecuta un step. Si no hay agente/tarea, es un step declarativo (no-op ok).
 
     Resolución de agente (en orden):
       1. agent_id explícito
       2. capabilities dentro del team (si team_id y el team cubre >= 50%)
-      3. capabilities global (registry)
+      3. capabilities dentro del pool de la misión (si agent_pool)
+      4. capabilities global (registry)
     step.runtime (si existe) filtra el matching por runtime.
+    harness: Harness versionado (Fase G) que formaliza instructions/context/
+    tools/guardrails/runtime/output contract. step.harness_id overridea.
     """
     task_text = step.get("task") or step.get("task_text")
     agent_id = step.get("agent_id")
@@ -172,9 +188,16 @@ def _run_step(db: Session, step: dict, wf: Workflow,
                 runtime=runtime_hint,
             )
         if not best:
-            from app.services.capability_matching import best_agent
+            from app.services.capability_matching import match_agents, best_agent
 
-            best = best_agent(db, required_capabilities=caps, runtime=runtime_hint)
+            if agent_pool:
+                pool = set(agent_pool)
+                for cand in match_agents(db, required_capabilities=caps, runtime=runtime_hint, min_score=50):
+                    if cand["agent_id"] in pool:
+                        best = cand
+                        break
+            if not best:
+                best = best_agent(db, required_capabilities=caps, runtime=runtime_hint)
         if not best:
             if hard_caps:
                 return None, f"No hay agente que cubra >=50% de {hard_caps}", 0.0
@@ -214,14 +237,51 @@ def _run_step(db: Session, step: dict, wf: Workflow,
         capabilities=agent.capabilities or [], config=agent.config or {},
     )
 
+    # --- Fase G: aplicar harness (step-level overridea el de la misión) ---
+    active_harness = harness
+    step_harness_id = step.get("harness_id")
+    if step_harness_id and (not harness or str(getattr(harness, "id", "")) != str(step_harness_id)):
+        active_harness = _load_harness(db, step_harness_id)
+    final_context = step.get("context")
+    if active_harness:
+        from app.services import harness_service
+
+        patch, herrors = harness_service.apply_harness(
+            active_harness, agent, mission_context=mission_ctx or {}
+        )
+        if herrors:
+            return None, "; ".join(herrors), 0.0
+        if patch.get("system_prompt"):
+            identity.system_prompt = patch["system_prompt"]
+        if patch.get("context"):
+            final_context = "\n\n".join(x for x in [final_context, patch["context"]] if x) or None
+        identity.config = {**identity.config, **(patch.get("config") or {})}
+
     start = time.time()
-    result = adapter.dispatch_task(identity, task_text, step.get("context"))
+    result = adapter.dispatch_task(identity, task_text, final_context)
     cost = 0.0
     if result.usage and result.usage.get("cost_estimate_usd"):
         cost = float(result.usage["cost_estimate_usd"])
     if result.status == "failed":
         return None, result.error, cost
+
+    # --- Fase G: validar output contra el contrato del harness ---
+    if active_harness:
+        from app.services import harness_service
+
+        vok, verrors = harness_service.validate_output(active_harness, result.output)
+        if not vok:
+            return None, f"validación de harness ({active_harness.name} v{active_harness.version}): {'; '.join(verrors)}", cost
     return result.output, None, cost
+
+
+def _load_harness(db: Session, harness_id: Optional[str]):
+    """Carga el harness por id; None si no hay o no existe (sin error)."""
+    if not harness_id:
+        return None
+    from app.services.harness_service import get_harness
+
+    return get_harness(db, harness_id)
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +294,10 @@ def _new_session(db: Session) -> Session:
 
 
 def _run_parallel_block(db: Session, step: dict, wf: Workflow,
-                        team_id: Optional[str]) -> Tuple[str, Optional[str], float, List[dict]]:
+                        team_id: Optional[str],
+                        harness: Optional[Any] = None,
+                        mission_ctx: Optional[dict] = None,
+                        agent_pool: Optional[List[str]] = None) -> Tuple[str, Optional[str], float, List[dict]]:
     """Fan-out: corre los children del bloque en threads y espera a todos.
 
     Devuelve (output_summary, error, cost_total, children_results).
@@ -250,7 +313,9 @@ def _run_parallel_block(db: Session, step: dict, wf: Workflow,
     def _run_child(child: dict) -> dict:
         child_session = _new_session(db)
         try:
-            output, error, cost = _run_step(child_session, child, wf, team_id=team_id)
+            output, error, cost = _run_step(child_session, child, wf, team_id=team_id,
+                                            harness=harness, mission_ctx=mission_ctx,
+                                            agent_pool=agent_pool)
             return {
                 "name": child.get("name", "child"),
                 "status": "completed" if not error else "failed",
@@ -293,7 +358,10 @@ def _run_parallel_block(db: Session, step: dict, wf: Workflow,
 # ---------------------------------------------------------------------------
 
 def approve_step(db: Session, run: WorkflowRun, step_index: int, approved: bool,
-                 team_id: Optional[str] = None) -> WorkflowRun:
+                 team_id: Optional[str] = None,
+                 harness_id: Optional[str] = None,
+                 mission_ctx: Optional[dict] = None,
+                 agent_pool: Optional[List[str]] = None) -> WorkflowRun:
     """Aprueba/rechaza el step que esperaba aprobación y continúa."""
     results = copy.deepcopy(run.step_results or [])
     for r in results:
@@ -317,7 +385,9 @@ def approve_step(db: Session, run: WorkflowRun, step_index: int, approved: bool,
             wf.completed_at = datetime.utcnow()
     db.commit()
     if approved:
-        execute_workflow(db, run.workflow_id, run.id, team_id=team_id)
+        execute_workflow(db, run.workflow_id, run.id, team_id=team_id,
+                         harness_id=harness_id, mission_ctx=mission_ctx,
+                         agent_pool=agent_pool)
     return run
 
 

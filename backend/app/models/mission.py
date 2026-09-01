@@ -49,6 +49,7 @@ class Mission(Base):
     context_pack_id = Column(String(50), nullable=True)   # ContextPack usa String hex
     workflow_id = Column(String(50), nullable=True)       # Workflow usa String hex
     team_id = Column(String(50), nullable=True)           # Fase F: Team como string (mismo patrón que workflow_id)
+    harness_id = Column(String(50), nullable=True)        # Fase G: Harness versionado como string
 
     # Agentes seleccionados (ids UUID como strings), runtime, presupuesto
     agent_ids = Column(JSON, default=list)
@@ -82,6 +83,7 @@ class Mission(Base):
             "context_pack_id": self.context_pack_id,
             "workflow_id": self.workflow_id,
             "team_id": self.team_id,
+            "harness_id": self.harness_id,
             "agent_ids": self.agent_ids or [],
             "runtime": self.runtime,
             "budget": self.budget or {},

@@ -29,6 +29,8 @@ class StepDef(BaseModel):
     max_parallel: Optional[int] = None
     # Fase F: filtrar matching por runtime (ej: claude_code)
     runtime: Optional[str] = None
+    # Fase G: harness versionado para este step (override del de la misión)
+    harness_id: Optional[str] = None
 
 
 class WorkflowCreate(BaseModel):

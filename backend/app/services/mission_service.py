@@ -67,6 +67,7 @@ def create_mission(
     requester_id: Optional[str] = None,
     agent_ids: Optional[List[str]] = None,
     team_id: Optional[str] = None,
+    harness_id: Optional[str] = None,
     runtime: str = "generic",
     budget: Optional[dict] = None,
     approval_policy: Optional[dict] = None,
@@ -90,6 +91,16 @@ def create_mission(
             runtime = team.default_runtime or "generic"
         team_members = [str(m) for m in (team.member_ids or [])]
 
+    # Fase G: validar harness existente y activo
+    if harness_id:
+        from app.services import harness_service
+
+        harness = harness_service.get_harness(db, harness_id)
+        if not harness:
+            raise ValueError(f"Harness no encontrado: {harness_id}")
+        if harness.status != "active":
+            raise ValueError(f"Harness '{harness.name}' no está activo (status: {harness.status})")
+
     mission = Mission(
         name=name,
         objective=objective,
@@ -100,6 +111,7 @@ def create_mission(
         requester_id=requester_id,
         agent_ids=agent_ids or team_members or [],
         team_id=team_id,
+        harness_id=harness_id,
         runtime=runtime,
         budget=budget or {},
         approval_policy=approval_policy or {},
@@ -148,7 +160,12 @@ def run_mission(db: Session, mission: Mission) -> MissionRun:
     db.commit()
 
     try:
-        wf_run = workflow_engine.execute_workflow(db, wf.id, team_id=mission.team_id)
+        mission_ctx = _mission_context(db, mission)
+        wf_run = workflow_engine.execute_workflow(
+            db, wf.id, team_id=mission.team_id,
+            harness_id=mission.harness_id, mission_ctx=mission_ctx,
+            agent_pool=[str(a) for a in (mission.agent_ids or [])] or None,
+        )
         run.workflow_run_id = wf_run.id
         # El engine usa "paused" para approval gates → exponer como waiting_approval
         run.status = "waiting_approval" if wf_run.status == "paused" else wf_run.status
@@ -201,7 +218,13 @@ def approve_mission_step(db: Session, mission_id: str, step_index: int, approved
     if not wf_run:
         raise ValueError("WorkflowRun no encontrado")
 
-    workflow_engine.approve_step(db, wf_run, step_index, approved, team_id=mission.team_id)
+    workflow_engine.approve_step(
+        db, wf_run, step_index, approved,
+        team_id=mission.team_id,
+        harness_id=mission.harness_id,
+        mission_ctx=_mission_context(db, mission),
+        agent_pool=[str(a) for a in (mission.agent_ids or [])] or None,
+    )
     # approve_step ya re-ejecuta el workflow internamente si approved
     db.refresh(wf_run)
     run.status = "waiting_approval" if wf_run.status == "paused" else wf_run.status
@@ -226,3 +249,23 @@ def list_missions(db: Session, status: Optional[str] = None, type: Optional[str]
     if type:
         q = q.filter(Mission.type == type)
     return q.limit(limit).all()
+
+
+def _mission_context(db: Session, mission: Mission) -> dict:
+    """Contexto para templates del harness: objective/description/project/context_pack."""
+    from app.services import harness_service
+
+    project_name = None
+    if mission.project_id:
+        from app.models.project import Project
+
+        proj = db.query(Project).filter(Project.id == uuid.UUID(str(mission.project_id))).first()
+        if proj:
+            project_name = proj.name
+    return harness_service.build_mission_context(
+        db,
+        objective=mission.objective,
+        description=mission.description,
+        project_name=project_name,
+        context_pack_id=mission.context_pack_id,
+    )
