@@ -124,16 +124,28 @@ _STEP_TOKENS: Dict[str, tuple] = {
 
 
 def estimate_cost(workflow_steps: List[dict], model: str = "default") -> dict:
-    """Estima costo y tokens de un workflow (sin llamadas reales)."""
+    """Estima costo y tokens de un workflow (sin llamadas reales).
+
+    Recorre también steps anidados de bloques paralelos (Fase F).
+    """
     price_in, price_out = _MODEL_PRICES.get(model, _MODEL_PRICES["default"])
     total_in = total_out = 0
-    for step in workflow_steps or []:
+
+    def _count(step: dict) -> None:
+        nonlocal total_in, total_out
         if step.get("approval"):
-            continue
+            return
+        if step.get("parallel") and step.get("steps"):
+            for child in step["steps"]:
+                _count(child)
+            return
         name = step.get("name", "default")
         t_in, t_out = _STEP_TOKENS.get(name, _STEP_TOKENS["default"])
         total_in += t_in
         total_out += t_out
+
+    for step in workflow_steps or []:
+        _count(step)
     cost_in = total_in / 1_000_000 * price_in
     cost_out = total_out / 1_000_000 * price_out
     total = round(cost_in + cost_out, 4)
@@ -159,7 +171,15 @@ def build_proposal(db: Session, text: str) -> dict:
     agents = match_agents(db, required_capabilities=caps)
     top_agents = agents[:3] if agents else []
 
+    # Fase F: sugiero teams que cubran las capabilities (0 si no hay teams)
+    from app.services import team_service
+
+    teams = team_service.match_teams(db, required_capabilities=caps)[:3]
+    suggested_team = teams[0] if teams else None
+
     runtime = _TYPE_RUNTIME.get(mtype, "generic")
+    if suggested_team:
+        runtime = suggested_team.get("default_runtime") or runtime
     workflow_steps = mission_service.DEFAULT_WORKFLOWS.get(mtype, mission_service.DEFAULT_WORKFLOWS["research"])
 
     model = "default"
@@ -174,8 +194,9 @@ def build_proposal(db: Session, text: str) -> dict:
         "objective": text,
         "runtime": runtime,
         "agents": top_agents,
+        "team": suggested_team,
         "workflow": [
-            {"name": s.get("name"), "approval": bool(s.get("approval")), "capabilities": s.get("capabilities", [])}
+            {"name": s.get("name"), "approval": bool(s.get("approval")), "capabilities": s.get("capabilities", []), "parallel": bool(s.get("parallel"))}
             for s in workflow_steps
         ],
         "cost_estimate": cost,
@@ -207,12 +228,17 @@ def _default_criteria(mtype: str) -> List[str]:
 
 def create_from_proposal(db: Session, proposal: dict) -> Mission:
     """Crea la misión a partir de una propuesta confirmada."""
+    team_id = (proposal.get("team") or {}).get("team_id")
+    # Si hay team seleccionado, los agentes explícitos quedan de referencia:
+    # los miembros del team pueblan agent_ids en create_mission.
+    agents = [a["agent_id"] for a in proposal["agents"]] if not team_id else None
     return mission_service.create_mission(
         db,
         name=proposal["name"],
         objective=proposal["objective"],
         type=proposal["mission_type"],
         runtime=proposal["runtime"],
-        agent_ids=[a["agent_id"] for a in proposal["agents"]],
+        agent_ids=agents,
+        team_id=team_id,
         success_criteria=proposal["success_criteria"],
     )

@@ -41,8 +41,15 @@ DEFAULT_WORKFLOWS = {
         {"name": "report", "agent": None, "capabilities": ["reporting"], "timeout": 300, "retry": 1},
     ],
     "lead-research": [
-        {"name": "discovery", "agent": None, "capabilities": ["leads.read", "search.execute"], "timeout": 600, "retry": 2},
-        {"name": "enrich", "agent": None, "capabilities": ["website_fetch"], "timeout": 600, "retry": 2},
+        {
+            "name": "discovery",
+            "parallel": True,
+            "max_parallel": 2,
+            "steps": [
+                {"name": "discover-leads", "capabilities": ["leads.read", "search.execute"], "timeout": 600, "retry": 2},
+                {"name": "enrich-websites", "capabilities": ["website_fetch"], "timeout": 600, "retry": 2},
+            ],
+        },
         {"name": "classify", "agent": None, "capabilities": ["classification"], "timeout": 300, "retry": 1},
         {"name": "approval", "approval": True, "capabilities": [], "timeout": 0},
     ],
@@ -59,6 +66,7 @@ def create_mission(
     project_id: Optional[str] = None,
     requester_id: Optional[str] = None,
     agent_ids: Optional[List[str]] = None,
+    team_id: Optional[str] = None,
     runtime: str = "generic",
     budget: Optional[dict] = None,
     approval_policy: Optional[dict] = None,
@@ -66,6 +74,22 @@ def create_mission(
 ) -> Mission:
     if type not in MISSION_TYPES:
         raise ValueError(f"Tipo de misión inválido: {type}. Válidos: {', '.join(MISSION_TYPES)}")
+
+    # Fase F: si la misión apunta a un team → runtime default del team y
+    # agent_ids se pueblan con los miembros (a menos que vengan explícitos).
+    team_members: List[str] = []
+    if team_id:
+        from app.services import team_service
+
+        team = team_service.get_team(db, team_id)
+        if not team:
+            raise ValueError(f"Team no encontrado: {team_id}")
+        if team.status != "active":
+            raise ValueError(f"Team '{team.name}' no está activo (status: {team.status})")
+        if not runtime or runtime == "generic":
+            runtime = team.default_runtime or "generic"
+        team_members = [str(m) for m in (team.member_ids or [])]
+
     mission = Mission(
         name=name,
         objective=objective,
@@ -74,7 +98,8 @@ def create_mission(
         status="draft",
         project_id=project_id,
         requester_id=requester_id,
-        agent_ids=agent_ids or [],
+        agent_ids=agent_ids or team_members or [],
+        team_id=team_id,
         runtime=runtime,
         budget=budget or {},
         approval_policy=approval_policy or {},
@@ -123,7 +148,7 @@ def run_mission(db: Session, mission: Mission) -> MissionRun:
     db.commit()
 
     try:
-        wf_run = workflow_engine.execute_workflow(db, wf.id)
+        wf_run = workflow_engine.execute_workflow(db, wf.id, team_id=mission.team_id)
         run.workflow_run_id = wf_run.id
         # El engine usa "paused" para approval gates → exponer como waiting_approval
         run.status = "waiting_approval" if wf_run.status == "paused" else wf_run.status
@@ -176,7 +201,7 @@ def approve_mission_step(db: Session, mission_id: str, step_index: int, approved
     if not wf_run:
         raise ValueError("WorkflowRun no encontrado")
 
-    workflow_engine.approve_step(db, wf_run, step_index, approved)
+    workflow_engine.approve_step(db, wf_run, step_index, approved, team_id=mission.team_id)
     # approve_step ya re-ejecuta el workflow internamente si approved
     db.refresh(wf_run)
     run.status = "waiting_approval" if wf_run.status == "paused" else wf_run.status

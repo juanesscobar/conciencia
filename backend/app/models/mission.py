@@ -48,6 +48,7 @@ class Mission(Base):
     requester_id = Column(Uuid, ForeignKey("users.id"), nullable=True)
     context_pack_id = Column(String(50), nullable=True)   # ContextPack usa String hex
     workflow_id = Column(String(50), nullable=True)       # Workflow usa String hex
+    team_id = Column(String(50), nullable=True)           # Fase F: Team como string (mismo patrón que workflow_id)
 
     # Agentes seleccionados (ids UUID como strings), runtime, presupuesto
     agent_ids = Column(JSON, default=list)
@@ -80,6 +81,7 @@ class Mission(Base):
             "requester_id": str(self.requester_id) if self.requester_id else None,
             "context_pack_id": self.context_pack_id,
             "workflow_id": self.workflow_id,
+            "team_id": self.team_id,
             "agent_ids": self.agent_ids or [],
             "runtime": self.runtime,
             "budget": self.budget or {},

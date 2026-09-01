@@ -25,6 +25,7 @@ class AskProposal(BaseModel):
     objective: str
     runtime: str
     agents: list
+    team: Optional[dict] = None
     workflow: list
     cost_estimate: dict
     success_criteria: list

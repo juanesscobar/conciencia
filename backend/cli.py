@@ -55,12 +55,14 @@ config_app = typer.Typer(help="Configuración persistente (Settings).")
 mission_app = typer.Typer(help="Missions: crear, planear, ejecutar, inspeccionar.")
 run_app = typer.Typer(help="Runs: listar e inspeccionar ejecuciones de missions.")
 agent_app = typer.Typer(help="Agente individual: inspect, run.")
+team_app = typer.Typer(help="Teams: agrupar agentes especializados (Fase F).")
 app.add_typer(leads_app, name="leads")
 app.add_typer(lead_app, name="lead")
 app.add_typer(config_app, name="config")
 app.add_typer(mission_app, name="mission")
 app.add_typer(run_app, name="run")
 app.add_typer(agent_app, name="agent")
+app.add_typer(team_app, name="team")
 
 console = Console()
 
@@ -561,6 +563,7 @@ def mission_create(
     type: str = typer.Option("research", "--type", "-t", help="Tipo: " + ", ".join(MISSION_TYPES)),
     runtime: str = typer.Option("generic", "--runtime", help="Runtime: generic|claude_code|codex|opencode|openclaw|mcp"),
     agents: Optional[str] = typer.Option(None, "--agents", help="IDs de agentes separados por coma"),
+    team: Optional[str] = typer.Option(None, "--team", help="ID del team (Fase F): runtime default + miembros"),
     json_out: bool = typer.Option(False, "--json"),
 ):
     """Crea una misión (draft)."""
@@ -573,12 +576,13 @@ def mission_create(
             type=type,
             runtime=runtime,
             agent_ids=[a.strip() for a in agents.split(",") if a.strip()] if agents else None,
+            team_id=team,
         )
         if json_out:
             _json(m.to_dict())
         else:
             console.print(f"✅ Misión creada: [cyan]{m.name}[/cyan] ({m.id})")
-            console.print(f"   Tipo: {m.type} · Status: {m.status} · Runtime: {m.runtime}")
+            console.print(f"   Tipo: {m.type} · Status: {m.status} · Runtime: {m.runtime}" + (f" · Team: {m.team_id}" if m.team_id else ""))
             console.print(f"   Siguiente: conciencia mission plan {m.id}")
     except ValueError as e:
         console.print(f"Error: {e}", style="red")
@@ -767,6 +771,9 @@ def ask_cmd(
         console.print(f"   Runtime: {proposal['runtime']}")
         cost = proposal["cost_estimate"]
         console.print(f"   Costo est.: ${cost['cost_usd']} · {cost['tokens_total']} tokens ({cost['model']})")
+        if proposal.get("team"):
+            t = proposal["team"]
+            console.print(f"   👥 Team sugerido: {t['name']} ({t['coverage']}% match · {t['members_count']} miembros · runtime {t['default_runtime']})")
         if proposal["agents"]:
             console.print("   Agentes sugeridos:")
             for a in proposal["agents"]:
@@ -776,7 +783,8 @@ def ask_cmd(
         console.print("   Workflow:")
         for i, s in enumerate(proposal["workflow"]):
             gate = " 🔒 aprobación" if s["approval"] else ""
-            console.print(f"     {i}: {s['name']}{gate}")
+            par = " ⚡ paralelo" if s.get("parallel") else ""
+            console.print(f"     {i}: {s['name']}{gate}{par}")
         console.print("   Criterios de éxito:")
         for c in proposal["success_criteria"]:
             console.print(f"     • {c}")
@@ -1347,6 +1355,200 @@ def run_watch(
                     live.update(render())
                     break
                 _time.sleep(interval)
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Fase F — Teams: agrupar agentes especializados (master prompt §F)
+# ---------------------------------------------------------------------------
+
+@team_app.command("create")
+def team_create(
+    name: str = typer.Argument(..., help="Nombre del team"),
+    purpose: Optional[str] = typer.Option(None, "--purpose", help="Para qué se usa"),
+    description: Optional[str] = typer.Option(None, "--description", "-d"),
+    emoji: str = typer.Option("👥", "--emoji"),
+    members: Optional[str] = typer.Option(None, "--members", help="IDs de agentes separados por coma"),
+    runtime: str = typer.Option("generic", "--runtime", help="Runtime default: generic|claude_code|codex|opencode|openclaw|mcp"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Crea un team de agentes."""
+    from app.services import team_service
+
+    db = _make_session()
+    try:
+        t = team_service.create_team(
+            db,
+            name=name,
+            purpose=purpose,
+            description=description,
+            emoji=emoji,
+            member_ids=[m.strip() for m in members.split(",") if m.strip()] if members else None,
+            default_runtime=runtime,
+        )
+        if json_out:
+            _json(t.to_dict())
+        else:
+            console.print(f"✅ Team creado: {t.emoji} [cyan]{t.name}[/cyan] ({t.id})")
+            console.print(f"   Miembros: {len(t.member_ids or [])} · Runtime default: {t.default_runtime}")
+            console.print(f"   Siguiente: conciencia team members-add {t.id} <agent_id>")
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+    finally:
+        db.close()
+
+
+@team_app.command("list")
+def team_list(
+    status: Optional[str] = typer.Option(None, "--status", help="active|paused|archived"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Lista teams."""
+    from app.services import team_service
+
+    db = _make_session()
+    try:
+        teams = team_service.list_teams(db, status=status)
+        if json_out:
+            _json([t.to_dict() for t in teams])
+            return
+        if not teams:
+            console.print("Sin teams. Creá uno con: conciencia team create", style="yellow")
+            return
+        table = Table(title=f"Teams ({len(teams)})")
+        for col in ("ID", "Nombre", "Propósito", "Status", "Miembros", "Runtime"):
+            table.add_column(col, style="cyan" if col == "Nombre" else None)
+        for t in teams:
+            table.add_row(str(t.id)[:8], f"{t.emoji or '👥'} {t.name}", t.purpose or "-", t.status, str(len(t.member_ids or [])), t.default_runtime)
+        console.print(table)
+    finally:
+        db.close()
+
+
+@team_app.command("inspect")
+def team_inspect(
+    team_id: str = typer.Argument(..., help="ID del team"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Muestra detalle de un team + miembros."""
+    from app.services import team_service
+
+    db = _make_session()
+    try:
+        t = team_service.get_team(db, team_id)
+        if not t:
+            console.print(f"Team no encontrado: {team_id}", style="red")
+            raise typer.Exit(1)
+        if json_out:
+            out = t.to_dict()
+            out["members"] = [
+                {"id": str(a.id), "name": a.name, "role": a.role.value if hasattr(a.role, "value") else str(a.role),
+                 "runtime": a.runtime.value if hasattr(a.runtime, "value") else str(a.runtime),
+                 "capabilities": a.capabilities or []}
+                for a in team_service.resolve_team_agents(db, t)
+            ]
+            _json(out)
+            return
+        table = Table(title=f"{t.emoji or '👥'} {t.name}")
+        table.add_column("Campo", style="cyan")
+        table.add_column("Valor")
+        for k, v in t.to_dict().items():
+            table.add_row(k, str(v))
+        console.print(table)
+        members = team_service.resolve_team_agents(db, t)
+        if members:
+            mtable = Table(title="Miembros")
+            for col in ("ID", "Nombre", "Rol", "Runtime", "Capabilities"):
+                mtable.add_column(col, style="cyan")
+            for a in members:
+                mtable.add_row(str(a.id)[:8], a.name, a.role.value if hasattr(a.role, "value") else str(a.role),
+                               a.runtime.value if hasattr(a.runtime, "value") else str(a.runtime),
+                               ", ".join(a.capabilities or []))
+            console.print(mtable)
+    finally:
+        db.close()
+
+
+@team_app.command("members-add")
+def team_members_add(
+    team_id: str = typer.Argument(..., help="ID del team"),
+    agent_id: str = typer.Argument(..., help="ID del agente"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Agrega un agente al team."""
+    from app.services import team_service
+
+    db = _make_session()
+    try:
+        t = team_service.get_team(db, team_id)
+        if not t:
+            console.print(f"Team no encontrado: {team_id}", style="red")
+            raise typer.Exit(1)
+        t = team_service.add_member(db, t, agent_id)
+        if json_out:
+            _json(t.to_dict())
+        else:
+            console.print(f"✅ Agente {agent_id} agregado a {t.name} ({len(t.member_ids or [])} miembros)")
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+    finally:
+        db.close()
+
+
+@team_app.command("members-remove")
+def team_members_remove(
+    team_id: str = typer.Argument(..., help="ID del team"),
+    agent_id: str = typer.Argument(..., help="ID del agente"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Quita un agente del team."""
+    from app.services import team_service
+
+    db = _make_session()
+    try:
+        t = team_service.get_team(db, team_id)
+        if not t:
+            console.print(f"Team no encontrado: {team_id}", style="red")
+            raise typer.Exit(1)
+        t = team_service.remove_member(db, t, agent_id)
+        if json_out:
+            _json(t.to_dict())
+        else:
+            console.print(f"✅ Agente {agent_id} removido de {t.name} ({len(t.member_ids or [])} miembros)")
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+    finally:
+        db.close()
+
+
+@team_app.command("match")
+def team_match(
+    capabilities: str = typer.Argument(..., help="Capabilities requeridas separadas por coma"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Teams que cubren las capabilities, ordenados por score."""
+    from app.services import team_service
+
+    db = _make_session()
+    try:
+        caps = [c.strip() for c in capabilities.split(",") if c.strip()]
+        matches = team_service.match_teams(db, required_capabilities=caps)
+        if json_out:
+            _json(matches)
+            return
+        if not matches:
+            console.print("Ningún team activo cubre esas capabilities.", style="yellow")
+            return
+        table = Table(title=f"Teams para: {', '.join(caps)}")
+        for col in ("ID", "Nombre", "Coverage", "Score", "Miembros", "Runtime"):
+            table.add_column(col, style="cyan")
+        for m in matches:
+            table.add_row(m["team_id"][:8], m["name"], f"{m['coverage']}%", str(m["score"]), str(m["members_count"]), m["default_runtime"])
+        console.print(table)
     finally:
         db.close()
 

@@ -223,6 +223,36 @@ Tipos de misión: research, software-development, code-review, debugging, archit
 
 Ciclo completo: `create → plan → run → (waiting_approval) → approve → completed`. Los workflows con step `approval: true` quedan pausados esperando decisión humana (human-in-the-loop).
 
+Con team (Fase F): `conciencia mission create "..." "..." --team <team_id>` → la misión toma el runtime default del team y sus miembros como agentes; los steps se resuelven DENTRO del team primero (fallback al registry global).
+
+### team — equipos de agentes (Fase F: Agent/Team Orchestration)
+
+Un Team agrupa agentes especializados (ej: squad de investigación). Una misión puede apuntar a un team y los steps del workflow resuelven agentes por capabilities dentro del team primero.
+
+```bash
+conciencia team create "Research Squad" --purpose "Investigación" --members <agent_id>[,<agent_id>] [--runtime generic]
+conciencia team list [--status active]
+conciencia team inspect <team_id>        # detalle + miembros
+conciencia team members-add <team_id> <agent_id>
+conciencia team members-remove <team_id> <agent_id>
+conciencia team match research,reporting # teams que cubren capabilities (score)
+```
+
+API: `POST/GET/PATCH/DELETE /api/v1/teams/`, `POST/DELETE /api/v1/teams/{id}/members`, `GET /api/v1/teams/{id}/members`, `GET /api/v1/teams/match?capabilities=a,b`.
+
+### Workflows con pasos paralelos (Fase F)
+
+Un step puede ser un BLOQUE PARALELO (fan-out → fan-in): los children corren concurrentemente y el bloque espera a todos; si uno falla, el bloque falla conservando outputs parciales. Se define en el API de workflows con `parallel: true` + `steps`:
+
+```json
+{"name": "discovery", "parallel": true, "max_parallel": 2, "steps": [
+  {"name": "discover-leads", "task": "...", "required_capabilities": ["leads.read"]},
+  {"name": "enrich-websites", "task": "...", "required_capabilities": ["website_fetch"]}
+]}
+```
+
+El workflow default de `lead-research` ya usa un bloque paralelo (discovery ⚡ + enrich en paralelo, luego classify, luego approval). `conciencia ask` marca los steps paralelos con ⚡ y sugiere el mejor team si existe.
+
 ### Fase C — Foundation: init, doctor, agent, workflow, runtimes
 
 ```bash
@@ -243,7 +273,7 @@ conciencia run-watch <run_id>          # observa un run en vivo (estado/costo/lo
 
 ### ask - misión desde lenguaje natural (Fase E: Mission Planning)
 
-Convierte texto natural en una propuesta estructurada de misión (tipo, agentes sugeridos por capabilities, runtime, workflow, costo estimado y criterios de éxito). Funciona 100% por reglas, sin API keys. La creación requiere confirmación humana (o `--yes`).
+Convierte texto natural en una propuesta estructurada de misión (tipo, agentes sugeridos por capabilities, TEAM sugerido si existe (Fase F), runtime, workflow, costo estimado y criterios de éxito). Funciona 100% por reglas, sin API keys. La creación requiere confirmación humana (o `--yes`).
 
 ```bash
 conciencia ask "investigar el mercado de logística en Paraguay"   # propuesta → confirmar → crear

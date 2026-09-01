@@ -23,6 +23,12 @@ class StepDef(BaseModel):
     timeout: Optional[int] = None
     retries: int = 0
     max_cost: Optional[float] = None
+    # Fase F: bloque paralelo (fan-out/fan-in)
+    parallel: bool = False
+    steps: Optional[List[dict]] = None
+    max_parallel: Optional[int] = None
+    # Fase F: filtrar matching por runtime (ej: claude_code)
+    runtime: Optional[str] = None
 
 
 class WorkflowCreate(BaseModel):

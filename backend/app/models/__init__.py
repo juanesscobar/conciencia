@@ -13,4 +13,5 @@ from app.models.deliverable import Deliverable
 from app.models.audit import AuditEvent
 from app.models.workflow import Workflow, WorkflowRun
 from app.models.mission import Mission, MissionRun
+from app.models.team import Team
 from app.modules.leadhunter.models import Lead, LeadHuntRun, LeadEvent, LeadProposal, LeadHunterJob, LeadHunterJobStatus
