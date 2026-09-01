@@ -169,7 +169,23 @@ def run_mission(db: Session, mission: Mission) -> MissionRun:
         run.workflow_run_id = wf_run.id
         # El engine usa "paused" para approval gates → exponer como waiting_approval
         run.status = "waiting_approval" if wf_run.status == "paused" else wf_run.status
-        # Snapshot de costos desde step_results (workflow_engine acumula cost por step)
+
+        # --- Fase H: observabilidad ---
+        # 1) timeline estructurado del workflow → logs del MissionRun
+        run.logs = [
+            {"ts": e.get("ts"), "level": "error" if e.get("type") in ("step_failed", "workflow_failed") else "info",
+             "message": _event_to_log(e)}
+            for e in (wf_run.events or [])
+        ]
+        # 2) tokens agregados (steps + children paralelos)
+        tot_p, tot_c, tot_t = 0, 0, 0
+        for step in (wf_run.step_results or []):
+            for tok in _step_tokens(step):
+                tot_p += tok.get("prompt") or 0
+                tot_c += tok.get("completion") or 0
+                tot_t += tok.get("total") or 0
+        run.tokens = {"prompt": tot_p, "completion": tot_c, "total": tot_t}
+        # 3) costos por step (workflow_engine acumula cost por step)
         total_cost = 0.0
         for step in (wf_run.step_results or []):
             total_cost += float(step.get("cost") or 0.0)
@@ -249,6 +265,35 @@ def list_missions(db: Session, status: Optional[str] = None, type: Optional[str]
     if type:
         q = q.filter(Mission.type == type)
     return q.limit(limit).all()
+
+
+def _event_to_log(e: dict) -> str:
+    """Evento estructurado → línea legible de log."""
+    parts = [f"[{e.get('type')}]"]
+    if e.get("step"):
+        parts.append(f"step={e.get('step')}")
+    if e.get("agent_name"):
+        parts.append(f"agent={e.get('agent_name')}")
+    if e.get("runtime"):
+        parts.append(f"runtime={e.get('runtime')}")
+    if e.get("tokens") and (e.get("tokens") or {}).get("total"):
+        parts.append(f"tokens={e['tokens']['total']}")
+    if e.get("cost") is not None:
+        parts.append(f"cost=${e.get('cost')}")
+    if e.get("error"):
+        parts.append(f"error={str(e['error'])[:120]}")
+    return " ".join(parts)
+
+
+def _step_tokens(step: dict) -> list:
+    """Tokens de un step (incluye children de bloques paralelos)."""
+    out = []
+    if step.get("tokens"):
+        out.append(step["tokens"])
+    for child in step.get("children") or []:
+        if child.get("tokens"):
+            out.append(child["tokens"])
+    return out
 
 
 def _mission_context(db: Session, mission: Mission) -> dict:

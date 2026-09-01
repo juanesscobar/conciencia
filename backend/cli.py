@@ -728,9 +728,14 @@ def run_list(
 @run_app.command("inspect")
 def run_inspect(
     run_id: str = typer.Argument(..., help="ID del run"),
+    steps: bool = typer.Option(False, "--steps", "-s", help="Mostrar desglose por step (Fase H: observabilidad)"),
     json_out: bool = typer.Option(False, "--json"),
 ):
-    """Muestra detalle de un run (logs, costos, error)."""
+    """Muestra detalle de un run (logs, costos, tokens, error).
+
+    Con --steps muestra el desglose por step: status, agente, runtime,
+    tokens, costo y duración (Fase H).
+    """
     db = _make_session()
     try:
         r = db.query(MissionRun).filter(MissionRun.id == uuid.UUID(str(run_id))).first()
@@ -738,14 +743,50 @@ def run_inspect(
             console.print(f"Run no encontrado: {run_id}", style="red")
             raise typer.Exit(1)
         if json_out:
-            _json(r.to_dict())
+            out = r.to_dict()
+            if r.workflow_run_id:
+                from app.models.workflow import WorkflowRun
+                wr = db.query(WorkflowRun).filter(WorkflowRun.id == r.workflow_run_id).first()
+                if wr:
+                    out["step_results"] = wr.step_results or []
+                    out["events"] = wr.events or []
+            _json(out)
             return
         table = Table(title=f"Run {r.id}")
         table.add_column("Campo", style="cyan")
         table.add_column("Valor")
-        for k, v in r.to_dict().items():
+        d = r.to_dict()
+        d.pop("logs", None)
+        for k, v in d.items():
             table.add_row(k, str(v))
         console.print(table)
+
+        if r.workflow_run_id:
+            from app.models.workflow import WorkflowRun
+            wr = db.query(WorkflowRun).filter(WorkflowRun.id == r.workflow_run_id).first()
+            if wr and wr.step_results:
+                console.print(f"\n[bold cyan]Steps ({len(wr.step_results)}):[/bold cyan]")
+                stable = Table(title="Desglose por step")
+                for col in ("Step", "Status", "Agente", "Runtime", "Tokens", "Costo", "ms"):
+                    stable.add_column(col, style="cyan")
+                for s in wr.step_results:
+                    tok = (s.get("tokens") or {}).get("total", "-")
+                    stable.add_row(
+                        s.get("step_name", "?"),
+                        s.get("status", "?"),
+                        s.get("agent_name") or (f"⚡ {len(s.get('children') or [])} children" if s.get("parallel") else "-"),
+                        s.get("runtime") or "-",
+                        str(tok),
+                        str(s.get("cost") or 0),
+                        str(s.get("duration_ms") or "-"),
+                    )
+                console.print(stable)
+
+        if steps and r.logs:
+            console.print(f"\n[bold cyan]Timeline ({len(r.logs)} eventos):[/bold cyan]")
+            for lg in r.logs:
+                lvl = "red" if lg.get("level") == "error" else None
+                console.print(f"  {lg.get('ts', '')[:23]} {lg.get('message', '')}", style=lvl, markup=False)
     finally:
         db.close()
 
@@ -1337,7 +1378,9 @@ def run_watch(
             lines = [
                 f"Misión: {mission.name if mission else '?'} ({rr.mission_id})",
                 f"Status: [bold]{rr.status}[/bold] · Run: {rr.id}",
-                f"Costo: ${rr.cost_usd.get('total', 0)} · Tokens: {rr.tokens.get('total', 0)}",
+                f"Costo: ${rr.cost_usd.get('total', 0)}"
+                + f" · Tokens: {rr.tokens.get('total', 0)}"
+                + f" (prompt {rr.tokens.get('prompt', 0)} + completion {rr.tokens.get('completion', 0)})",
                 f"Iniciado: {rr.started_at} · Completado: {rr.completed_at or '—'}",
             ]
             if rr.error:
@@ -1345,9 +1388,9 @@ def run_watch(
             logs = rr.logs or []
             if logs:
                 lines.append("")
-                lines.append("Logs:")
+                lines.append("Timeline (últimos):")
                 for lg in logs[-8:]:
-                    lines.append(f"  {lg.get('ts', '')} {lg.get('level', 'info')}: {lg.get('message', '')}")
+                    lines.append(f"  {lg.get('ts', '')[:23]} {lg.get('message', '')}")
             return Panel("\n".join(lines), title=f"MISSION RUN {str(rr.id)[:8]}")
 
         with Live(render(), refresh_per_second=2, console=console) as live:

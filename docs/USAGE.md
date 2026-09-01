@@ -280,6 +280,18 @@ Ejemplo de spec:
 
 Comportamiento: instructions reemplazan el system prompt (template renderizado con el contexto de la misión), el runtime del agente debe estar en `allowed` (si no, el step falla con error claro), y el output se valida contra `output_contract`/`validation` después del dispatch (si no cumple, el step falla). API: `/api/v1/harnesses` (CRUD + `/activate` + `/archive` + `/validate`). Los steps de workflow aceptan `harness_id` propio (override del de la misión).
 
+### Observabilidad (Fase H)
+
+Cada ejecución produce un **timeline estructurado** (`workflow_runs.events`): `workflow_started`, `step_started`, `step_completed`, `step_failed`, `workflow_failed`, `approval_required/approved/rejected`, `parallel_completed` — cada evento con step, agente, runtime, provider, model, tokens, costo, duración y error. Los `step_results` registran por step: **tokens** (prompt/completion/total), **costo**, **runtime**, **provider**, **model**, **duration_ms**, **actions**, **tool_calls** y **failure state** (error exacto).
+
+```bash
+conciencia run inspect <run_id> --steps   # desglose por step + timeline
+conciencia run inspect <run_id> --json    # todo estructurado (incluye step_results + events)
+conciencia run watch <run_id>             # en vivo: status, costo, tokens y timeline
+```
+
+El MissionRun expone: `logs` (timeline espejado como líneas legibles), `tokens` (agregados de todos los steps, incluye children paralelos) y `cost_usd` (desglose llm/tools/total). Con `--json` en run inspect obtenés el detalle completo para pipelines.
+
 ### Fase C — Foundation: init, doctor, agent, workflow, runtimes
 
 ```bash

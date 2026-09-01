@@ -57,8 +57,9 @@ class RunResponse(BaseModel):
     workflow_id: str
     workflow_name: Optional[str] = None
     status: str
-    step_results: list
-    current_step: int
+    step_results: list = []
+    events: list = []
+    current_step: int = 0
     error: Optional[str] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None

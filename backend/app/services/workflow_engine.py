@@ -8,9 +8,13 @@ Cada step puede:
   falla pero conserva los outputs parciales.
 - resolver agentes DENTRO de un team (team_id) antes que el registry global
 - forzar runtime en el matching (step.runtime)
-- tener timeout (s) y retry policy
 - requerir aprobación humana (approval: true → status waiting_approval)
-- tener max_cost (se corta si el acumulado lo supera)
+
+Observabilidad (Fase H): cada ejecución produce un timeline estructurado en
+`run.events` [{ts, type, step, agent, runtime, provider, model, tokens, cost,
+duration_ms, actions, tool_calls, error}] y `step_results` enriquecidos con
+tokens/runtime/provider/model/duration — un operador entiende exactamente qué
+hizo la misión (DoD Phase H).
 
 Nota (paralelismo + SQLAlchemy): cada child corre en su PROPIA sesión ligada
 al mismo bind del engine (los threads no comparten sesión). Limitación: en
@@ -56,6 +60,7 @@ def execute_workflow(db: Session, workflow_id: str, run_id: str | None = None,
     run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first() if run_id else None
     if not run:
         run = start_run(db, wf)
+        _log_event(run, wf, "workflow_started", step=None)
 
     steps = wf.definition or []
     # deepcopy: si los dicts internos son los mismos objetos, SQLAlchemy no detecta el cambio JSON
@@ -73,6 +78,8 @@ def execute_workflow(db: Session, workflow_id: str, run_id: str | None = None,
         step_name = step.get("name", f"step_{idx + 1}")
         run.current_step = idx
         db.commit()
+        _log_event(run, wf, "step_started", step=step_name, step_index=idx,
+                   parallel=bool(step.get("parallel")))
 
         # approval gate
         if step.get("approval"):
@@ -90,6 +97,7 @@ def execute_workflow(db: Session, workflow_id: str, run_id: str | None = None,
             wf.status = "paused"
             run.paused_at = datetime.utcnow()
             db.commit()
+            _log_event(run, wf, "approval_required", step=step_name, step_index=idx)
             log.info(f"workflow {wf.id} pausado en step {idx} ({step_name}) — aprobación requerida")
             return run
 
@@ -115,21 +123,29 @@ def execute_workflow(db: Session, workflow_id: str, run_id: str | None = None,
                 wf.error = run.error
                 wf.completed_at = datetime.utcnow()
                 db.commit()
+                _log_event(run, wf, "step_failed", step=step_name, step_index=idx,
+                           error=run.error, cost=cost)
+                _log_event(run, wf, "workflow_failed", step=step_name, error=run.error)
                 return run
+            _log_event(run, wf, "parallel_completed", step=step_name, step_index=idx,
+                       cost=cost, children_ok=sum(1 for c in children if c["status"] == "completed"),
+                       children_total=len(children))
             db.commit()
             continue
 
         # ejecutar el step (si tiene agente o task_text)
-        output, error, cost = _run_step(db, step, wf, team_id=team_id, harness=harness,
-                                        mission_ctx=mission_ctx, agent_pool=agent_pool)
-        results.append({
+        output, error, cost, meta = _run_step(db, step, wf, team_id=team_id, harness=harness,
+                                              mission_ctx=mission_ctx, agent_pool=agent_pool)
+        entry = {
             "step_index": idx,
             "step_name": step_name,
             "status": "completed" if not error else "failed",
             "output": output,
             "error": error,
             "cost": cost,
-        })
+        }
+        entry.update(meta)
+        results.append(entry)
         run.step_results = results
         run.current_step = idx + 1
         if error:
@@ -139,7 +155,11 @@ def execute_workflow(db: Session, workflow_id: str, run_id: str | None = None,
             wf.error = run.error
             wf.completed_at = datetime.utcnow()
             db.commit()
+            _log_event(run, wf, "step_failed", step=step_name, step_index=idx,
+                       error=run.error, cost=cost, **{k: v for k, v in meta.items() if k != "error"})
+            _log_event(run, wf, "workflow_failed", step=step_name, error=run.error)
             return run
+        _log_event(run, wf, "step_completed", step=step_name, step_index=idx, cost=cost, **meta)
         db.commit()
 
     run.status = "completed"
@@ -147,6 +167,7 @@ def execute_workflow(db: Session, workflow_id: str, run_id: str | None = None,
     wf.status = "completed"
     wf.completed_at = datetime.utcnow()
     db.commit()
+    _log_event(run, wf, "workflow_completed", step=None)
     return run
 
 
@@ -154,8 +175,8 @@ def _run_step(db: Session, step: dict, wf: Workflow,
               team_id: Optional[str] = None,
               harness: Optional[Any] = None,
               mission_ctx: Optional[dict] = None,
-              agent_pool: Optional[List[str]] = None) -> Tuple[Optional[str], Optional[str], float]:
-    """Ejecuta un step. Si no hay agente/tarea, es un step declarativo (no-op ok).
+              agent_pool: Optional[List[str]] = None) -> Tuple[Optional[str], Optional[str], float, dict]:
+    """Ejecuta un step. Devuelve (output, error, cost, meta_observabilidad).
 
     Resolución de agente (en orden):
       1. agent_id explícito
@@ -166,6 +187,9 @@ def _run_step(db: Session, step: dict, wf: Workflow,
     harness: Harness versionado (Fase G) que formaliza instructions/context/
     tools/guardrails/runtime/output contract. step.harness_id overridea.
     """
+    empty_meta: dict = {"runtime": None, "provider": None, "model": None,
+                        "tokens": {}, "duration_ms": None, "simulated": False,
+                        "actions": [], "tool_calls": [], "agent_name": None, "agent_id": None}
     task_text = step.get("task") or step.get("task_text")
     agent_id = step.get("agent_id")
     runtime_hint = step.get("runtime") or None
@@ -200,15 +224,15 @@ def _run_step(db: Session, step: dict, wf: Workflow,
                 best = best_agent(db, required_capabilities=caps, runtime=runtime_hint)
         if not best:
             if hard_caps:
-                return None, f"No hay agente que cubra >=50% de {hard_caps}", 0.0
-            return f"[{step.get('name','step')}] sin agente disponible (declarativo)", None, 0.0
+                return None, f"No hay agente que cubra >=50% de {hard_caps}", 0.0, empty_meta
+            return f"[{step.get('name','step')}] sin agente disponible (declarativo)", None, 0.0, empty_meta
         agent_id = best["agent_id"]
 
     if not task_text and not agent_id:
-        return f"[{step.get('name','step')}] sin ejecución (declarativo)", None, 0.0
+        return f"[{step.get('name','step')}] sin ejecución (declarativo)", None, 0.0, empty_meta
 
     if not agent_id:
-        return None, "step define task pero no agent_id (capability matching pendiente)", 0.0
+        return None, "step define task pero no agent_id (capability matching pendiente)", 0.0, empty_meta
 
     # ejecutar vía adapter del agente
     from app.models.agent import Agent
@@ -218,13 +242,13 @@ def _run_step(db: Session, step: dict, wf: Workflow,
 
     agent = db.query(Agent).filter(Agent.id == uuid.UUID(str(agent_id))).first()
     if not agent:
-        return None, f"agent {agent_id} no encontrado", 0.0
+        return None, f"agent {agent_id} no encontrado", 0.0, empty_meta
 
     runtime = getattr(agent, "runtime", "generic")
     runtime_name = runtime.value if hasattr(runtime, "value") else runtime
     adapter = get_adapter(runtime_name)
     if not adapter:
-        return None, f"runtime {runtime_name} sin adapter", 0.0
+        return None, f"runtime {runtime_name} sin adapter", 0.0, empty_meta
 
     provider = getattr(agent, "provider", "deepseek")
     provider_name = provider.value if hasattr(provider, "value") else provider
@@ -250,7 +274,7 @@ def _run_step(db: Session, step: dict, wf: Workflow,
             active_harness, agent, mission_context=mission_ctx or {}
         )
         if herrors:
-            return None, "; ".join(herrors), 0.0
+            return None, "; ".join(herrors), 0.0, empty_meta
         if patch.get("system_prompt"):
             identity.system_prompt = patch["system_prompt"]
         if patch.get("context"):
@@ -259,11 +283,33 @@ def _run_step(db: Session, step: dict, wf: Workflow,
 
     start = time.time()
     result = adapter.dispatch_task(identity, task_text, final_context)
+    duration_ms = result.duration_ms or int((time.time() - start) * 1000)
     cost = 0.0
-    if result.usage and result.usage.get("cost_estimate_usd"):
-        cost = float(result.usage["cost_estimate_usd"])
+    tokens = {}
+    if result.usage:
+        tokens = {
+            "prompt": result.usage.get("prompt_tokens") or 0,
+            "completion": result.usage.get("completion_tokens") or 0,
+            "total": result.usage.get("total_tokens") or 0,
+        }
+        if result.usage.get("cost_estimate_usd"):
+            cost = float(result.usage["cost_estimate_usd"])
+
+    meta = {
+        "runtime": result.runtime or runtime_name,
+        "provider": result.provider or provider_name,
+        "model": result.model or getattr(agent, "model", None),
+        "tokens": tokens,
+        "duration_ms": duration_ms,
+        "simulated": bool(result.simulated),
+        "actions": list(result.meta.get("actions") or []),
+        "tool_calls": list(result.meta.get("tool_calls") or []),
+        "agent_name": agent.name,
+        "agent_id": str(agent.id),
+    }
+
     if result.status == "failed":
-        return None, result.error, cost
+        return None, result.error, cost, meta
 
     # --- Fase G: validar output contra el contrato del harness ---
     if active_harness:
@@ -271,8 +317,8 @@ def _run_step(db: Session, step: dict, wf: Workflow,
 
         vok, verrors = harness_service.validate_output(active_harness, result.output)
         if not vok:
-            return None, f"validación de harness ({active_harness.name} v{active_harness.version}): {'; '.join(verrors)}", cost
-    return result.output, None, cost
+            return None, f"validación de harness ({active_harness.name} v{active_harness.version}): {'; '.join(verrors)}", cost, meta
+    return result.output, None, cost, meta
 
 
 def _load_harness(db: Session, harness_id: Optional[str]):
@@ -313,15 +359,16 @@ def _run_parallel_block(db: Session, step: dict, wf: Workflow,
     def _run_child(child: dict) -> dict:
         child_session = _new_session(db)
         try:
-            output, error, cost = _run_step(child_session, child, wf, team_id=team_id,
-                                            harness=harness, mission_ctx=mission_ctx,
-                                            agent_pool=agent_pool)
+            output, error, cost, meta = _run_step(child_session, child, wf, team_id=team_id,
+                                                  harness=harness, mission_ctx=mission_ctx,
+                                                  agent_pool=agent_pool)
             return {
                 "name": child.get("name", "child"),
                 "status": "completed" if not error else "failed",
                 "output": output,
                 "error": error,
                 "cost": cost,
+                **meta,
             }
         except Exception as e:  # noqa: BLE001 — un child no debe matar al bloque
             return {
@@ -330,6 +377,7 @@ def _run_parallel_block(db: Session, step: dict, wf: Workflow,
                 "output": None,
                 "error": str(e)[:300],
                 "cost": 0.0,
+                "tokens": {}, "runtime": None, "duration_ms": None, "simulated": False,
             }
         finally:
             child_session.close()
@@ -354,6 +402,29 @@ def _run_parallel_block(db: Session, step: dict, wf: Workflow,
 
 
 # ---------------------------------------------------------------------------
+# Observabilidad (Fase H): timeline estructurado
+# ---------------------------------------------------------------------------
+
+def _log_event(run: WorkflowRun, wf: Workflow, etype: str, **kw: Any) -> None:
+    """Agrega un evento estructurado al timeline del run (persistido)."""
+    events = list(run.events or [])
+    events.append({
+        "ts": datetime.utcnow().isoformat() + "Z",
+        "type": etype,
+        "workflow_id": str(wf.id),
+        **kw,
+    })
+    run.events = events
+    try:
+        from sqlalchemy.orm.session import object_session
+        s = object_session(run)
+        if s is not None:
+            s.commit()
+    except Exception:  # noqa: BLE001 — observabilidad nunca rompe la ejecución
+        log.warning("no se pudo persistir evento %s", etype, exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # Control de runs
 # ---------------------------------------------------------------------------
 
@@ -363,6 +434,7 @@ def approve_step(db: Session, run: WorkflowRun, step_index: int, approved: bool,
                  mission_ctx: Optional[dict] = None,
                  agent_pool: Optional[List[str]] = None) -> WorkflowRun:
     """Aprueba/rechaza el step que esperaba aprobación y continúa."""
+    wf = db.query(Workflow).filter(Workflow.id == run.workflow_id).first()
     results = copy.deepcopy(run.step_results or [])
     for r in results:
         if r.get("step_index") == step_index and r.get("status") == "waiting_approval":
@@ -375,7 +447,6 @@ def approve_step(db: Session, run: WorkflowRun, step_index: int, approved: bool,
     # avanzar el puntero para que execute_workflow continúe DESPUÉS del step aprobado
     run.current_step = step_index + 1
 
-    wf = db.query(Workflow).filter(Workflow.id == run.workflow_id).first()
     if wf:
         if approved:
             wf.status = "running"
@@ -384,6 +455,8 @@ def approve_step(db: Session, run: WorkflowRun, step_index: int, approved: bool,
             wf.status = "cancelled"
             wf.completed_at = datetime.utcnow()
     db.commit()
+    _log_event(run, wf, "approval_approved" if approved else "approval_rejected",
+               step_index=step_index)
     if approved:
         execute_workflow(db, run.workflow_id, run.id, team_id=team_id,
                          harness_id=harness_id, mission_ctx=mission_ctx,
