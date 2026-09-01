@@ -302,6 +302,21 @@ SIGNAL: oportunidad
 
 API: `/api/v1/signals` (CRUD + `/extract` + `/{id}/evidence`).
 
+### context — retrieval eficiente de contexto (Fase J)
+
+Los agentes reciben **solo el contexto relevante**: los ContextPacks se rankean por relevancia al objetivo de la misión (score por keywords, sin LLM) y se ensambla un contexto **acotado** a `max_chars` — nunca el proyecto entero.
+
+```bash
+conciencia context retrieve "investigar el mercado de logística refrigerada" [--project <id>] [--limit 3]
+conciencia context assemble "investigar logística refrigerada" --max-chars 4000
+```
+
+- `retrieve`: packs rankeados con score y términos matcheados (título 3x, claves 2x, valores 1x).
+- `assemble`: contexto final desde los top-K packs, truncado por pack para respetar el presupuesto (`truncated: true` si no entró todo).
+- **En misiones**: si la misión tiene `context_pack_id` explícito se usa ese pack; si no, se recuperan los top-2 por el objetivo. El harness lo inyecta con el placeholder `{context_pack}` en su template de contexto.
+
+API: `GET /api/v1/context-packs/retrieve?query=&project_id=&limit=`, `POST /api/v1/context-packs/assemble` (además del CRUD/generate/export existente).
+
 ### Observabilidad (Fase H)
 
 Cada ejecución produce un **timeline estructurado** (`workflow_runs.events`): `workflow_started`, `step_started`, `step_completed`, `step_failed`, `workflow_failed`, `approval_required/approved/rejected`, `parallel_completed` — cada evento con step, agente, runtime, provider, model, tokens, costo, duración y error. Los `step_results` registran por step: **tokens** (prompt/completion/total), **costo**, **runtime**, **provider**, **model**, **duration_ms**, **actions**, **tool_calls** y **failure state** (error exacto).

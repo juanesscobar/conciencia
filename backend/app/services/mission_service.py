@@ -68,6 +68,7 @@ def create_mission(
     agent_ids: Optional[List[str]] = None,
     team_id: Optional[str] = None,
     harness_id: Optional[str] = None,
+    context_pack_id: Optional[str] = None,
     runtime: str = "generic",
     budget: Optional[dict] = None,
     approval_policy: Optional[dict] = None,
@@ -112,6 +113,7 @@ def create_mission(
         agent_ids=agent_ids or team_members or [],
         team_id=team_id,
         harness_id=harness_id,
+        context_pack_id=context_pack_id,
         runtime=runtime,
         budget=budget or {},
         approval_policy=approval_policy or {},
@@ -310,6 +312,7 @@ def _mission_context(db: Session, mission: Mission) -> dict:
     from app.services import harness_service
 
     project_name = None
+    project_id = str(mission.project_id) if mission.project_id else None
     if mission.project_id:
         from app.models.project import Project
 
@@ -321,5 +324,6 @@ def _mission_context(db: Session, mission: Mission) -> dict:
         objective=mission.objective,
         description=mission.description,
         project_name=project_name,
+        project_id=project_id,
         context_pack_id=mission.context_pack_id,
     )

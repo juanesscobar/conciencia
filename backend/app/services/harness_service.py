@@ -195,44 +195,42 @@ def build_mission_context(
     objective: Optional[str] = None,
     description: Optional[str] = None,
     project_name: Optional[str] = None,
+    project_id: Optional[str] = None,
     context_pack_id: Optional[str] = None,
 ) -> dict:
-    """Variables disponibles para los templates del harness."""
+    """Variables disponibles para los templates del harness.
+
+    Fase J: el contexto del pack se resuelve con retrieval eficiente — pack
+    explícito de la misión, o top-2 por relevancia al objetivo (nunca el
+    proyecto entero).
+    """
     ctx: Dict[str, Any] = {
         "objective": objective or "",
         "description": description or "",
         "project_name": project_name or "",
+        "context_pack": "",
+        "context_pack_title": "",
     }
-    if context_pack_id:
-        pack = _get_context_pack(db, context_pack_id)
-        if pack:
-            ctx["context_pack"] = _render_context_pack(pack)
-            ctx["context_pack_title"] = pack.title
-        else:
-            ctx["context_pack"] = ""
-            ctx["context_pack_title"] = ""
+    from app.services import context_retrieval
+
+    pack_text, packs_used = context_retrieval.context_for_mission(
+        db,
+        objective=objective or "",
+        project_id=project_id,
+        context_pack_id=context_pack_id,
+    )
+    ctx["context_pack"] = pack_text
+    if packs_used:
+        ctx["context_pack_title"] = ", ".join(p["title"] for p in packs_used)
+        ctx["context_packs"] = packs_used
     else:
-        ctx["context_pack"] = ""
-        ctx["context_pack_title"] = ""
+        ctx["context_packs"] = []
     return ctx
 
 
 def _get_context_pack(db: Session, context_pack_id: str):
     from app.models.context_pack import ContextPack
     return db.query(ContextPack).filter(ContextPack.id == context_pack_id).first()
-
-
-def _render_context_pack(pack) -> str:
-    """Serializa el contenido canónico del ContextPack (JSON → texto plano)."""
-    content = getattr(pack, "content", None) or {}
-    parts = []
-    if isinstance(content, dict):
-        for k, v in content.items():
-            if isinstance(v, (dict, list)):
-                parts.append(f"{k}: {json.dumps(v, ensure_ascii=False)}")
-            else:
-                parts.append(f"{k}: {v}")
-    return "\n".join(parts)[:8000]
 
 
 # ---------------------------------------------------------------------------

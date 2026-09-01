@@ -58,6 +58,7 @@ agent_app = typer.Typer(help="Agente individual: inspect, run.")
 team_app = typer.Typer(help="Teams: agrupar agentes especializados (Fase F).")
 harness_app = typer.Typer(help="Harnesses: contratos versionados de ejecución (Fase G).")
 signal_app = typer.Typer(help="Signals: hallazgos trazables con evidencia (Fase I).")
+context_app = typer.Typer(help="Context packs: retrieval eficiente de contexto (Fase J).")
 app.add_typer(leads_app, name="leads")
 app.add_typer(lead_app, name="lead")
 app.add_typer(config_app, name="config")
@@ -67,6 +68,7 @@ app.add_typer(agent_app, name="agent")
 app.add_typer(team_app, name="team")
 app.add_typer(harness_app, name="harness")
 app.add_typer(signal_app, name="signal")
+app.add_typer(context_app, name="context")
 
 console = Console()
 
@@ -1877,6 +1879,72 @@ def signal_extract(
                 console.print(f"  • [{s.type}] {s.title} — {len(s.evidences)} evidencia(s)")
         else:
             console.print("Sin marcadores SIGNAL: en los outputs (nada que extraer).", style="yellow")
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Fase J — Context packs: retrieval eficiente (master prompt §J)
+# ---------------------------------------------------------------------------
+
+@context_app.command("retrieve")
+def context_retrieve(
+    query: str = typer.Argument(..., help="Query / objetivo de la misión"),
+    project_id: Optional[str] = typer.Option(None, "--project", "-p", help="Filtrar por proyecto"),
+    limit: int = typer.Option(3, "--limit", "-n", min=1, max=10),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """ContextPacks rankeados por relevancia al query (retrieval eficiente)."""
+    from app.services import context_retrieval
+
+    db = _make_session()
+    try:
+        packs = context_retrieval.retrieve_packs(db, query=query, project_id=project_id, limit=limit)
+        if json_out:
+            _json(packs)
+            return
+        if not packs:
+            console.print("Ningún context pack relevante.", style="yellow")
+            return
+        table = Table(title=f"Context packs para: {query}")
+        for col in ("ID", "Título", "Score", "Términos", "Proyecto"):
+            table.add_column(col, style="cyan" if col == "Título" else None)
+        for p in packs:
+            table.add_row(p["pack_id"][:8], p["title"][:40], str(p["score"]),
+                          ", ".join(p["matched_terms"][:4]), str(p.get("project_id") or "-")[:8])
+        console.print(table)
+    finally:
+        db.close()
+
+
+@context_app.command("assemble")
+def context_assemble(
+    query: str = typer.Argument(..., help="Query / objetivo de la misión"),
+    project_id: Optional[str] = typer.Option(None, "--project", "-p"),
+    limit: int = typer.Option(3, "--limit", "-n", min=1, max=10),
+    max_chars: int = typer.Option(6000, "--max-chars", "-c"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Ensambla contexto acotado (solo lo que entra en max_chars)."""
+    from app.services import context_retrieval
+
+    db = _make_session()
+    try:
+        result = context_retrieval.assemble_context(
+            db, query=query, project_id=project_id, limit=limit, max_chars=max_chars
+        )
+        if json_out:
+            _json(result)
+            return
+        if not result["packs"]:
+            console.print("Ningún context pack relevante.", style="yellow")
+            return
+        console.print(f"📦 {len(result['packs'])} pack(s) · {result['total_chars']} chars"
+                      + (" · truncado" if result["truncated"] else ""))
+        for p in result["packs"]:
+            console.print(f"  • {p['title']} (score {p['score']})")
+        console.print("\n--- contexto ---")
+        console.print(result["context"][:2000])
     finally:
         db.close()
 
