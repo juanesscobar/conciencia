@@ -60,6 +60,7 @@ harness_app = typer.Typer(help="Harnesses: contratos versionados de ejecución (
 signal_app = typer.Typer(help="Signals: hallazgos trazables con evidencia (Fase I).")
 context_app = typer.Typer(help="Context packs: retrieval eficiente de contexto (Fase J).")
 webmcp_app = typer.Typer(help="WebMCP: interactuar con apps web WebMCP-enabled (Fase K).")
+economics_app = typer.Typer(help="Economics: economía de misiones inspeccionable (Fase L).")
 app.add_typer(leads_app, name="leads")
 app.add_typer(lead_app, name="lead")
 app.add_typer(config_app, name="config")
@@ -71,6 +72,7 @@ app.add_typer(harness_app, name="harness")
 app.add_typer(signal_app, name="signal")
 app.add_typer(context_app, name="context")
 app.add_typer(webmcp_app, name="webmcp")
+app.add_typer(economics_app, name="economics")
 
 console = Console()
 
@@ -2010,6 +2012,90 @@ def webmcp_demo(
     console.print(f"🌐 WebMCP Demo App: http://127.0.0.1:{port}  (Ctrl+C para salir)")
     console.print("   Ejemplo: conciencia webmcp run http://127.0.0.1:8765 \"input:#name:Juan,input:#email:j@x.com,submit\"")
     uvicorn.run(create_demo_app(), host="127.0.0.1", port=port, log_level="warning")
+
+
+# ---------------------------------------------------------------------------
+# Fase L — Economics: economía de misiones inspeccionable (master prompt §L)
+# ---------------------------------------------------------------------------
+
+@economics_app.command("summary")
+def economics_summary(
+    days: int = typer.Option(30, "--days", "-d", help="Período en días"),
+    mission_id: Optional[str] = typer.Option(None, "--mission", "-m", help="Economía de una misión específica"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Economía de plataforma (o de una misión): costos, tokens, modelos, outcomes."""
+    from app.services import economics_service
+
+    db = _make_session()
+    try:
+        if mission_id:
+            data = economics_service.mission_economics(db, mission_id)
+            title = f"Economía de misión: {data['mission_name']}"
+        else:
+            data = economics_service.platform_economics(db, days=days)
+            title = f"Economía de plataforma (últimos {data['period_days']} días)"
+        if json_out:
+            _json(data)
+            return
+        console.print(f"[bold cyan]{title}[/bold cyan]")
+        cost = data["cost_usd"]
+        tok = data["tokens"]
+        console.print(f"   Costo: ${cost['total']} (LLM ${cost['llm']} + tools ${cost['tools']})")
+        console.print(f"   Tokens: {tok['total']} (prompt {tok['prompt']} + completion {tok['completion']})")
+        if mission_id:
+            console.print(f"   Runs: {data['runs_count']} · Status: {data['status']} · Outcomes: {data['outcomes']}")
+        else:
+            console.print(f"   Misiones: {data['missions_count']} · Runs: {data['runs_count']}")
+            console.print(f"   Outcomes: {data['outcomes']}")
+            if data.get("llm_cost_records"):
+                console.print(f"   CostRecords LLM: ${data['llm_cost_records']} · {data['llm_tokens_records']} tokens")
+        if data["cost_by_provider"]:
+            console.print("   Por provider:")
+            for p in data["cost_by_provider"]:
+                console.print(f"     • {p['key']}: ${p['cost_usd']} · {p['tokens']} tokens · {p['calls']} llamada(s)")
+        if data["cost_by_model"]:
+            console.print("   Por modelo:")
+            for m in data["cost_by_model"][:5]:
+                console.print(f"     • {m['key']}: ${m['cost_usd']} · {m['tokens']} tokens")
+        console.print(f"   Acciones: {data['actions_count']} · Tool calls: {data['tool_calls_count']} · Runtimes: {data.get('runtime_usage', {})}")
+        if mission_id:
+            console.print("   Runs:")
+            for r in data["runs"]:
+                ext = sum(e.get("cost_usd", 0) for e in r.get("external_costs") or [])
+                console.print(f"     • {r['id'][:8]} {r['status']} · ${r['cost_usd'].get('total', 0)} · tokens {r['tokens'].get('total', 0)}" + (f" · ext ${ext}" if ext else ""))
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+    finally:
+        db.close()
+
+
+@economics_app.command("record-external")
+def economics_record_external(
+    run_id: str = typer.Argument(..., help="ID del MissionRun"),
+    tool: str = typer.Argument(..., help="Herramienta/servicio (ej: webmcp, scraper)"),
+    cost_usd: float = typer.Argument(..., help="Costo en USD"),
+    detail: Optional[str] = typer.Option(None, "--detail", "-d"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Registra un costo externo (tool/servicio) en un run."""
+    from app.services import economics_service
+
+    db = _make_session()
+    try:
+        entry = economics_service.record_external_cost(
+            db, mission_run_id=run_id, tool=tool, cost_usd=cost_usd, detail=detail
+        )
+        if json_out:
+            _json(entry)
+        else:
+            console.print(f"✅ Costo externo registrado: {tool} ${cost_usd} en run {run_id}")
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

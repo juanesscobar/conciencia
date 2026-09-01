@@ -342,6 +342,21 @@ Acciones: `input` (selector:valor), `click`, `submit`, `navigate`. El step regis
 
 API: `POST /api/v1/webmcp/run {url, actions}` · `GET /api/v1/webmcp/demo`. Demo: `python -m app.services.webmcp.demo_runner --port 8765`.
 
+### economics — economía inspeccionable (Fase L)
+
+Sin billing: solo inspección de la economía de misiones — costos LLM/tools, tokens, modelos/providers usados, runtimes, acciones/tool calls y outcomes.
+
+```bash
+conciencia economics summary                    # plataforma (últimos 30 días)
+conciencia economics summary --mission <id>     # detalle de una misión
+conciencia economics record-external <run_id> <tool> <cost_usd>   # costo de tool/servicio externo
+```
+
+- `record-external` guarda el costo en `mission_runs.external_costs` y actualiza `cost_usd.tools/total` del run.
+- Los costos LLM provienen de los `cost_records` del LLM Harness (por llamada real) + los `step_results` agregados.
+
+API: `GET /api/v1/economics/` (platform, `?days=`), `GET /api/v1/economics/missions/{id}`, `POST /api/v1/economics/external-cost`.
+
 ### Observabilidad (Fase H)
 
 Cada ejecución produce un **timeline estructurado** (`workflow_runs.events`): `workflow_started`, `step_started`, `step_completed`, `step_failed`, `workflow_failed`, `approval_required/approved/rejected`, `parallel_completed` — cada evento con step, agente, runtime, provider, model, tokens, costo, duración y error. Los `step_results` registran por step: **tokens** (prompt/completion/total), **costo**, **runtime**, **provider**, **model**, **duration_ms**, **actions**, **tool_calls** y **failure state** (error exacto).

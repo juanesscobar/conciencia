@@ -113,6 +113,7 @@ class MissionRun(Base):
     logs = Column(JSON, default=list)                     # [{ts, level, message}]
     tokens = Column(JSON, default=dict)                   # {prompt, completion, total}
     cost_usd = Column(JSON, default=dict)                 # {llm, tools, total}
+    external_costs = Column(JSON, default=list)           # Fase L: [{tool, cost_usd, detail, ts}]
     error = Column(Text)
 
     started_at = Column(DateTime, default=datetime.utcnow)
@@ -129,6 +130,7 @@ class MissionRun(Base):
             "logs": self.logs or [],
             "tokens": self.tokens or {},
             "cost_usd": self.cost_usd or {},
+            "external_costs": self.external_costs or [],
             "error": self.error,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
