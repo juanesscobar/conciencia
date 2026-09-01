@@ -29,6 +29,7 @@ class MissionCreate(BaseModel):
     team_id: Optional[str] = None
     harness_id: Optional[str] = None
     context_pack_id: Optional[str] = None
+    workflow_id: Optional[str] = None
     runtime: str = "generic"
     budget: Optional[dict] = None
     approval_policy: Optional[dict] = None
@@ -116,6 +117,7 @@ def create_mission(req: MissionCreate, db: Session = Depends(get_db)):
             team_id=req.team_id,
             harness_id=req.harness_id,
             context_pack_id=req.context_pack_id,
+            workflow_id=req.workflow_id,
             runtime=req.runtime,
             budget=req.budget,
             approval_policy=req.approval_policy,

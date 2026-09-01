@@ -59,6 +59,7 @@ team_app = typer.Typer(help="Teams: agrupar agentes especializados (Fase F).")
 harness_app = typer.Typer(help="Harnesses: contratos versionados de ejecución (Fase G).")
 signal_app = typer.Typer(help="Signals: hallazgos trazables con evidencia (Fase I).")
 context_app = typer.Typer(help="Context packs: retrieval eficiente de contexto (Fase J).")
+webmcp_app = typer.Typer(help="WebMCP: interactuar con apps web WebMCP-enabled (Fase K).")
 app.add_typer(leads_app, name="leads")
 app.add_typer(lead_app, name="lead")
 app.add_typer(config_app, name="config")
@@ -69,6 +70,7 @@ app.add_typer(team_app, name="team")
 app.add_typer(harness_app, name="harness")
 app.add_typer(signal_app, name="signal")
 app.add_typer(context_app, name="context")
+app.add_typer(webmcp_app, name="webmcp")
 
 console = Console()
 
@@ -1947,6 +1949,67 @@ def context_assemble(
         console.print(result["context"][:2000])
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Fase K — WebMCP: apps web WebMCP-enabled (master prompt §K)
+# ---------------------------------------------------------------------------
+
+@webmcp_app.command("run")
+def webmcp_run(
+    url: str = typer.Argument(..., help="Base URL de la app WebMCP-enabled"),
+    actions: str = typer.Argument(..., help="Acciones separadas por coma: input:#name:Juan, click:#increment, submit, navigate:/x"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Ejecuta un script de acciones contra una app WebMCP-enabled (preserva evidencia)."""
+    from app.services.webmcp import client as wm
+
+    parsed = []
+    for raw in [a.strip() for a in actions.split(",") if a.strip()]:
+        parts = raw.split(":")
+        atype = parts[0]
+        if atype == "input":
+            if len(parts) < 3:
+                console.print(f"input necesita selector:valor → {raw}", style="red")
+                raise typer.Exit(1)
+            parsed.append({"type": "input", "selector": parts[1], "value": ":".join(parts[2:])})
+        elif atype in ("click", "submit", "navigate"):
+            action = {"type": atype}
+            if len(parts) > 1:
+                action["selector" if atype in ("click", "submit") else "url"] = parts[1]
+            parsed.append(action)
+        else:
+            console.print(f"acción no soportada: {atype}", style="red")
+            raise typer.Exit(1)
+
+    try:
+        result = wm.run_script(url, parsed)
+    except wm.WebMCPError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+
+    if json_out:
+        _json(result)
+        return
+    console.print(f"🌐 WebMCP contra {result['url']} — {result['actions_count']} acción(es)")
+    for a in result["action_log"]:
+        mark = "✅" if a["ok"] else "❌"
+        console.print(f"  {mark} {a['action']} → {a.get('result') or a.get('error')}")
+    from app.services.webmcp import render_snapshot
+    console.print(render_snapshot(result.get("snapshot") or {}))
+
+
+@webmcp_app.command("demo")
+def webmcp_demo(
+    port: int = typer.Option(8765, "--port", "-p"),
+):
+    """Corre la demo app WebMCP-enabled (formulario + contador) para probar."""
+    from app.services.webmcp.demo_app import create_demo_app
+    import uvicorn
+
+    console.print(f"🌐 WebMCP Demo App: http://127.0.0.1:{port}  (Ctrl+C para salir)")
+    console.print("   Ejemplo: conciencia webmcp run http://127.0.0.1:8765 \"input:#name:Juan,input:#email:j@x.com,submit\"")
+    uvicorn.run(create_demo_app(), host="127.0.0.1", port=port, log_level="warning")
 
 
 if __name__ == "__main__":

@@ -194,6 +194,10 @@ def _run_step(db: Session, step: dict, wf: Workflow,
     agent_id = step.get("agent_id")
     runtime_hint = step.get("runtime") or None
 
+    # --- Fase K: step WebMCP (tool/adapter — sin agente) ---
+    if step.get("webmcp"):
+        return _run_webmcp_step(db, step)
+
     # Capability matching: team primero, registry global como fallback.
     # - required_capabilities (duro): sin agente → error (steps explícitos)
     # - capabilities (blando, default workflows): sin agente → declarativo
@@ -319,6 +323,57 @@ def _run_step(db: Session, step: dict, wf: Workflow,
         if not vok:
             return None, f"validación de harness ({active_harness.name} v{active_harness.version}): {'; '.join(verrors)}", cost, meta
     return result.output, None, cost, meta
+
+
+def _run_webmcp_step(db: Session, step: dict) -> Tuple[Optional[str], Optional[str], float, dict]:
+    """Ejecuta un step de tipo webmcp: interactúa con una app WebMCP-enabled.
+
+    step.webmcp = {url, actions: [{type, selector, value}, ...], max_actions}
+    Devuelve (output=snapshot renderizado, error, cost=0, meta con
+    webmcp_evidence: action log + snapshot → evidencia preservada).
+    """
+    from app.services.webmcp import client as wm, render_snapshot
+
+    spec = step.get("webmcp") or {}
+    url = (spec.get("url") or "").strip()
+    if not url:
+        return None, "step webmcp sin 'url' (app WebMCP-enabled)", 0.0, {
+            "runtime": "webmcp", "provider": None, "model": None, "tokens": {},
+            "duration_ms": None, "simulated": False,
+            "actions": [], "tool_calls": [], "agent_name": None, "agent_id": None,
+        }
+    actions = spec.get("actions") or []
+    if not actions:
+        return None, "step webmcp sin 'actions'", 0.0, {}
+
+    start = time.time()
+    try:
+        evidence = wm.run_script(url, actions)
+    except wm.WebMCPError as e:
+        return None, f"webmcp: {e}", 0.0, {
+            "runtime": "webmcp", "provider": None, "model": None, "tokens": {},
+            "duration_ms": int((time.time() - start) * 1000), "simulated": False,
+            "actions": [a.get("action") for a in actions],
+            "tool_calls": [f"webmcp:{a.get('type')}:{a.get('selector')}" for a in actions],
+            "agent_name": None, "agent_id": None,
+            "webmcp_evidence": {"url": url, "actions_count": len(actions), "error": str(e)},
+        }
+
+    output = render_snapshot(evidence.get("snapshot") or {})
+    meta = {
+        "runtime": "webmcp", "provider": None, "model": None, "tokens": {},
+        "duration_ms": int((time.time() - start) * 1000), "simulated": False,
+        "actions": [a.get("action") for a in actions],
+        "tool_calls": [f"webmcp:{a.get('type')}:{a.get('selector')}" for a in actions],
+        "agent_name": None, "agent_id": None,
+        "webmcp_evidence": evidence,
+    }
+    # acciones fallidas → el step falla (conserva la evidencia parcial)
+    failed = [a for a in evidence.get("action_log") or [] if not a.get("ok")]
+    if failed:
+        err = "; ".join(f"{a['action']}: {a.get('error')}" for a in failed)
+        return None, f"webmcp: {err}", 0.0, meta
+    return output, None, 0.0, meta
 
 
 def _load_harness(db: Session, harness_id: Optional[str]):

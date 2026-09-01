@@ -31,6 +31,8 @@ class StepDef(BaseModel):
     runtime: Optional[str] = None
     # Fase G: harness versionado para este step (override del de la misión)
     harness_id: Optional[str] = None
+    # Fase K: step WebMCP — interactúa con una app web WebMCP-enabled
+    webmcp: Optional[dict] = None
 
 
 class WorkflowCreate(BaseModel):

@@ -69,6 +69,7 @@ def create_mission(
     team_id: Optional[str] = None,
     harness_id: Optional[str] = None,
     context_pack_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
     runtime: str = "generic",
     budget: Optional[dict] = None,
     approval_policy: Optional[dict] = None,
@@ -102,6 +103,14 @@ def create_mission(
         if harness.status != "active":
             raise ValueError(f"Harness '{harness.name}' no está activo (status: {harness.status})")
 
+    # Fase K: la misión puede referenciar un workflow existente (custom)
+    if workflow_id:
+        from app.models.workflow import Workflow
+
+        wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+        if not wf:
+            raise ValueError(f"Workflow no encontrado: {workflow_id}")
+
     mission = Mission(
         name=name,
         objective=objective,
@@ -114,6 +123,7 @@ def create_mission(
         team_id=team_id,
         harness_id=harness_id,
         context_pack_id=context_pack_id,
+        workflow_id=workflow_id,
         runtime=runtime,
         budget=budget or {},
         approval_policy=approval_policy or {},
@@ -210,6 +220,15 @@ def run_mission(db: Session, mission: Mission) -> MissionRun:
                 signal_service.extract_from_mission(db, mission, mission_run=run)
             except Exception:  # noqa: BLE001 — la extracción nunca rompe el run
                 log.warning("signal extraction failed", exc_info=True)
+        # Fase K: promover evidencia WebMCP (steps webmcp) a Signal+Evidence
+        # (también mientras espera aprobación — la evidencia ya está en step_results)
+        if run.status in ("completed", "waiting_approval"):
+            try:
+                from app.services.webmcp import promote_step_evidence
+
+                promote_step_evidence(db, mission, wf_run)
+            except Exception:  # noqa: BLE001
+                log.warning("webmcp evidence promotion failed", exc_info=True)
     except Exception as e:  # noqa: BLE001 — registro y estado failed
         log.exception("Mission run failed")
         run.status = "failed"

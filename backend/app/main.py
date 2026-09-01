@@ -36,6 +36,7 @@ from app.routers.ask import router as ask_router
 from app.routers.teams import router as teams_router
 from app.routers.harnesses import router as harnesses_router
 from app.routers.signals import router as signals_router
+from app.routers.webmcp import router as webmcp_router
 from app.config import get_cors_origins, ENVIRONMENT
 from app.services.system_logger import setup_logging
 from app.database import Base, engine
@@ -105,6 +106,7 @@ app.include_router(ask_router)
 app.include_router(teams_router)
 app.include_router(harnesses_router)
 app.include_router(signals_router)
+app.include_router(webmcp_router)
 
 
 @app.middleware("http")

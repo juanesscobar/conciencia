@@ -317,6 +317,31 @@ conciencia context assemble "investigar logística refrigerada" --max-chars 4000
 
 API: `GET /api/v1/context-packs/retrieve?query=&project_id=&limit=`, `POST /api/v1/context-packs/assemble` (además del CRUD/generate/export existente).
 
+### webmcp — interactuar con apps web WebMCP-enabled (Fase K)
+
+Una MISIÓN puede interactuar con una aplicación web WebMCP-enabled (que expone `window.webmcp`) y **preservar la evidencia** de cada interacción.
+
+```bash
+# correr la demo app (formulario + contador) en otro terminal
+conciencia webmcp demo --port 8765
+
+# ejecutar un script de acciones contra la app
+conciencia webmcp run http://127.0.0.1:8765 "input:#name:Juan,input:#email:j@x.com,submit,click:#increment"
+```
+
+**En workflows/misiones** — un step con `webmcp` ejecuta acciones contra la app sin agente LLM:
+
+```json
+{"name": "llenar-form", "webmcp": {"url": "http://127.0.0.1:8765", "actions": [
+  {"type": "input", "selector": "#name", "value": "Juan"},
+  {"type": "submit", "selector": "form"}
+]}}
+```
+
+Acciones: `input` (selector:valor), `click`, `submit`, `navigate`. El step registra en observabilidad sus `actions`/`tool_calls` y guarda `webmcp_evidence` (action log + snapshot). Al completarse (o quedar en waiting_approval), la evidencia se promueve automáticamente a **Signal + Evidence** (Fase I) vinculada a la misión — DoD: interactúa y preserva evidencia.
+
+API: `POST /api/v1/webmcp/run {url, actions}` · `GET /api/v1/webmcp/demo`. Demo: `python -m app.services.webmcp.demo_runner --port 8765`.
+
 ### Observabilidad (Fase H)
 
 Cada ejecución produce un **timeline estructurado** (`workflow_runs.events`): `workflow_started`, `step_started`, `step_completed`, `step_failed`, `workflow_failed`, `approval_required/approved/rejected`, `parallel_completed` — cada evento con step, agente, runtime, provider, model, tokens, costo, duración y error. Los `step_results` registran por step: **tokens** (prompt/completion/total), **costo**, **runtime**, **provider**, **model**, **duration_ms**, **actions**, **tool_calls** y **failure state** (error exacto).
