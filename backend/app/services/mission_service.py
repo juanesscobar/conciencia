@@ -189,6 +189,14 @@ def run_mission(db: Session, mission: Mission) -> MissionRun:
              "message": _event_to_log(e)}
             for e in (wf_run.events or [])
         ]
+        # audit §22: registrar qué context packs se usaron (provenance del run)
+        packs_used = mission_ctx.get("context_packs") or []
+        if packs_used:
+            run.logs.insert(0, {
+                "ts": datetime.utcnow().isoformat() + "Z",
+                "level": "info",
+                "message": "[context_packs] " + ", ".join(p.get("title", "?") for p in packs_used),
+            })
         # 2) tokens agregados (steps + children paralelos)
         tot_p, tot_c, tot_t = 0, 0, 0
         for step in (wf_run.step_results or []):

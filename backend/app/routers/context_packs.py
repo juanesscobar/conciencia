@@ -10,6 +10,7 @@ query; POST /assemble arma contexto acotado (solo lo que entra en max_chars).
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from app.routers.auth import get_current_user
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -21,7 +22,7 @@ from app.models.task import Task
 from app.models.user_memory import UserMemory
 from app.services import context_retrieval
 
-router = APIRouter(prefix="/api/v1/context-packs", tags=["context-packs"])
+router = APIRouter(prefix="/api/v1/context-packs", tags=["context-packs"], dependencies=[Depends(get_current_user)])
 
 EXPORT_TARGETS = [
     {"id": "claude_code", "label": "Claude Code", "format": "markdown"},

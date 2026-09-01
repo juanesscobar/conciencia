@@ -270,6 +270,10 @@ def _run_step(db: Session, step: dict, wf: Workflow,
     step_harness_id = step.get("harness_id")
     if step_harness_id and (not harness or str(getattr(harness, "id", "")) != str(step_harness_id)):
         active_harness = _load_harness(db, step_harness_id)
+    # Audit §6: los harnesses NO activos no pueden ejecutar (ni por step override)
+    if active_harness and getattr(active_harness, "status", "active") != "active":
+        return None, (f"harness '{active_harness.name}' no está activo "
+                      f"(status={active_harness.status}) — activalo antes de ejecutar"), 0.0, empty_meta
     final_context = step.get("context")
     if active_harness:
         from app.services import harness_service
@@ -311,6 +315,10 @@ def _run_step(db: Session, step: dict, wf: Workflow,
         "agent_name": agent.name,
         "agent_id": str(agent.id),
     }
+    # Audit §22: provenance del harness usado (id + versión) para receipts
+    if active_harness:
+        meta["harness_id"] = str(active_harness.id)
+        meta["harness_version"] = active_harness.version
 
     if result.status == "failed":
         return None, result.error, cost, meta
@@ -488,14 +496,25 @@ def approve_step(db: Session, run: WorkflowRun, step_index: int, approved: bool,
                  harness_id: Optional[str] = None,
                  mission_ctx: Optional[dict] = None,
                  agent_pool: Optional[List[str]] = None) -> WorkflowRun:
-    """Aprueba/rechaza el step que esperaba aprobación y continúa."""
+    """Aprueba/rechaza el step que esperaba aprobación y continúa.
+
+    Guard (audit §12): solo runs PAUSADOS esperando aprobación pueden aprobarse.
+    Aprobar un run ya completado/failed/cancelled sería re-ejecutarlo — se
+    rechaza con error claro (evita ejecuciones duplicadas).
+    """
+    if run.status != "paused":
+        raise ValueError(f"el run {run.id} no está esperando aprobación (status={run.status})")
     wf = db.query(Workflow).filter(Workflow.id == run.workflow_id).first()
     results = copy.deepcopy(run.step_results or [])
+    target = None
     for r in results:
         if r.get("step_index") == step_index and r.get("status") == "waiting_approval":
-            r["status"] = "approved" if approved else "rejected"
-            r["approved_at"] = datetime.utcnow().isoformat()
+            target = r
             break
+    if target is None:
+        raise ValueError(f"step {step_index} no está esperando aprobación en el run {run.id}")
+    target["status"] = "approved" if approved else "rejected"
+    target["approved_at"] = datetime.utcnow().isoformat()
     run.step_results = results
     run.status = "running" if approved else "cancelled"
     run.paused_at = None

@@ -155,7 +155,11 @@ def approve_run(run_id: str, req: ApprovalRequest, db: Session = Depends(get_db)
     run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    run = approve_step(db, run, run.current_step, req.approved)
+    try:
+        # audit §12: approve_step valida que el run esté paused/waiting_approval
+        run = approve_step(db, run, run.current_step, req.approved)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return RunResponse(**run.to_dict())
 
 

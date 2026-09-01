@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from app.routers.auth import get_current_user
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.integrations.github import github_client
@@ -6,7 +7,7 @@ from app.models import Project, Activity
 from app.schemas import ActivityCreate
 from uuid import UUID
 
-router = APIRouter(prefix="/api/v1/integrations/github", tags=["github"])
+router = APIRouter(prefix="/api/v1/integrations/github", tags=["github"], dependencies=[Depends(get_current_user)])
 
 @router.get("/repos")
 async def list_github_repos():

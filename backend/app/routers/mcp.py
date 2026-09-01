@@ -10,7 +10,8 @@ import json
 import logging
 from typing import Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.routers.auth import get_current_user
 
 from app.database import SessionLocal
 from app.models.setting import Setting
@@ -18,7 +19,7 @@ from app.services.mcp.client import MCPClient, MCPError
 
 log = logging.getLogger("mcp.registry")
 
-router = APIRouter(prefix="/api/v1/mcp", tags=["mcp"])
+router = APIRouter(prefix="/api/v1/mcp", tags=["mcp"], dependencies=[Depends(get_current_user)])
 
 MCP_SETTINGS_KEY = "MCP_SERVERS"
 

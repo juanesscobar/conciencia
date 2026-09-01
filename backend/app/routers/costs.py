@@ -2,13 +2,14 @@
 
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.routers.auth import get_current_user
 from sqlalchemy import func
 
 from app.database import SessionLocal
 from app.models.cost_record import CostRecord
 
-router = APIRouter(prefix="/api/v1/costs", tags=["costs"])
+router = APIRouter(prefix="/api/v1/costs", tags=["costs"], dependencies=[Depends(get_current_user)])
 
 
 def _db() -> SessionLocal:

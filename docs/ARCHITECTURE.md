@@ -1,5 +1,42 @@
 # 🏗️ Arquitectura Técnica
 
+## Flujo canónico A–L (actualizado 2026-09-01, audit final)
+
+```
+User / CLI / API (JWT)
+        ↓
+MISSION (por qué existe el trabajo) — missions, estado, budget, approval_policy
+        ↓
+WORKFLOW (cómo se secuencia) — steps declarativos: agent_id | capabilities | approval | parallel | webmcp
+        ↓
+TEAM / AGENT (quién trabaja) — resolución: agent_id → team → mission.agent_ids pool → registry global
+        ↓        (capabilities = soft · required_capabilities = hard)
+HARNESS (cómo se ejecuta) — instructions/context/tools/guardrails/runtime.allowed/output_contract, versionado
+        ↓
+CONTEXT PACK (qué información ahora) — retrieval keywords (título 3x/claves 2x/valores 1x), top-K, max_chars
+        ↓
+TOOLS (qué capacidad externa) — WebMCP (step webmcp) · MCP · runtimes externos
+        ↓
+EXECUTION — adapters generic/openclaw; bloques paralelos con sesión propia por child
+        ↓
+OBSERVABILITY (qué pasó) — workflow_runs.events + step_results enriquecidos → MissionRun logs/tokens/cost
+        ↓
+SIGNALS + EVIDENCE (qué se encontró / qué lo respalda) — marcadores SIGNAL:/EVIDENCE:, provenance mission/run/step/agent
+        ↓
+APPROVAL (gobernanza humana) — gate de ejecución (paused → approve/reject; sin re-ejecución)
+        ↓
+ECONOMICS (cuánto costó) — costos LLM/tools/total, tokens, providers/models, external costs
+```
+
+Separaciones de concepto (no colapsar): Agent ≠ Harness ≠ Context Pack ≠ Tool ≠ Workflow ≠ Team ≠
+Mission ≠ Observability ≠ Signal ≠ Evidence ≠ Approval ≠ Economics.
+
+Persistencia (tablas): missions, mission_runs, workflows, workflow_runs (+events), teams, agents,
+harnesses (+versions), context_packs, signals, evidence, agent_executions, cost_records,
+settings, projects, tasks, users, audit_events.
+
+---
+
 ## Stack Tecnológico
 
 ### Backend

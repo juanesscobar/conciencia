@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, ForeignKey, Uuid
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from app.database import Base
 
@@ -49,7 +49,7 @@ class Signal(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    mission = relationship("Mission", backref="signals")
+    mission = relationship("Mission", backref=backref("signals", cascade="all, delete-orphan"))
     evidences = relationship("Evidence", back_populates="signal", cascade="all, delete-orphan")
 
     def to_dict(self) -> dict:
