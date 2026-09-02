@@ -81,6 +81,15 @@ services:
         VITE_API_URL: ${VITE_API_URL:-}   # vacío = relativa (misma origin)
     restart: unless-stopped
 
+  # WebMCP Demo App (hackathon/desmo) — agente-native, interna; nginx la sirve en /webmcp-demo/
+  webmcp-demo:
+    build: ./backend
+    command: ["python", "-m", "app.services.webmcp.demo_runner", "--port", "8765"]
+    environment:
+      - ENVIRONMENT=production
+    restart: unless-stopped
+    # SIN ports → solo accesible vía nginx (mismo HTTPS del dominio)
+
 volumes:
   postgres_data:
   redis_data:
