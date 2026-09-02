@@ -84,9 +84,8 @@ services:
   # WebMCP Demo App (hackathon/desmo) — agente-native, interna; nginx la sirve en /webmcp-demo/
   webmcp-demo:
     build: ./backend
+    entrypoint: []   # el entrypoint del image corre seed de admin (requiere DB/secret) — demo no lo necesita
     command: ["python", "-m", "app.services.webmcp.demo_runner", "--port", "8765"]
-    environment:
-      - ENVIRONMENT=production
     restart: unless-stopped
     # SIN ports → solo accesible vía nginx (mismo HTTPS del dominio)
 
