@@ -98,7 +98,25 @@ pip install -r requirements.txt   # o usar el Dockerfile del repo
 python -m app.services.webmcp.demo_runner --port 8765   # sirve http://localhost:8765
 ```
 
-Opciones de hosting (elige una):
+### ✅ LIVE (deployada en Hetzner 2026-09-02)
+
+**URL pública: https://mc.46.62.196.151.sslip.io/webmcp-demo/**
+
+- Mismo HTTPS/dominio que el control plane (Let's Encrypt válido) — sin cert nuevo ni puerto extra.
+- La página registra tools WebMCP estándar (`document.modelContext.registerTool`: get_status,
+  submit_contact, increment_counter) + expone el bridge `window.webmcp` para Conciencia.
+- Estado en memoria por contenedor (`webmcp-demo` interno, sin puertos públicos); nginx sirve
+  el subpath con `sub_filter` para reescribir `/api/webmcp/*` bajo `/webmcp-demo/`.
+- E2E verificado contra la URL pública: misión llenó el formulario (4/4 acciones OK).
+- Deploy: commit en el repo (docker-compose `webmcp-demo` + nginx location) → en el server
+  `git pull && docker compose up -d webmcp-demo && docker compose up -d --force-recreate nginx`.
+
+⚠️ Si algún día probás en el browser de ChatGPT: el origen HTTPS ya es seguro; la app no pide
+login. (En Chrome de escritorio: `chrome://flags/#enable-webmcp-testing`.)
+
+---
+
+Opciones alternativas de hosting (si querés una URL dedicada):
 - **Render** (más fácil para FastAPI): nuevo Web Service → repo `mission-control` →
   root dir `backend` → start command `python -m app.services.webmcp.demo_runner
   --port $PORT` (Render inyecta PORT; ajustar el runner para leerlo).
