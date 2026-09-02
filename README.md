@@ -14,6 +14,11 @@
 
 [▶ Try the live demo](https://mc.46.62.196.151.sslip.io) · [Website](https://conciencia-software.vercel.app) · [Docs](docs/ARCHITECTURE.md) · [Usage guide](docs/USAGE.md) · [Contributing](CONTRIBUTING.md)
 
+> 🏆 **WebMCP Challenge (Devpost)** — Conciencia es un *control plane* para el web
+> agent-native: misiones que ejecutan sobre apps WebMCP-enabled con evidencia,
+> aprobación humana y economics. Kit de submission: [DEVPOST_SUBMISSION.md](docs/DEVPOST_SUBMISSION.md)
+> · Demo app agent-native: `python -m app.services.webmcp.demo_runner`
+
 </div>
 
 ---

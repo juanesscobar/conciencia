@@ -114,17 +114,55 @@ def create_demo_app() -> FastAPI:
     def index():
         return """<!doctype html><html><body>
 <h1>WebMCP Demo App</h1>
+<p>Agent-native: esta app expone tools WebMCP (estándar) <b>y</b> un bridge para el
+control plane de Conciencia. Humanos y agentes usan la misma app.</p>
 <form id="contact"><input id="name" placeholder="Nombre"/><input id="email" placeholder="Email"/>
 <textarea id="message"></textarea><button id="submit">Enviar</button></form>
 <button id="increment">+1</button><button id="reset">Reset</button>
+<div id="status"></div>
 <script>
-// WebMCP-enabled: expone window.webmcp (puente con el bridge HTTP)
+// --- Puente interno (window.webmcp) para el control plane de Conciencia ---
 window.webmcp = {
   getContext: () => fetch('/api/webmcp/context').then(r => r.json()),
   act: (action) => fetch('/api/webmcp/act', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({action})}).then(r => r.json()),
   snapshot: () => fetch('/api/webmcp/snapshot').then(r => r.json())
 };
+
+// --- WebMCP estándar: registra tools para agentes nativos (feature-detect) ---
+const registerTool = (window.document?.modelContext?.registerTool) || null;
+const bridge = async (action) => {
+  const r = await fetch('/api/webmcp/act', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({action})});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.detail || 'action failed');
+  return j.result;
+};
+if (registerTool) {
+  registerTool({
+    name: 'get_status',
+    description: 'Lee el estado actual de la app (formulario, contador, envíos).',
+    inputSchema: {type: 'object', properties: {}},
+    execute: async () => (await fetch('/api/webmcp/snapshot').then(r => r.json())).state
+  });
+  registerTool({
+    name: 'submit_contact',
+    description: 'Completa y envía el formulario de contacto (WRITE: crea un registro de visita).',
+    inputSchema: {type: 'object', properties: {
+      name: {type: 'string'}, email: {type: 'string'}, message: {type: 'string'}},
+      required: ['name', 'email']},
+    execute: async (input) => bridge({type: 'input', selector: '#name', value: input.name})
+      .then(() => bridge({type: 'input', selector: '#email', value: input.email}))
+      .then(() => input.message ? bridge({type: 'input', selector: '#message', value: input.message}) : null)
+      .then(() => bridge({type: 'submit', selector: 'form'}))
+  });
+  registerTool({
+    name: 'increment_counter',
+    description: 'Incrementa el contador de la app (WRITE: demo de estado).',
+    inputSchema: {type: 'object', properties: {}},
+    execute: async () => bridge({type: 'click', selector: '#increment'})
+  });
+}
 </script></body></html>"""
 
     @app.get("/api/webmcp/context")

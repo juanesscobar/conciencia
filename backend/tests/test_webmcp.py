@@ -21,6 +21,21 @@ from app.services.webmcp import client as wm
 from app.services.webmcp.demo_app import create_demo_app
 
 
+def test_demo_app_registra_tools_webmcp_estandar():
+    """La demo app registra tools con la API WebMCP estándar (agent-native),
+    con fallback al bridge de Conciencia (window.webmcp)."""
+    from app.services.webmcp.demo_app import create_demo_app
+    from fastapi.testclient import TestClient
+
+    html = TestClient(create_demo_app()).get("/").text
+    assert "modelContext?.registerTool" in html
+    assert "get_status" in html
+    assert "submit_contact" in html
+    assert "increment_counter" in html
+    assert "inputSchema" in html
+    assert "window.webmcp" in html  # fallback bridge para el control plane
+
+
 # ---------------------------------------------------------------------------
 # Demo app WebMCP-enabled en vivo (uvicorn en thread)
 # ---------------------------------------------------------------------------
