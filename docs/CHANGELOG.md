@@ -1,5 +1,16 @@
 # CHANGELOG — Conciencia Platform
 
+## 2026-09-03 — RC deploy en producción (Hetzner)
+- Backend + frontend F–L + audit desplegados en el server (46.62.196.151) — código
+  `ae72bc1`; tablas/columnas nuevas creadas en Postgres prod (teams, harnesses, signals,
+  evidence, events, external_costs). Verificado /health 200, 0 errores, frontend y demo
+  /webmcp-demo/ 200. Backup pre-deploy en /opt/backups/.
+
+## 2026-09-02 — WebMCP Challenge (Devpost)
+- Demo app agent-native (tools WebMCP estándar) + kit DEVPOST_SUBMISSION.md.
+- Deploy live: https://mc.46.62.196.151.sslip.io/webmcp-demo/ (servicio webmcp-demo
+  interno + location nginx con sub_filter).
+
 ## 2026-09-01 — Fases F–L + Audit final de hardening (rama v2-refactor)
 
 ### Fase F — Agent/Team Orchestration (`3347495`)

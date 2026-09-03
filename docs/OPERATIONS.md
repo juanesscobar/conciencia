@@ -48,3 +48,15 @@
 5. Healthchecks y restart policies en compose (revisar `nginx/` + `docker-compose.yml`).
 6. Suite completa: 291+ passed / 8 deselected (baseline audit).
 7. Backups de la DB antes del primer deploy real.
+
+## RC deploy ejecutado (2026-09-03, server Hetzner)
+- Backend + frontend con F–L + audit desplegados en prod (`/opt/mission-control`,
+  imagen `mission-control-backend` nueva). Server git en `ae72bc1`.
+- Pre-deploy: `pg_dump` → `/opt/backups/mc-YYYYmmdd-HHMMSS.sql`.
+- Deploy: `docker compose build backend frontend && docker compose up -d backend frontend`
+  (las tablas/columnas nuevas se crean solas en startup: create_all + sync_schema).
+- Verificado: `/health` 200 · tablas teams/harnesses/signals/evidence presentes · columnas
+  workflow_runs.events y mission_runs.external_costs presentes · 0 errores en logs ·
+  frontend y /webmcp-demo/ 200.
+- Nota: `.env` no define LOCAL_ADMIN_PASSWORD → no se seedea admin local; login smoke
+  requiere credenciales existentes (registro público sigue habilitado).
