@@ -141,6 +141,19 @@ def test_harness_draft_en_step_bloqueado(client, auth_headers, db):
     assert "no está activo" in run["error"]
 
 
+def test_harness_inexistente_en_step_no_se_omite(client, auth_headers, db):
+    a = _seed_agent(db)
+    missing_id = "00000000-0000-0000-0000-000000000099"
+    wf = _create_wf(client, auth_headers, [
+        {"name": "research", "task": "tarea", "agent_id": str(a.id),
+         "harness_id": missing_id},
+    ])
+
+    run = client.post(f"/api/v1/workflows/{wf['id']}/run", headers=auth_headers).json()
+    assert run["status"] == "failed"
+    assert f"harness {missing_id} no encontrado" in run["error"]
+
+
 # ---------------------------------------------------------------------------
 # §17 — Mission delete: cascade de signals + evidence (sin huérfanos)
 # ---------------------------------------------------------------------------

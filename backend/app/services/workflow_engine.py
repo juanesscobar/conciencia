@@ -57,6 +57,8 @@ def execute_workflow(db: Session, workflow_id: str, run_id: str | None = None,
         raise ValueError("Workflow not found")
 
     harness = _load_harness(db, harness_id)
+    if harness_id and not harness:
+        raise ValueError(f"harness {harness_id} no encontrado")
     run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first() if run_id else None
     if not run:
         run = start_run(db, wf)
@@ -194,8 +196,24 @@ def _run_step(db: Session, step: dict, wf: Workflow,
     agent_id = step.get("agent_id")
     runtime_hint = step.get("runtime") or None
 
+    # El override de step debe resolverse antes de cualquier dispatch, incluido WebMCP.
+    active_harness = harness
+    step_harness_id = step.get("harness_id")
+    if step_harness_id and (
+        not harness or str(getattr(harness, "id", "")) != str(step_harness_id)
+    ):
+        active_harness = _load_harness(db, step_harness_id)
+        if not active_harness:
+            return None, f"harness {step_harness_id} no encontrado", 0.0, empty_meta
+    if active_harness and getattr(active_harness, "status", "active") != "active":
+        return None, (f"harness '{active_harness.name}' no está activo "
+                      f"(status={active_harness.status}) — activalo antes de ejecutar"), 0.0, empty_meta
+
     # --- Fase K: step WebMCP (tool/adapter — sin agente) ---
     if step.get("webmcp"):
+        policy_error = _tool_policy_error(active_harness, "webmcp")
+        if policy_error:
+            return None, policy_error, 0.0, empty_meta
         return _run_webmcp_step(db, step)
 
     # Capability matching: team primero, registry global como fallback.
@@ -266,14 +284,6 @@ def _run_step(db: Session, step: dict, wf: Workflow,
     )
 
     # --- Fase G: aplicar harness (step-level overridea el de la misión) ---
-    active_harness = harness
-    step_harness_id = step.get("harness_id")
-    if step_harness_id and (not harness or str(getattr(harness, "id", "")) != str(step_harness_id)):
-        active_harness = _load_harness(db, step_harness_id)
-    # Audit §6: los harnesses NO activos no pueden ejecutar (ni por step override)
-    if active_harness and getattr(active_harness, "status", "active") != "active":
-        return None, (f"harness '{active_harness.name}' no está activo "
-                      f"(status={active_harness.status}) — activalo antes de ejecutar"), 0.0, empty_meta
     final_context = step.get("context")
     if active_harness:
         from app.services import harness_service
@@ -385,12 +395,30 @@ def _run_webmcp_step(db: Session, step: dict) -> Tuple[Optional[str], Optional[s
 
 
 def _load_harness(db: Session, harness_id: Optional[str]):
-    """Carga el harness por id; None si no hay o no existe (sin error)."""
+    """Carga el harness por id; devuelve None si falta o el id es inválido."""
     if not harness_id:
         return None
     from app.services.harness_service import get_harness
 
-    return get_harness(db, harness_id)
+    try:
+        return get_harness(db, harness_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def _tool_policy_error(harness: Optional[Any], tool_name: str) -> Optional[str]:
+    """Aplica allow/deny del Harness antes de invocar un tool directo."""
+    if not harness:
+        return None
+    policy = ((harness.spec or {}).get("tools") or {})
+    allowed = {str(v).strip().lower() for v in policy.get("allow") or []}
+    denied = {str(v).strip().lower() for v in policy.get("deny") or []}
+    name = tool_name.strip().lower()
+    if name in denied or "*" in denied:
+        return f"tool '{tool_name}' denegado por harness '{harness.name}'"
+    if allowed and name not in allowed and "*" not in allowed:
+        return f"tool '{tool_name}' no permitido por harness '{harness.name}'"
+    return None
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ import csv
 import io
 import json
 import os
+import re
 import sys
 import uuid
 from datetime import datetime
@@ -98,6 +99,20 @@ MODULES = [
     ("logistics", "Operación logística", "planned"),
     ("software-engineering", "Workspace de ingeniería (repos, tareas, agentes)", "planned"),
 ]
+
+# Claves cuyo valor es secreto → se enmascaran en `conciencia config get`
+_SECRET_KEY_RE = re.compile(r"(KEY|SECRET|PASSWORD|PASS|TOKEN)", re.IGNORECASE)
+
+
+def _mask_secret(key: str, value: str) -> str:
+    """Enmascara valores de claves secretas (API keys, passwords, tokens).
+
+    Devuelve los primeros 4 caracteres + '…' (nunca el valor completo).
+    Las claves NO secretas se devuelven intactas.
+    """
+    if value and _SECRET_KEY_RE.search(key):
+        return (value[:4] + "…" + f" ({len(value)} chars)") if len(value) > 4 else "•••"
+    return value
 
 
 def _make_session():
@@ -421,6 +436,7 @@ def config_get(
             real = CONFIG_KEY_MAP.get(key, key.upper())
             row = db.query(Setting).filter(Setting.key == real).first()
             value = row.value if row else os.getenv(real, "")
+            value = _mask_secret(real, value)  # nunca imprimir secrets completos
             if json_out:
                 _json({key: value})
             else:
@@ -428,13 +444,14 @@ def config_get(
             return
         rows = db.query(Setting).order_by(Setting.key).all()
         if json_out:
-            _json({r.key: r.value for r in rows})
+            _json({r.key: _mask_secret(r.key, r.value) for r in rows})
             return
         table = Table(title="Settings")
         table.add_column("Key", style="cyan")
         table.add_column("Value")
         for r in rows:
-            table.add_row(r.key, r.value if len(r.value) < 60 else r.value[:57] + "...")
+            value = _mask_secret(r.key, r.value)
+            table.add_row(r.key, value if len(value) < 60 else value[:57] + "...")
         console.print(table)
     finally:
         db.close()

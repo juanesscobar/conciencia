@@ -45,9 +45,12 @@
 2. Migraciones: `alembic upgrade head` (o confiar en create_all+sync idempotente).
 3. CORS: `get_cors_origins` → orígenes reales del frontend (no `*`).
 4. Secrets: DEEPSEEK_API_KEY / LLM_API_KEY en Settings (no .env de prod), rotados.
-5. Healthchecks y restart policies en compose (revisar `nginx/` + `docker-compose.yml`).
-6. Suite completa: 291+ passed / 8 deselected (baseline audit).
-7. Backups de la DB antes del primer deploy real.
+5. WebMCP: definir `WEBMCP_ALLOWED_HOSTS` con hosts exactos confiables; el default solo
+   permite `webmcp-demo` dentro de compose.
+6. Verificar que cada WRITE/side effect tenga un gate `approval` anterior en su Workflow.
+7. Healthchecks y restart policies en compose (revisar `nginx/` + `docker-compose.yml`).
+8. Ejecutar la suite completa y registrar passed/failed/skipped/deselected reales.
+9. Backups de la DB antes del primer deploy real.
 
 ## RC deploy ejecutado (2026-09-03, server Hetzner)
 - Backend + frontend con F–L + audit desplegados en prod (`/opt/mission-control`,

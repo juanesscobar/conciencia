@@ -7,8 +7,12 @@ snapshots — y preservar evidencia (action log + snapshot final).
 """
 
 import logging
+import os
+import socket
 import time
+from ipaddress import ip_address
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -23,7 +27,48 @@ class WebMCPError(Exception):
 
 
 def _base_url(url: str) -> str:
-    return url.rstrip("/")
+    value = (url or "").strip().rstrip("/")
+    parsed = urlsplit(value)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise WebMCPError("URL WebMCP inválida: solo se permiten http/https con host")
+    if parsed.username or parsed.password:
+        raise WebMCPError("URL WebMCP inválida: no se permiten credenciales embebidas")
+
+    environment = os.getenv("ENVIRONMENT", "development").strip().lower()
+    allowed_hosts = {
+        host.strip().lower()
+        for host in os.getenv("WEBMCP_ALLOWED_HOSTS", "").split(",")
+        if host.strip()
+    }
+    host = parsed.hostname.lower().rstrip(".")
+    if environment == "production":
+        if not allowed_hosts or host not in allowed_hosts:
+            raise WebMCPError(
+                f"host WebMCP no permitido en producción: {host}; "
+                "configurá WEBMCP_ALLOWED_HOSTS"
+            )
+    elif allowed_hosts and host not in allowed_hosts:
+        raise WebMCPError(f"host WebMCP no permitido: {host}")
+
+    # Resolver ahora detecta hosts inválidos y permite auditar destinos privados.
+    try:
+        addresses = {item[4][0] for item in socket.getaddrinfo(host, parsed.port)}
+    except socket.gaierror as exc:
+        raise WebMCPError(f"host WebMCP no resoluble: {host}") from exc
+    if environment == "production" and host not in allowed_hosts:
+        if any(ip_address(addr).is_private or ip_address(addr).is_loopback for addr in addresses):
+            raise WebMCPError("destino WebMCP privado no permitido")
+    return value
+
+
+def _json_response(response: httpx.Response, operation: str) -> Dict[str, Any]:
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise WebMCPError(f"respuesta WebMCP inválida durante {operation}: JSON esperado") from exc
+    if not isinstance(payload, dict):
+        raise WebMCPError(f"respuesta WebMCP inválida durante {operation}: objeto esperado")
+    return payload
 
 
 def get_context(base_url: str) -> Dict[str, Any]:
@@ -31,7 +76,7 @@ def get_context(base_url: str) -> Dict[str, Any]:
     try:
         r = httpx.get(f"{_base_url(base_url)}/api/webmcp/context", timeout=DEFAULT_TIMEOUT_S)
         r.raise_for_status()
-        return r.json()
+        return _json_response(r, "context")
     except httpx.HTTPError as e:
         raise WebMCPError(f"no se pudo obtener contexto de {base_url}: {e}") from e
 
@@ -45,9 +90,9 @@ def act(base_url: str, action: Dict[str, Any]) -> Dict[str, Any]:
             timeout=DEFAULT_TIMEOUT_S,
         )
         if r.status_code == 400:
-            raise WebMCPError(r.json().get("detail", "acción rechazada por la app"))
+            raise WebMCPError(_json_response(r, "act").get("detail", "acción rechazada por la app"))
         r.raise_for_status()
-        return r.json()
+        return _json_response(r, "act")
     except httpx.HTTPError as e:
         raise WebMCPError(f"acción falló en {base_url}: {e}") from e
 
@@ -57,7 +102,7 @@ def snapshot(base_url: str) -> Dict[str, Any]:
     try:
         r = httpx.get(f"{_base_url(base_url)}/api/webmcp/snapshot", timeout=DEFAULT_TIMEOUT_S)
         r.raise_for_status()
-        return r.json()
+        return _json_response(r, "snapshot")
     except httpx.HTTPError as e:
         raise WebMCPError(f"snapshot falló en {base_url}: {e}") from e
 
@@ -72,6 +117,9 @@ def run_script(base_url: str, actions: List[Dict[str, Any]]) -> Dict[str, Any]:
         raise WebMCPError("sin acciones para ejecutar")
     if len(actions) > MAX_ACTIONS:
         raise WebMCPError(f"demasiadas acciones (máx {MAX_ACTIONS})")
+    for index, action in enumerate(actions):
+        if not isinstance(action, dict) or not str(action.get("type") or "").strip():
+            raise WebMCPError(f"acción WebMCP inválida en posición {index}: type requerido")
 
     base = _base_url(base_url)
     action_log: List[Dict[str, Any]] = []

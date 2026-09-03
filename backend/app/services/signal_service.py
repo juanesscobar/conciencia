@@ -144,6 +144,15 @@ def add_evidence(db: Session, signal: Signal, *, kind: str = "quote",
 
 
 def delete_signal(db: Session, signal: Signal) -> None:
+    from app.models.mission import Mission
+
+    evidence_ids = {str(ev.id) for ev in signal.evidences}
+    mission = db.query(Mission).filter(Mission.id == signal.mission_id).first()
+    if mission and evidence_ids:
+        mission.evidence_ids = [
+            str(eid) for eid in (mission.evidence_ids or [])
+            if str(eid) not in evidence_ids
+        ]
     db.delete(signal)
     db.commit()
 
@@ -219,6 +228,8 @@ def extract_from_mission(db: Session, mission, mission_run=None) -> List[Signal]
         output = step.get("output") or ""
         parsed = extract_from_output(output)
         for p in parsed:
+            if _already_extracted(db, mission.id, str(wf_run.id), step.get("step_name"), p):
+                continue
             signal = create_signal(
                 db,
                 mission_id=str(mission.id),
@@ -237,13 +248,16 @@ def extract_from_mission(db: Session, mission, mission_run=None) -> List[Signal]
         for child in step.get("children") or []:
             cparsed = extract_from_output(child.get("output") or "")
             for p in cparsed:
+                source_step = f"{step.get('step_name')} > {child.get('name')}"
+                if _already_extracted(db, mission.id, str(wf_run.id), source_step, p):
+                    continue
                 signal = create_signal(
                     db,
                     mission_id=str(mission.id),
                     title=p["title"],
                     type=p["type"],
                     summary=p["summary"],
-                    source_step=f"{step.get('step_name')} > {child.get('name')}",
+                    source_step=source_step,
                     agent_id=child.get("agent_id"),
                     agent_name=child.get("agent_name"),
                     workflow_run_id=str(wf_run.id),
@@ -252,6 +266,18 @@ def extract_from_mission(db: Session, mission, mission_run=None) -> List[Signal]
                 )
                 created.append(signal)
     return created
+
+
+def _already_extracted(db: Session, mission_id, workflow_run_id: str,
+                       source_step: Optional[str], parsed: dict) -> bool:
+    """Evita duplicar una Signal al reintentar extraction del mismo output."""
+    return db.query(Signal.id).filter(
+        Signal.mission_id == mission_id,
+        Signal.workflow_run_id == workflow_run_id,
+        Signal.source_step == source_step,
+        Signal.type == parsed["type"],
+        Signal.title == parsed["title"],
+    ).first() is not None
 
 
 def _link_evidence_ids(db: Session, mission, signal: Signal) -> None:

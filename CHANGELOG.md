@@ -15,6 +15,14 @@
 
 ## [Unreleased] — Mission Orchestration (master prompt: Fase A + B + C) 🎯
 
+### Final production-readiness hardening (2026-09-03)
+- **Context:** validación de existencia/proyecto para Context Packs explícitos; sin fallback silencioso.
+- **WebMCP:** allowlist obligatoria de hosts en producción, validación URL/payload/JSON y enforcement de Harness tools.
+- **Runs:** resume de approval resincroniza observabilidad, tokens, costos, errores y timestamps canónicos.
+- **Evidence:** extracción idempotente y limpieza de referencias al borrar Signals.
+- **Harness:** metadata de resultados tolerante a adapters que no inicializan un diccionario.
+- **JobScout:** corregido `NameError` en la tarea programada de expiración.
+
 ### Fase B — Mission como unidad central (ad4d25a)
 - **Archivos:** backend `app/models/mission.py` (Mission + MissionRun, nuevo), `app/services/mission_service.py` (nuevo), `app/routers/missions.py` (nuevo), `cli.py` (mission/run/approvals/status), `app/main.py` (title "Conciencia"), `tests/test_missions.py` (6 tests), `docs/PHASE_A_AUDIT.md` (auditoría completa)
 - **Cambio:** Mission = capa de orquestación que REFERENCIA Task/Workflow/AgentExecution (no duplica); type/status como String para evitar ALTER TYPE en Postgres prod; run reusa workflow_engine (approval gates human-in-the-loop); CLI completo: mission create/list/inspect/plan/run + run list/inspect + approvals/approve + status

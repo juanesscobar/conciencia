@@ -103,6 +103,17 @@ def create_mission(
         if harness.status != "active":
             raise ValueError(f"Harness '{harness.name}' no está activo (status: {harness.status})")
 
+    if context_pack_id:
+        from app.models.context_pack import ContextPack
+
+        pack = db.query(ContextPack).filter(ContextPack.id == context_pack_id).first()
+        if not pack:
+            raise ValueError(f"Context Pack no encontrado: {context_pack_id}")
+        if (pack.project_id or project_id) and str(pack.project_id or "") != str(project_id or ""):
+            raise ValueError(
+                f"Context Pack {context_pack_id} no pertenece al proyecto de la misión"
+            )
+
     # Fase K: la misión puede referenciar un workflow existente (custom)
     if workflow_id:
         from app.models.workflow import Workflow
@@ -155,6 +166,10 @@ def plan_mission(db: Session, mission: Mission) -> Mission:
 
 def run_mission(db: Session, mission: Mission) -> MissionRun:
     """Ejecuta la misión: crea MissionRun + corre el workflow (sincrónico)."""
+    if mission.status in ("running", "waiting_approval"):
+        raise ValueError(
+            f"La misión ya tiene una ejecución activa (status={mission.status})"
+        )
     if not mission.workflow_id:
         plan_mission(db, mission)
 
@@ -178,47 +193,7 @@ def run_mission(db: Session, mission: Mission) -> MissionRun:
             harness_id=mission.harness_id, mission_ctx=mission_ctx,
             agent_pool=[str(a) for a in (mission.agent_ids or [])] or None,
         )
-        run.workflow_run_id = wf_run.id
-        # El engine usa "paused" para approval gates → exponer como waiting_approval
-        run.status = "waiting_approval" if wf_run.status == "paused" else wf_run.status
-
-        # --- Fase H: observabilidad ---
-        # 1) timeline estructurado del workflow → logs del MissionRun
-        run.logs = [
-            {"ts": e.get("ts"), "level": "error" if e.get("type") in ("step_failed", "workflow_failed") else "info",
-             "message": _event_to_log(e)}
-            for e in (wf_run.events or [])
-        ]
-        # audit §22: registrar qué context packs se usaron (provenance del run)
-        packs_used = mission_ctx.get("context_packs") or []
-        if packs_used:
-            run.logs.insert(0, {
-                "ts": datetime.utcnow().isoformat() + "Z",
-                "level": "info",
-                "message": "[context_packs] " + ", ".join(p.get("title", "?") for p in packs_used),
-            })
-        # 2) tokens agregados (steps + children paralelos)
-        tot_p, tot_c, tot_t = 0, 0, 0
-        for step in (wf_run.step_results or []):
-            for tok in _step_tokens(step):
-                tot_p += tok.get("prompt") or 0
-                tot_c += tok.get("completion") or 0
-                tot_t += tok.get("total") or 0
-        run.tokens = {"prompt": tot_p, "completion": tot_c, "total": tot_t}
-        # 3) costos por step (workflow_engine acumula cost por step)
-        total_cost = 0.0
-        for step in (wf_run.step_results or []):
-            total_cost += float(step.get("cost") or 0.0)
-        run.cost_usd = {"llm": round(total_cost, 4), "tools": 0.0, "total": round(total_cost, 4)}
-        if run.status == "completed":
-            mission.status = "completed"
-            mission.completed_at = datetime.utcnow()
-        elif run.status == "waiting_approval":
-            mission.status = "waiting_approval"
-        else:
-            mission.status = "failed"
-            run.error = wf_run.error
-        db.commit()
+        _sync_mission_run(db, mission, run, wf_run, mission_ctx)
 
         # Fase I: extraer Signals (marcadores SIGNAL:/EVIDENCE:) al completar
         if run.status == "completed":
@@ -281,17 +256,14 @@ def approve_mission_step(db: Session, mission_id: str, step_index: int, approved
     )
     # approve_step ya re-ejecuta el workflow internamente si approved
     db.refresh(wf_run)
-    run.status = "waiting_approval" if wf_run.status == "paused" else wf_run.status
+    mission_ctx = _mission_context(db, mission)
+    _sync_mission_run(db, mission, run, wf_run, mission_ctx)
     if run.status == "completed":
-        mission.status = "completed"
-        mission.completed_at = datetime.utcnow()
-    elif run.status == "cancelled":
-        mission.status = "cancelled"
-    elif run.status == "failed":
-        mission.status = "failed"
-    else:
-        mission.status = "waiting_approval" if run.status == "waiting_approval" else "running"
-    db.commit()
+        from app.services import signal_service
+        from app.services.webmcp import promote_step_evidence
+
+        signal_service.extract_from_mission(db, mission, mission_run=run)
+        promote_step_evidence(db, mission, wf_run)
     db.refresh(run)
     return run
 
@@ -332,6 +304,50 @@ def _step_tokens(step: dict) -> list:
         if child.get("tokens"):
             out.append(child["tokens"])
     return out
+
+
+def _sync_mission_run(db: Session, mission: Mission, run: MissionRun,
+                      wf_run: WorkflowRun, mission_ctx: dict) -> None:
+    """Sincroniza estado y agregados desde el WorkflowRun canónico."""
+    run.workflow_run_id = wf_run.id
+    run.status = "waiting_approval" if wf_run.status == "paused" else wf_run.status
+    run.logs = [
+        {
+            "ts": e.get("ts"),
+            "level": "error" if e.get("type") in ("step_failed", "workflow_failed") else "info",
+            "message": _event_to_log(e),
+        }
+        for e in (wf_run.events or [])
+    ]
+    packs_used = mission_ctx.get("context_packs") or []
+    if packs_used:
+        run.logs.insert(0, {
+            "ts": datetime.utcnow().isoformat() + "Z",
+            "level": "info",
+            "message": "[context_packs] " + ", ".join(p.get("title", "?") for p in packs_used),
+        })
+
+    totals = {"prompt": 0, "completion": 0, "total": 0}
+    for step in (wf_run.step_results or []):
+        for tokens in _step_tokens(step):
+            for key in totals:
+                totals[key] += tokens.get(key) or 0
+    run.tokens = totals
+    llm_cost = round(sum(float(step.get("cost") or 0.0) for step in (wf_run.step_results or [])), 4)
+    run.cost_usd = {"llm": llm_cost, "tools": 0.0, "total": llm_cost}
+    run.error = wf_run.error
+
+    if run.status == "waiting_approval":
+        mission.status = "waiting_approval"
+        run.completed_at = None
+    elif run.status in ("completed", "failed", "cancelled"):
+        mission.status = run.status
+        completed_at = wf_run.completed_at or datetime.utcnow()
+        mission.completed_at = completed_at
+        run.completed_at = completed_at
+    else:
+        mission.status = "running"
+    db.commit()
 
 
 def _mission_context(db: Session, mission: Mission) -> dict:

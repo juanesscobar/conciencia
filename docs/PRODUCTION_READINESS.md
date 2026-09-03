@@ -1,4 +1,4 @@
-# PRODUCTION_READINESS — Conciencia Platform (audit final, 2026-09-01)
+# PRODUCTION_READINESS — Conciencia Platform (audit final, actualizado 2026-09-03)
 
 Clasificación por área: **READY** · **READY WITH LIMITATIONS** · **EXPERIMENTAL** · **NOT IMPLEMENTED**.
 No se marketing de capacidades incompletas como completas.
@@ -27,8 +27,8 @@ No se marketing de capacidades incompletas como completas.
 | Área | Estado | Notas |
 |---|---|---|
 | Retrieval por keywords (título 3x/claves 2x/valores 1x), top-K, max_chars | READY | determinista, sin LLM, sin vectores |
-| pack explícito de misión override retrieval | READY | |
-| Aislamiento por proyecto | READY WITH LIMITATIONS | el filtro por project_id existe; sin proyecto la búsqueda es global (single-tenant hoy) |
+| pack explícito de misión override retrieval | READY | existencia y pertenencia al proyecto validadas; nunca hace fallback silencioso |
+| Aislamiento por proyecto | READY WITH LIMITATIONS | estricto cuando la misión declara proyecto; sin proyecto el retrieval sigue siendo global (single-tenant hoy) |
 | Embeddings/semántica | NOT IMPLEMENTED | intencional (§7: no agregar vectores en este audit) |
 
 ## Observabilidad
@@ -72,14 +72,14 @@ No se marketing de capacidades incompletas como completas.
 |---|---|---|
 | Auth en routers sensibles | READY | audit §20 — 12 routers protegidos (HTTPBearer) |
 | Secrets fuera de logs/events | READY | revisado: no se loguean keys |
-| Approval como control de ejecución | READY | audit §12 — no re-ejecución de runs terminados |
+| Approval como control de ejecución | READY WITH LIMITATIONS | gates detienen el engine y se bloquean runs activos duplicados; `approval_policy` de Mission aún no genera gates automáticos |
 | Rate limiting / tenancy multi-cliente | NOT IMPLEMENTED | single-tenant hoy; fuera de alcance (§29) |
 
 ## Deployment
 
 | Área | Estado | Notas |
 |---|---|---|
-| Docker + docker-compose | READY | revisar healthchecks/restart en OPERATIONS.md |
+| Docker + docker-compose | READY | WebMCP exige `WEBMCP_ALLOWED_HOSTS` en producción; revisar healthchecks/restart en OPERATIONS.md |
 | Migraciones alembic | READY | cadena lineal a1b2c3d4e5f7→…→c3d4e5f6a7b9 |
 | CORS / host binding | READY WITH LIMITATIONS | verificar `get_cors_origins` para prod |
 
@@ -91,6 +91,19 @@ Conectado con API real (axios + JWT): Dashboard, Projects, Tasks, Agents, Workfl
 Approvals, Context, Traces, Costs, Leads, Email, Settings.
 Sin pantalla todavía (backend listo): **Missions, Teams, Harnesses, Signals/Evidence,
 Economics, WebMCP**. La UI es React+Vite (sin redesign en este audit — §FRONTEND).
+
+## Verificación del hardening 2026-09-03
+
+- Suite final local: **328 passed, 0 failed, 0 skipped, 0 deselected** en 281.43 s.
+- `compileall`, Ruff de errores fatales, build TypeScript/Vite, Compose config, CLI help y
+  API `/health` pasaron. El lint amplio conserva deuda preexistente documentada.
+- Reanudación tras approval resincroniza eventos, tokens, costo, error y timestamps desde
+  `WorkflowRun`; después extrae Signals/Evidence idempotentemente.
+- Context Packs explícitos inexistentes o de otro proyecto fallan antes del dispatch.
+- WebMCP valida URL/payload/JSON, requiere allowlist de hosts en producción y respeta
+  `harness.spec.tools.allow/deny` antes de ejecutar acciones.
+- Limitación aceptada: la aprobación previa a un side effect depende hoy del orden de gates
+  en el Workflow; no existe aún clasificación universal READ/WRITE/DESTRUCTIVE ejecutable.
 
 ---
 Generado por: audit final `master-prompt-final1.md` · 2026-09-01 · rama v2-refactor

@@ -97,6 +97,21 @@ def test_cliente_accion_fallida_reporta_error(demo_url):
     assert "selector no clicable" in result["action_log"][0]["error"]
 
 
+def test_cliente_rechaza_url_y_accion_malformadas():
+    with pytest.raises(wm.WebMCPError, match="http/https"):
+        wm.run_script("file:///etc/passwd", [{"type": "click"}])
+    with pytest.raises(wm.WebMCPError, match="type requerido"):
+        wm.run_script("http://127.0.0.1:8765", [{"selector": "#x"}])
+
+
+def test_cliente_produccion_exige_host_allowlist(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("WEBMCP_ALLOWED_HOSTS", raising=False)
+
+    with pytest.raises(wm.WebMCPError, match="no permitido en producción"):
+        wm.run_script("https://example.com", [{"type": "click", "selector": "#x"}])
+
+
 # ---------------------------------------------------------------------------
 # Workflow con step webmcp
 # ---------------------------------------------------------------------------
@@ -160,6 +175,24 @@ def test_workflow_step_webmcp_accion_fallida_falla_el_step(client, auth_headers,
     assert "webmcp" in run["error"]
     # la evidencia parcial se conserva
     assert run["step_results"][0]["webmcp_evidence"]["actions_count"] == 1
+
+
+def test_workflow_webmcp_respeta_tools_del_harness(client, auth_headers, db, demo_url):
+    from app.services import harness_service
+
+    harness = harness_service.create_harness(
+        db, name="Sin WebMCP", spec={"tools": {"allow": ["email"], "deny": ["webmcp"]}}
+    )
+    harness_service.set_status(db, harness, "active")
+    wf = _create_wf(client, auth_headers, [{
+        "name": "bloqueado",
+        "harness_id": str(harness.id),
+        "webmcp": {"url": demo_url, "actions": [{"type": "click", "selector": "#increment"}]},
+    }])
+
+    run = client.post(f"/api/v1/workflows/{wf['id']}/run", headers=auth_headers).json()
+    assert run["status"] == "failed"
+    assert "denegado por harness" in run["error"]
 
 
 # ---------------------------------------------------------------------------

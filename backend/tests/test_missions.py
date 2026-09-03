@@ -112,6 +112,21 @@ def test_mission_run_con_aprobacion(client, auth_headers):
     assert res.status_code == 200, res.text
     run2 = res.json()
     assert run2["status"] == "completed"
+    assert run2["completed_at"] is not None
+    assert any("workflow_completed" in entry["message"] for entry in run2["logs"])
+
+
+def test_mission_no_inicia_segundo_run_mientras_espera_aprobacion(client, auth_headers):
+    mission = client.post("/api/v1/missions/", headers=auth_headers, json={
+        "name": "Research con gate", "objective": "Investigar X", "type": "research",
+    }).json()
+    client.post(f"/api/v1/missions/{mission['id']}/plan", headers=auth_headers)
+    first = client.post(f"/api/v1/missions/{mission['id']}/run", headers=auth_headers)
+    assert first.json()["status"] == "waiting_approval"
+
+    second = client.post(f"/api/v1/missions/{mission['id']}/run", headers=auth_headers)
+    assert second.status_code == 400
+    assert "ejecución activa" in second.json()["detail"]
 
 
 def test_mission_types_endpoints(client, auth_headers):

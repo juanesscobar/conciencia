@@ -27,13 +27,16 @@ contra sistemas externos). Hallazgo principal corregido: routers sensibles sin a
   (revisar si algún path usa `safe_load`).
 
 ## WebMCP
-- El step `webmcp` ejecuta SOLO contra la URL declarada en el workflow (config del
-  dueño). La app demo es local. No hay trust implícito de orígenes remotos: el cliente
-  valida respuestas JSON y timeouts; errores estructurados.
+- El step `webmcp` ejecuta SOLO contra la URL declarada en el workflow. El cliente acepta
+  exclusivamente HTTP(S), rechaza credenciales embebidas, valida payloads/respuestas JSON
+  y exige que el host esté en `WEBMCP_ALLOWED_HOSTS` cuando `ENVIRONMENT=production`.
+- `harness.spec.tools.allow/deny` se evalúa antes del dispatch WebMCP; un step no puede
+  eludir el contrato usando el adapter directo.
 
 ## SSRF / URLs
-- WebMCP client: URL provista por config del workflow (no input directo de usuario final
-  sin revisión). Recomendado para prod: allowlist de hosts en Settings.
+- WebMCP client: allowlist exacta y obligatoria en producción. El compose confía por
+  defecto solo en el servicio interno `webmcp-demo`; agregar hosts requiere configuración
+  explícita y revisión operativa.
 - Sin path traversal: el CLI y la API no abren archivos por rutas de usuario.
 
 ## Aprobaciones (governance)
@@ -48,3 +51,5 @@ contra sistemas externos). Hallazgo principal corregido: routers sensibles sin a
 4. Ingesta LeadHunter (intake_router): considerar token de webhook dedicado.
 5. Logs de la app (uvicorn/estructurados) — verificar que el level de prod no loguee
    bodies de requests (pueden contener datos de leads).
+6. `approval_policy` de Mission se persiste pero no inserta gates: todo side effect debe
+   quedar después de un step `approval` explícito en el Workflow.

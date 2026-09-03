@@ -146,6 +146,8 @@ def test_signals_api_crud(client, auth_headers, db):
     assert res.status_code == 204
     res = client.get(f"/api/v1/signals/{s['id']}", headers=auth_headers)
     assert res.status_code == 404
+    mission = client.get(f"/api/v1/missions/{m['id']}", headers=auth_headers).json()
+    assert mission["evidence_ids"] == []
 
 
 def test_signals_api_extract_desde_mission(client, auth_headers, db, fake_dispatch_con_signals):
@@ -170,6 +172,13 @@ def test_signals_api_extract_desde_mission(client, auth_headers, db, fake_dispat
     # la misión acumuló evidence_ids (el risk tiene evidencia vinculada)
     res = client.get(f"/api/v1/missions/{m['id']}", headers=auth_headers)
     assert len(res.json()["evidence_ids"]) >= 1
+
+    # Repetir extraction sobre el mismo WorkflowRun es idempotente.
+    again = client.post(
+        "/api/v1/signals/extract", headers=auth_headers, json={"mission_id": m["id"]}
+    )
+    assert again.status_code == 200
+    assert again.json() == []
 
 
 # ---------------------------------------------------------------------------

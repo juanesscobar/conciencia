@@ -1,6 +1,6 @@
 # 🏗️ Arquitectura Técnica
 
-## Flujo canónico A–L (actualizado 2026-09-01, audit final)
+## Flujo canónico A–L (actualizado 2026-09-03, audit final)
 
 ```
 User / CLI / API (JWT)
@@ -40,10 +40,10 @@ settings, projects, tasks, users, audit_events.
 ## Stack Tecnológico
 
 ### Backend
-- **FastAPI** — API REST async, moderna, typed
-- **PostgreSQL** — datos estructurados (proyectos, tareas, métricas)
-- **Redis** — cache, sesiones, colas de trabajo
-- **Celery** — background tasks, scheduled jobs
+- **FastAPI** — API REST con handlers principalmente síncronos y modelos Pydantic
+- **PostgreSQL** — persistencia de producción; SQLite se usa en tests/desarrollo aislado
+- **Redis** — configurado para cache/servicios auxiliares; no es la cola del workflow engine
+- **APScheduler** — jobs programados de LeadHunter dentro del proceso backend
 - **SQLAlchemy 2.0** — ORM con type hints
 - **Pydantic** — validación y serialización
 
@@ -60,7 +60,7 @@ settings, projects, tasks, users, audit_events.
 - **Docker + Docker Compose** — local dev y deployment
 
 ### Infra
-- **Railway / Render / Fly.io** — hosting (start simple)
+- **Docker Compose + nginx** — deployment actual en Hetzner
 - **GitHub Actions** — CI/CD
 
 ---
@@ -308,6 +308,18 @@ PR merged → GitHub Actions → Build → Deploy staging → Notify → QA vali
 - **GitHub:** Solo read access inicial, write con permissions específicas
 - **Telegram:** Webhook con secret token
 - **DB:** PostgreSQL con SSL, backups automáticos
+
+### Invariantes de ejecución auditados
+
+- Resolución: `step.agent_id` → miembros del Team → pool `mission.agent_ids` → registry.
+- `required_capabilities` falla sin match; `capabilities` permite fallback declarativo.
+- Un Harness se resuelve antes de cualquier dispatch; su política de tools también
+  gobierna WebMCP y su id/versión queda en `step_results`.
+- Un Context Pack explícito debe existir y pertenecer al mismo proyecto de la Mission.
+- `WorkflowRun.events` y `step_results` son la fuente canónica; MissionRun deriva de ellos
+  también después de reanudar una aprobación.
+- Signals/Evidence se extraen idempotentemente por workflow run y limpian sus referencias
+  de `mission.evidence_ids` al eliminarse.
 
 ---
 

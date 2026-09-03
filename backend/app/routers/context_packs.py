@@ -9,9 +9,9 @@ query; POST /assemble arma contexto acotado (solo lo que entra en max_chars).
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.routers.auth import get_current_user
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -48,8 +48,8 @@ class PackGenerate(BaseModel):
 class AssembleRequest(BaseModel):
     query: str
     project_id: Optional[str] = None
-    limit: int = 3
-    max_chars: int = 6000
+    limit: int = Field(3, ge=1, le=10)
+    max_chars: int = Field(6000, ge=1, le=100_000)
 
 
 def build_context(db: Session, project_id: Optional[str] = None) -> dict:
@@ -168,13 +168,14 @@ def export_pack(pack_id: str, target: str = "markdown", db: Session = Depends(ge
 # ---------- Fase J: retrieval eficiente ----------
 
 @router.get("/retrieve")
-def retrieve(query: str, project_id: Optional[str] = None, limit: int = 3,
+def retrieve(query: str, project_id: Optional[str] = None,
+             limit: int = Query(3, ge=1, le=10),
              db: Session = Depends(get_db)):
     """ContextPacks rankeados por relevancia al query (Fase J)."""
     if not query.strip():
         raise HTTPException(status_code=400, detail="query requerido")
     return context_retrieval.retrieve_packs(
-        db, query=query, project_id=project_id, limit=min(limit, 10)
+        db, query=query, project_id=project_id, limit=limit
     )
 
 

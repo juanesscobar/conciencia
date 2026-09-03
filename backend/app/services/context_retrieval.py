@@ -77,7 +77,9 @@ def retrieve_packs(
 
     Cada resultado: {pack_id, title, target, score, matched_terms, why}.
     """
-    terms = _normalize(query)
+    if limit <= 0:
+        return []
+    terms = list(dict.fromkeys(_normalize(query)))
     if not terms:
         return []
 
@@ -132,6 +134,8 @@ def assemble_context(
 
     Devuelve {context, packs, truncated} — solo carga lo que entra en max_chars.
     """
+    if max_chars <= 0 or limit <= 0:
+        return {"context": "", "packs": [], "truncated": False, "total_chars": 0}
     packs = retrieve_packs(db, query=query, project_id=project_id, limit=limit)
     budget = max_chars
     parts: List[str] = []
@@ -173,10 +177,15 @@ def context_for_mission(
     """
     if context_pack_id:
         pack = db.query(ContextPack).filter(ContextPack.id == context_pack_id).first()
-        if pack:
-            return render_context_pack(pack, max_chars=max_chars), [
-                {"pack_id": str(pack.id), "title": pack.title, "score": None, "why": "context_pack_id explícito"}
-            ]
+        if not pack:
+            raise ValueError(f"Context Pack no encontrado: {context_pack_id}")
+        if (pack.project_id or project_id) and str(pack.project_id or "") != str(project_id or ""):
+            raise ValueError(
+                f"Context Pack {context_pack_id} no pertenece al proyecto de la misión"
+            )
+        return render_context_pack(pack, max_chars=max_chars), [
+            {"pack_id": str(pack.id), "title": pack.title, "score": None, "why": "context_pack_id explícito"}
+        ]
     if objective:
         assembled = assemble_context(
             db, query=objective, project_id=project_id, limit=2, max_chars=max_chars

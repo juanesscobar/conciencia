@@ -110,6 +110,27 @@ def test_context_for_mission_pack_explicito_vs_retrieval(db):
     assert text == "" and packs == []
 
 
+def test_context_pack_explicito_no_hace_fallback_silencioso(db):
+    _seed_pack(db, title="Otro", content={"summary": "logística"})
+
+    with pytest.raises(ValueError, match="no encontrado"):
+        context_retrieval.context_for_mission(
+            db, objective="logística", context_pack_id="missing"
+        )
+
+
+def test_context_pack_explicito_respeta_aislamiento_de_proyecto(db):
+    pack = _seed_pack(db, project_id="project-a")
+
+    with pytest.raises(ValueError, match="no pertenece"):
+        context_retrieval.context_for_mission(
+            db,
+            objective="logística",
+            project_id="project-b",
+            context_pack_id=str(pack.id),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Integración con misión + harness
 # ---------------------------------------------------------------------------

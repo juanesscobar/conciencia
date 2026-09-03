@@ -19,6 +19,7 @@ def promote_step_evidence(db: Session, mission, wf_run) -> int:
     Devuelve la cantidad de signals creadas (0 si no hay steps webmcp).
     """
     from app.services import signal_service
+    from app.models.signal import Signal
 
     created = 0
     for step in (wf_run.step_results or []):
@@ -28,6 +29,15 @@ def promote_step_evidence(db: Session, mission, wf_run) -> int:
         url = evidence.get("url") or "?"
         actions = evidence.get("action_log") or []
         snap = evidence.get("snapshot") or {}
+        title = f"WebMCP: {step.get('step_name', 'interacción')}"
+        exists = db.query(Signal.id).filter(
+            Signal.mission_id == mission.id,
+            Signal.workflow_run_id == str(wf_run.id),
+            Signal.source_step == step.get("step_name"),
+            Signal.title == title,
+        ).first()
+        if exists:
+            continue
 
         # Evidence rows: una por acción + snapshot final
         evidences: list = []
@@ -48,7 +58,7 @@ def promote_step_evidence(db: Session, mission, wf_run) -> int:
             signal_service.create_signal(
                 db,
                 mission_id=str(mission.id),
-                title=f"WebMCP: {step.get('step_name', 'interacción')}",
+                title=title,
                 type="finding",
                 summary=f"{len(actions)} acción(es) contra {url}",
                 source_step=step.get("step_name"),

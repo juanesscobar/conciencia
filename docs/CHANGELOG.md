@@ -1,5 +1,16 @@
 # CHANGELOG — Conciencia Platform
 
+## 2026-09-03 — Hardening de contratos de ejecución
+- Context Packs explícitos: validación de existencia/proyecto y límites estrictos.
+- WebMCP: URL/payload/JSON validados, allowlist obligatoria en producción y enforcement
+  de `Harness.tools` antes del dispatch.
+- Approval resume: MissionRun vuelve a derivar logs, tokens, costos, errores y timestamps
+  del WorkflowRun; Signals/Evidence finales se promueven de forma idempotente.
+- Evidencia: extraction repetida no duplica Signals y delete limpia `mission.evidence_ids`.
+- Baseline reparada: metadata defensiva del LLM Harness y expectativa HTTPBearer 401.
+- JobScout: la tarea de expiración vuelve a importar `Opportunity` y deja de fallar con
+  `NameError` al ejecutarse.
+
 ## 2026-09-03 — RC deploy en producción (Hetzner)
 - Backend + frontend F–L + audit desplegados en el server (46.62.196.151) — código
   `ae72bc1`; tablas/columnas nuevas creadas en Postgres prod (teams, harnesses, signals,
