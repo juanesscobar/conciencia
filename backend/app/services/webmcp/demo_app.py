@@ -119,7 +119,7 @@ control plane de Conciencia. Humanos y agentes usan la misma app.</p>
 <form id="contact"><input id="name" placeholder="Nombre"/><input id="email" placeholder="Email"/>
 <textarea id="message"></textarea><button id="submit">Enviar</button></form>
 <button id="increment">+1</button><button id="reset">Reset</button>
-<div id="status"></div>
+<div id="status" style="margin-top:12px;font-family:monospace;white-space:pre-wrap;background:#f5f5f5;padding:8px;border-radius:4px">cargando…</div>
 <script>
 // --- Puente interno (window.webmcp) para el control plane de Conciencia ---
 window.webmcp = {
@@ -163,6 +163,15 @@ if (registerTool) {
     execute: async () => bridge({type: 'click', selector: '#increment'})
   });
 }
+// Poller: refleja el estado en vivo (humano y agentes ven el mismo resultado)
+setInterval(async () => {
+  try {
+    const s = (await fetch('/api/webmcp/context').then(r => r.json())).state;
+    document.getElementById('status').innerText =
+      `form: ${s.form.name || '(vacío)'} / ${s.form.email || '(vacío)'}\n` +
+      `enviado: ${s.submitted} · contador: ${s.counter} · visitas: ${(s.visits || []).length}`;
+  } catch (e) { /* demo sin backend */ }
+}, 800);
 </script></body></html>"""
 
     @app.get("/api/webmcp/context")
