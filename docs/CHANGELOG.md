@@ -1,5 +1,19 @@
 # CHANGELOG — Conciencia Platform
 
+## 2026-09-03 (noche) — master-prompt-cli: UX product-grade (rama v2-refactor)
+- P0 **secret redaction** en `config get` (tabla/single/json) — `61e1d72` + tests
+- Fase UX 1: `conciencia` dashboard, `onboard`, `agent list`, `run logs`, workflow tree +
+  aliases legacy ocultos, readiness services (capability_readiness/workflow_registry/
+  workspace_service) — `e434bdc`
+- Fase UX 2: README shell-safe (un comando por línea), `test_documented_commands.py`
+  (valida ejemplos de docs contra el árbol typer), `status` overview — `815ead5`
+- §7/§8 **short IDs** `M-6998bc52` + contexto (mission inspect sin id usa la única activa),
+  `reject` — `70d8301`
+- §14/§15/§21/§22/§23/§34: `runtime-inspect`, `runtime-doctor`, `mission watch`,
+  search empty-state que enseña, `docs/RUNTIME_ECOSYSTEM.md` — `93c3d77`
+- fix test auth: HTTPBearer sin header = **403** (Codex esperaba 401) — `56cca81`
+- Suite: 364 passed / 8 deselected + fix verificado standalone.
+
 ## 2026-09-03 — Hardening de contratos de ejecución
 - Context Packs explícitos: validación de existencia/proyecto y límites estrictos.
 - WebMCP: URL/payload/JSON validados, allowlist obligatoria en producción y enforcement
