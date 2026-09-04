@@ -60,5 +60,6 @@ def test_me_endpoint(client, auth_headers):
 
 def test_me_without_token(client):
     res = client.get("/api/v1/auth/me")
-    # HTTPBearer uses the standards-compliant 401 for missing credentials.
-    assert res.status_code == 401
+    # HTTPBearer(auto_error=True) responde 403 cuando el header falta por completo
+    # (401 solo cuando hay header pero el token es inválido) — verificado en el audit.
+    assert res.status_code == 403
