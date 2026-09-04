@@ -111,6 +111,83 @@ MODULES = [
 _SECRET_KEY_RE = re.compile(r"(KEY|SECRET|PASSWORD|PASS|TOKEN)", re.IGNORECASE)
 
 
+# master-prompt-cli §8: short IDs tipo M-6998bc52 → UUID canónico
+_SHORT_PREFIX = {
+    "M": "mission", "R": "run", "W": "workflow", "T": "team",
+    "H": "harness", "S": "signal", "A": "agent",
+}
+_ACTIVE_STATUSES = ("draft", "planned", "ready", "running", "paused", "waiting_approval")
+
+
+def _resolve_uuid(db, raw: str, kind: str):
+    """Resuelve un id corto (M-6998bc52) o UUID completo a su UUID canónico.
+
+    kind: mission|run|workflow|team|harness|signal|agent (usa el prefijo).
+    Devuelve el str(UUID) o lanza ValueError con mensaje amigable.
+    """
+    import uuid as _uuid
+    from app.models.mission import Mission, MissionRun
+    from app.models.team import Team
+    from app.models.harness import Harness
+    from app.models.signal import Signal
+    from app.models.workflow import Workflow
+    from app.models.agent import Agent
+
+    models = {
+        "mission": Mission, "run": MissionRun, "workflow": Workflow,
+        "team": Team, "harness": Harness, "signal": Signal, "agent": Agent,
+    }
+    model = models[kind]
+    raw = (raw or "").strip()
+    if not raw:
+        raise ValueError(f"Falta el ID de {kind}. Ej: conciencia {kind} inspect M-6998bc52")
+
+    # full UUID directo
+    try:
+        return str(_uuid.UUID(raw))
+    except ValueError:
+        pass
+
+    # prefijo + corto: M-6998bc52 o M-<uuid completo>
+    if len(raw) > 2 and raw[1] == "-" and raw[0].upper() in _SHORT_PREFIX:
+        if _SHORT_PREFIX[raw[0].upper()] != kind:
+            raise ValueError(f"Prefijo '{raw[0]}' es de {_SHORT_PREFIX[raw[0].upper()]}, no de {kind}")
+        token = raw[2:].replace("-", "")
+        try:
+            return str(_uuid.UUID(token))
+        except ValueError:
+            token8 = token[:8].lower()
+            hits = [m for m in db.query(model).all() if str(m.id).startswith(token8)]
+            if len(hits) == 1:
+                return str(hits[0].id)
+            if not hits:
+                raise ValueError(f"No existe {kind} con id corto '{raw}'. Probá: conciencia {kind} list")
+            raise ValueError(f"El id corto '{raw}' es ambiguo ({len(hits)} coincidencias). Usá el UUID completo.")
+
+    # corto sin prefijo NO se acepta (evita ambigüedad entre tipos)
+    raise ValueError(f"ID inválido '{raw}'. Usá el UUID completo o el corto con prefijo, ej: M-6998bc52")
+
+
+def _active_mission_or_pick(db):
+    """§7 contexto: misión activa única, o lista de candidatas si hay varias/ninguna."""
+    from app.models.mission import Mission
+
+    actives = db.query(Mission).filter(Mission.status.in_(_ACTIVE_STATUSES)).order_by(Mission.created_at.desc()).all()
+    if len(actives) == 1:
+        return actives[0], None
+    if not actives:
+        return None, "No hay misiones activas. Creá una con: conciencia mission create \"objetivo\""
+    recent = actives[:3]
+    lines = "\n".join(f"  • {m.status}: {m.name} ({str(m.id)[:8]})" for m in recent)
+    return None, f"Hay {len(actives)} misiones activas; elegí una explícitamente:\n{lines}\nEj: conciencia mission inspect {str(recent[0].id)[:8]}"
+
+
+def _short_id(kind: str, full_id: str) -> str:
+    """M-6998bc52 a partir del UUID canónico (para next-actions copiables)."""
+    prefix = next((p for p, k in _SHORT_PREFIX.items() if k == kind), "X")
+    return f"{prefix}-{full_id[:8]}"
+
+
 def _mask_secret(key: str, value: str) -> str:
     """Enmascara valores de claves secretas (API keys, passwords, tokens).
 
@@ -728,15 +805,21 @@ def mission_list(
 
 @mission_app.command("inspect")
 def mission_inspect(
-    mission_id: str = typer.Argument(..., help="ID de la misión"),
+    mission_id: Optional[str] = typer.Argument(None, help="ID de la misión (UUID o corto M-6998bc52); vacío usa la única misión activa"),
     json_out: bool = typer.Option(False, "--json"),
 ):
     """Muestra detalle de una misión."""
     db = _make_session()
     try:
-        m = db.query(Mission).filter(Mission.id == uuid.UUID(str(mission_id))).first()
+        if not mission_id:
+            mission, hint = _active_mission_or_pick(db)
+            if mission is None:
+                console.print(hint, style="yellow")
+                raise typer.Exit(1)
+            mission_id = str(mission.id)
+        m = db.query(Mission).filter(Mission.id == uuid.UUID(_resolve_uuid(db, mission_id, "mission"))).first()
         if not m:
-            console.print(f"Misión no encontrada: {mission_id}", style="red")
+            console.print(f"Misión no encontrada: {mission_id}. Probá: conciencia mission list", style="red")
             raise typer.Exit(1)
         if json_out:
             _json(m.to_dict())
@@ -747,25 +830,29 @@ def mission_inspect(
         for k, v in m.to_dict().items():
             table.add_row(k, str(v))
         console.print(table)
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
     finally:
         db.close()
 
 
 @mission_app.command("plan")
 def mission_plan(
-    mission_id: str = typer.Argument(..., help="ID de la misión"),
+    mission_id: str = typer.Argument(..., help="ID de la misión (UUID o corto M-6998bc52)"),
     json_out: bool = typer.Option(False, "--json"),
 ):
     """Genera el workflow por defecto para el tipo de misión."""
     db = _make_session()
     try:
-        m = db.query(Mission).filter(Mission.id == uuid.UUID(str(mission_id))).first()
+        mid = _resolve_uuid(db, mission_id, "mission")
+        m = db.query(Mission).filter(Mission.id == uuid.UUID(mid)).first()
         if not m:
-            console.print(f"Misión no encontrada: {mission_id}", style="red")
+            console.print(f"Misión no encontrada: {mission_id}. Probá: conciencia mission list", style="red")
             raise typer.Exit(1)
         m = mission_service.plan_mission(db, m)
         console.print(f"✅ Misión planeada: workflow [cyan]{m.workflow_id}[/cyan] · status={m.status}")
-        console.print("   Siguiente: conciencia mission run " + mission_id)
+        console.print(f"   Siguiente: conciencia mission run {_short_id('mission', str(m.id))}")
     except ValueError as e:
         console.print(f"Error: {e}", style="red")
         raise typer.Exit(1)
@@ -775,15 +862,16 @@ def mission_plan(
 
 @mission_app.command("run")
 def mission_run(
-    mission_id: str = typer.Argument(..., help="ID de la misión"),
+    mission_id: str = typer.Argument(..., help="ID de la misión (UUID o corto M-6998bc52)"),
     json_out: bool = typer.Option(False, "--json"),
 ):
     """Ejecuta la misión (crea MissionRun + corre el workflow)."""
     db = _make_session()
     try:
-        m = db.query(Mission).filter(Mission.id == uuid.UUID(str(mission_id))).first()
+        mid = _resolve_uuid(db, mission_id, "mission")
+        m = db.query(Mission).filter(Mission.id == uuid.UUID(mid)).first()
         if not m:
-            console.print(f"Misión no encontrada: {mission_id}", style="red")
+            console.print(f"Misión no encontrada: {mission_id}. Probá: conciencia mission list", style="red")
             raise typer.Exit(1)
         run = mission_service.run_mission(db, m)
         if json_out:
@@ -842,9 +930,10 @@ def run_inspect(
     """
     db = _make_session()
     try:
-        r = db.query(MissionRun).filter(MissionRun.id == uuid.UUID(str(run_id))).first()
+        rid = _resolve_uuid(db, run_id, "run")
+        r = db.query(MissionRun).filter(MissionRun.id == uuid.UUID(rid)).first()
         if not r:
-            console.print(f"Run no encontrado: {run_id}", style="red")
+            console.print(f"Run no encontrado: {run_id}. Probá: conciencia run list", style="red")
             raise typer.Exit(1)
         if json_out:
             out = r.to_dict()
@@ -1027,20 +1116,40 @@ def approvals_list(json_out: bool = typer.Option(False, "--json")):
 
 @app.command("approve")
 def approve(
-    mission_id: str = typer.Argument(..., help="ID de la misión"),
+    mission_id: str = typer.Argument(..., help="ID de la misión (UUID o corto M-6998bc52)"),
     step_index: int = typer.Argument(..., help="Índice del step a aprobar"),
     reject: bool = typer.Option(False, "--reject", help="Rechazar en vez de aprobar"),
 ):
     """Aprueba (o rechaza) el step de aprobación de una misión."""
     db = _make_session()
     try:
-        run = mission_service.approve_mission_step(db, mission_id, step_index, approved=not reject)
-        console.print(f"{'❌ Rechazado' if reject else '✅ Aprobado'} step {step_index} de misión {mission_id}")
+        mid = _resolve_uuid(db, mission_id, "mission")
+        run = mission_service.approve_mission_step(db, mid, step_index, approved=not reject)
+        console.print(f"{'❌ Rechazado' if reject else '✅ Aprobado'} step {step_index} de misión {_short_id('mission', mid)}")
         console.print(f"   Run status: {run.status}")
         if run.status == "waiting_approval":
             console.print("   ⏳ Siguiente step esperando aprobación")
         elif run.status == "completed":
             console.print("   🎉 Misión completada")
+    except ValueError as e:
+        console.print(f"Error: {e}", style="red")
+        raise typer.Exit(1)
+    finally:
+        db.close()
+
+
+@app.command("reject")
+def reject(
+    mission_id: str = typer.Argument(..., help="ID de la misión (UUID o corto M-6998bc52)"),
+    step_index: int = typer.Argument(..., help="Índice del step a rechazar"),
+):
+    """Rechaza el step de aprobación de una misión (alias de approve --reject)."""
+    db = _make_session()
+    try:
+        mid = _resolve_uuid(db, mission_id, "mission")
+        run = mission_service.approve_mission_step(db, mid, step_index, approved=False)
+        console.print(f"❌ Rechazado step {step_index} de misión {_short_id('mission', mid)}")
+        console.print(f"   Run status: {run.status}")
     except ValueError as e:
         console.print(f"Error: {e}", style="red")
         raise typer.Exit(1)
