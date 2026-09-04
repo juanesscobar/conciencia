@@ -34,6 +34,12 @@ VISIBLE_KEYS = {
     "LLM_PROVIDER", "LLM_MODEL", "LLM_BASE_URL", "LLM_FALLBACK_PROVIDERS",
     "GITHUB_USERNAME",
     "LEADHUNTER_CRON", "LEADHUNTER_BBOX", "LEADHUNTER_SCOPE",
+    "SEARCH_DEFAULT_COUNTRY", "SEARCH_ALLOWED_COUNTRIES",
+    "SEARCH_DEFAULT_REGION", "SEARCH_DEFAULT_CITY", "SEARCH_SCOPE",
+    "SEARCH_GEO_PROVIDER", "SEARCH_CACHE_TTL",
+    "SEARCH_QUERY_CACHE_TTL",
+    "EMBEDDING_ENABLED", "EMBEDDING_MODEL", "EMBEDDING_PROVIDER", "EMBEDDING_BACKEND", "EMBEDDING_BASE_URL",
+    "RANKING_WEIGHTS",
     "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_FROM",
 }
 
@@ -131,6 +137,15 @@ def get_integrations(
             "cron": os.getenv("LEADHUNTER_CRON", LEADHUNTER_CRON),
             "bbox": os.getenv("LEADHUNTER_BBOX", LEADHUNTER_BBOX),
             "scope": os.getenv("LEADHUNTER_SCOPE", "bbox"),
+            "geo": {
+                "default_country": os.getenv("SEARCH_DEFAULT_COUNTRY", "PY"),
+                "allowed_countries": os.getenv("SEARCH_ALLOWED_COUNTRIES", "PY,BR,AR,UY"),
+                "default_region": os.getenv("SEARCH_DEFAULT_REGION") or None,
+                "default_city": os.getenv("SEARCH_DEFAULT_CITY") or None,
+                "search_scope": os.getenv("SEARCH_SCOPE") or None,
+                "geo_provider": os.getenv("SEARCH_GEO_PROVIDER", "osm"),
+                "cache_ttl": os.getenv("SEARCH_CACHE_TTL", "86400"),
+            },
         },
         "email": {
             "smtp_configured": bool(os.getenv("SMTP_HOST") or _db_setting("SMTP_HOST")),

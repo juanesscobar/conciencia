@@ -40,5 +40,6 @@ class Project(Base):
     
     # Relationships
     tasks = relationship("Task", back_populates="project", cascade="all, delete-orphan")
+    missions = relationship("Mission", back_populates="project")
     activities = relationship("Activity", back_populates="project", cascade="all, delete-orphan")
     metrics = relationship("Metric", back_populates="project", cascade="all, delete-orphan")

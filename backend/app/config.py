@@ -33,6 +33,23 @@ LEADHUNTER_CRON = os.getenv("LEADHUNTER_CRON", "0 9 * * 1")  # lunes 09:00 local
 LEADHUNTER_BBOX = os.getenv("LEADHUNTER_BBOX", "-25.55,-57.75,-25.15,-57.40")  # Asunción: sur,oeste,norte,este
 LEADHUNTER_MAX_PER_SOURCE = int(os.getenv("LEADHUNTER_MAX_PER_SOURCE", "50"))
 
+# Geografía first-class (spec §7-9): país default PY, allowlist, scope explícito.
+# LEADHUNTER_SCOPE (bbox|country) sigue como compat; SEARCH_SCOPE lo reemplaza.
+SEARCH_DEFAULT_COUNTRY = os.getenv("SEARCH_DEFAULT_COUNTRY", "PY")
+SEARCH_ALLOWED_COUNTRIES = os.getenv("SEARCH_ALLOWED_COUNTRIES", "PY,BR,AR,UY")
+SEARCH_DEFAULT_REGION = os.getenv("SEARCH_DEFAULT_REGION", "") or None
+SEARCH_DEFAULT_CITY = os.getenv("SEARCH_DEFAULT_CITY", "") or None
+SEARCH_SCOPE = os.getenv("SEARCH_SCOPE", "") or None  # city|region|country|multi|global (None = legacy)
+SEARCH_GEO_PROVIDER = os.getenv("SEARCH_GEO_PROVIDER", "osm")
+SEARCH_CACHE_TTL = int(os.getenv("SEARCH_CACHE_TTL", "86400"))  # segundos (24h)
+
+# Fase 5 — búsqueda semántica (spec §14)
+EMBEDDING_ENABLED = os.getenv("EMBEDDING_ENABLED", "0")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai")  # openai | deepseek | ollama | otro OpenAI-compatible
+EMBEDDING_BACKEND = os.getenv("EMBEDDING_BACKEND", "memory")  # memory | pgvector
+EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL", "")
+
 
 def get_cors_origins() -> List[str]:
     origins_str = os.getenv("CORS_ORIGINS", "")

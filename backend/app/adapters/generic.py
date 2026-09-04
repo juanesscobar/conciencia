@@ -31,6 +31,7 @@ class GenericAgentAdapter(AgentAdapter):
     def dispatch_task(self, identity: AgentIdentity, task: str, context: Optional[str] = None) -> DispatchResult:
         from app.services.llm_harness import run_with_harness, HarnessConfig, HarnessError, CostTracker
         from app.services.llm import get_config
+        from app.services.capability_readiness import provider_readiness
 
         start = time.time()
 
@@ -45,17 +46,20 @@ class GenericAgentAdapter(AgentAdapter):
 
         cfg = get_config(provider=identity.provider or None, model=identity.model or None)
 
-        if not cfg.get("api_key") and cfg.get("provider") != "ollama":
+        readiness = provider_readiness(provider=cfg.get("provider"), model=cfg.get("model"))
+        if not readiness["ready"]:
+            action = readiness.get("action")
+            error = readiness["reason"] + (f". {action}" if action else "")
             return DispatchResult(
                 ok=False,
                 status="failed",
-                error="LLM no configurado. Agregá tu API key desde Configuración → Integraciones.",
+                error=error,
                 provider=cfg.get("provider"),
                 model=cfg.get("model"),
                 runtime=self.runtime_name,
                 simulated=True,
                 duration_ms=int((time.time() - start) * 1000),
-                meta={"reason": "llm_not_configured"},
+                meta={"reason": "llm_not_ready", "readiness": readiness["state"]},
             )
 
         fallback_providers = identity.config.get("fallback_providers", [])

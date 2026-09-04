@@ -1,68 +1,33 @@
-"""Lead Hunter — lógica de scoring y búsqueda."""
+"""Lead Hunter — scoring y enriquecimiento IA.
+
+Fase 7: `compute_score` es ahora un wrapper de `ranking._blocks()` (única fuente
+de verdad del scoring en `ranking.py`). El contrato histórico se preserva: mismos
+valores, garantizado por `tests/test_discovery.py`.
+"""
 
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from .models import Lead, LeadStatus
+from .models import Lead
+from .ranking import _blocks, HIGH_VALUE_INDUSTRY, SOURCE_BONUS  # noqa: F401 (re-export compat)
 
-# Palabras que suman puntos según el sector objetivo de Conciencia
-HIGH_VALUE_INDUSTRY = {
-    "cooperativa": 25,
-    "cooperativas": 25,
-    "hospital": 20,
-    "clinica": 20,
-    "clínica": 20,
-    "salud": 15,
-    "distribuidora": 20,
-    "industria": 15,
-    "comercio": 10,
-    "logistica": 15,
-    "logística": 15,
-    "farmacia": 15,
-    "agro": 10,
-    "financiero": 15,
-}
-
-SOURCE_BONUS = {
-    "conciencia": 15,   # viene caliente del diagnóstico
-    "referral": 20,     # recomendación = alta confianza
-    "web": 10,
-    "linkedin": 10,
-}
+__all__ = ["compute_score", "enrich_with_ai", "HIGH_VALUE_INDUSTRY", "SOURCE_BONUS"]
 
 
 def compute_score(company: str = "", industry: str = "", source: str = "manual",
                   email: str = "", phone: str = "", notes: str = "",
                   metadata: Optional[dict] = None) -> int:
-    """Score heurístico 0-100 basado en completitud y contexto."""
-    score = 0
+    """Score heurístico 0-100 basado en completitud y contexto.
 
-    # Completitud de datos
-    if email:
-        score += 20
-    if phone:
-        score += 15
-    if company:
-        score += 10
-
-    # Sector objetivo (Conciencia: cooperativas, hospitales, distribuidoras)
-    haystack = f"{company} {industry} {notes or ''}".lower()
-    for keyword, points in HIGH_VALUE_INDUSTRY.items():
-        if keyword in haystack:
-            score += points
-            break  # un solo sector cuenta
-
-    # Fuente
-    score += SOURCE_BONUS.get(source, 0)
-
-    # El diagnóstico de Conciencia con respuestas completas = lead caliente
-    if metadata and isinstance(metadata, dict):
-        n_answers = sum(1 for v in metadata.values() if v)
-        if n_answers >= 3:
-            score += 10
-
-    return max(0, min(100, score))
+    Contrato histórico preservado (mismos valores); delega en
+    `ranking._blocks()` para que el scoring tenga una única fuente de verdad.
+    """
+    blocks = _blocks(
+        company=company, industry=industry, source=source,
+        email=email, phone=phone, notes=notes, metadata=metadata,
+    )
+    return max(0, min(100, int(sum(blocks.values()))))
 
 
 def enrich_with_ai(lead: Lead) -> Optional[str]:

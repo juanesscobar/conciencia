@@ -2,14 +2,15 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.routers.auth import get_current_user
 from pydantic import BaseModel
 
 from app.database import SessionLocal
 from app.models.decision import Decision
 from app.models.context_pack import ContextPack
 
-router = APIRouter(prefix="/api/v1/decisions", tags=["decisions"])
+router = APIRouter(prefix="/api/v1/decisions", tags=["decisions"], dependencies=[Depends(get_current_user)])
 
 
 class DecisionCreate(BaseModel):

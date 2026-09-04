@@ -18,6 +18,7 @@ python-multipart==0.0.6
 langchain==0.1.0
 langchain-openai==0.0.5
 openai==1.59.6  # compatible con httpx 0.28 (1.10.0 rompe con 'proxies')
+numpy==1.26.4  # embeddings Fase 5 (InMemoryBackend cosine)
 
 # Background tasks
 celery==5.3.6
@@ -28,6 +29,9 @@ apscheduler==3.11.2
 pydantic==2.10.4
 pydantic-settings==2.7.1
 email-validator==2.1.0
+typer==0.15.2  # CLI conciencia (Fase 6)
+click==8.1.8    # pin: click>=8.2 rompe typer 0.15 (make_metavar ctx) en --help
+rich==13.9.4   # salida bonita del CLI
 httpx==0.28.1
 python-dotenv==1.0.0
 structlog==24.1.0

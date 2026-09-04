@@ -107,6 +107,15 @@ def _execute(db: Session, job_id: str) -> None:
 
     criteria = job.criteria or {}
     limit = criteria.get("limit")
+    filters = {
+        k: v
+        for k, v in {
+            "industry": criteria.get("industry"),
+            "segment": criteria.get("segment"),
+            "region": criteria.get("region"),
+        }.items()
+        if v
+    }
     try:
         sources = _source_names(criteria)
     except InvalidCriteriaError as e:
@@ -142,7 +151,7 @@ def _execute(db: Session, job_id: str) -> None:
         job.progress = "extracting"
         db.commit()
         try:
-            result = run_discovery(db, source=name, limit=limit, job_id=job.id)
+            result = run_discovery(db, source=name, limit=limit, job_id=job.id, filters=filters or None)
             r = result["results"][0] if result["results"] else {"status": "error", "error": "sin resultados"}
             total_added += r.get("added", 0)
             total_dupes += r.get("duplicates", 0)

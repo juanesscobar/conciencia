@@ -79,6 +79,11 @@ class LeadResponse(BaseModel):
     online_presence: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    # --- Fase 4: ranking/scoring separados + data quality (aditivo) ---
+    search_relevance: Optional[float] = None      # 0-100, dependiente de la query
+    opportunity_score: Optional[int] = None       # 0-100, señales comerciales
+    data_quality: Optional[int] = None            # 0-100, completitud+frescura+fuente
+    reasons: Optional[List[str]] = None           # "Why this lead matches" (spec §34)
 
 
 class LeadListResponse(BaseModel):
@@ -181,6 +186,39 @@ class SendProposalRequest(BaseModel):
     to_email: Optional[str] = None
 
 
+class SavedLeadListCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    description: Optional[str] = None
+
+
+class SavedLeadListResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    lead_count: int = 0
+    created_at: Optional[str] = None
+
+
+class SavedLeadListDetailResponse(SavedLeadListResponse):
+    leads: List[LeadResponse] = []
+
+
+class SavedLeadListAddRequest(BaseModel):
+    lead_id: str
+
+
+class LeadSavedSearchCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    filters: Optional[Dict[str, Any]] = None
+
+
+class LeadSavedSearchResponse(BaseModel):
+    id: str
+    name: str
+    filters: Dict[str, Any] = {}
+    created_at: Optional[str] = None
+
+
 class JobStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
@@ -214,3 +252,33 @@ class LeadHunterJobResponse(BaseModel):
 class LeadHunterJobListResponse(BaseModel):
     items: List[LeadHunterJobResponse]
     total: int
+
+
+# --- Fase 4: RankingWeights (spec §15/§16) ---
+class RankingWeights(BaseModel):
+    relevance: Dict[str, float] = Field(default_factory=dict)
+    lead: Dict[str, float] = Field(default_factory=dict)
+    opportunity: Dict[str, float] = Field(default_factory=dict)
+
+
+# --- Fase 5: búsqueda semántica (spec §14) ---
+class SemanticSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500)
+    top_k: int = Field(20, ge=1, le=100)
+
+
+class SemanticSearchResult(BaseModel):
+    items: List[LeadResponse] = []
+    total: int = 0
+    query: str
+    backend: str
+    model: str
+    simulated: bool = False
+
+
+class SemanticStatus(BaseModel):
+    enabled: bool
+    backend: str
+    model: str
+    simulated: bool
+    indexed: int

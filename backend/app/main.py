@@ -31,6 +31,13 @@ from app.models.context_pack import ContextPack  # noqa: F401 (tabla context_pac
 from app.routers.decisions import router as decisions_router
 from app.routers.context_packs import router as context_packs_router
 from app.routers.assistant import router as assistant_router
+from app.routers.missions import router as missions_router
+from app.routers.ask import router as ask_router
+from app.routers.teams import router as teams_router
+from app.routers.harnesses import router as harnesses_router
+from app.routers.signals import router as signals_router
+from app.routers.webmcp import router as webmcp_router
+from app.routers.economics import router as economics_router
 from app.config import get_cors_origins, ENVIRONMENT
 from app.services.system_logger import setup_logging
 from app.database import Base, engine
@@ -51,8 +58,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Mission Control",
-    description="Software Factory + Project Governance System",
+    title="Conciencia",
+    description="Mission Orchestration Control Plane — open control plane for autonomous technological work",
     version="2.0.0-alpha",
     lifespan=lifespan,
 )
@@ -95,6 +102,13 @@ app.include_router(traces_router)
 app.include_router(decisions_router)
 app.include_router(context_packs_router)
 app.include_router(assistant_router)
+app.include_router(missions_router)
+app.include_router(ask_router)
+app.include_router(teams_router)
+app.include_router(harnesses_router)
+app.include_router(signals_router)
+app.include_router(webmcp_router)
+app.include_router(economics_router)
 
 
 @app.middleware("http")
