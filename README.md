@@ -179,23 +179,30 @@ Full prospecting pipeline — hunt → enrich → rank → qualify → propose �
 ### 🖥️ CLI `conciencia`
 
 ```bash
-pip install -e backend/          # installs the `conciencia` entry point
+# desde la raíz del repo (no desde otra carpeta)
+pip install -e ./backend          # instala el entry point `conciencia`
 
 conciencia health
 conciencia search "empresas logísticas" --country PY --online website
 conciencia leads list --status qualified
 conciencia leads export --format csv --out leads.csv
-conciencia lead inspect <id>     # full detail + reasons
-conciencia lead score <id>       # 4 explainable scores
-conciencia lead enrich <id>      # enrich from website
+conciencia lead inspect LEAD_ID     # full detail + reasons (LEAD_ID es un placeholder)
+conciencia lead score LEAD_ID       # 4 explainable scores
+conciencia lead enrich LEAD_ID      # enrich from website
 conciencia hunt --industry distribuidoras
-conciencia config get            # settings (get/set)
-conciencia agents · conciencia modules
+conciencia config get               # settings (get/set)
+conciencia agents                   # catálogo de agentes
+conciencia modules                  # catálogo de módulos
 conciencia ask "investigar el mercado de logística"   # texto natural → propuesta de misión
-conciencia mission create|plan|run|inspect           # ciclo completo de misiones
-conciencia approve <mission> <step>                  # human-in-the-loop
-conciencia status · conciencia doctor · conciencia map
+conciencia mission list             # ver misiones existentes
+conciencia mission inspect MISSION_ID   # detalle (MISSION_ID es un placeholder)
+conciencia approve MISSION_ID STEP_INDEX  # human-in-the-loop
+conciencia status
+conciencia doctor
+conciencia map
 ```
+
+> ℹ️ Un comando por línea: no pegues separadores como `·` o `|` (causan errores de shell).
 
 Full CLI reference: [docs/USAGE.md](docs/USAGE.md#4-uso-cli)
 

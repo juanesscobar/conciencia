@@ -1050,26 +1050,73 @@ def approve(
 
 @app.command("status")
 def status_cmd(json_out: bool = typer.Option(False, "--json")):
-    """Resumen general del sistema (misiones, runs, leads, agentes)."""
+    """Resumen general (missions por estado, approvals pendientes, agents, knowledge).
+
+    master-prompt-cli §25: overview accionable de mission control.
+    """
     db = _make_session()
     try:
         from app.models.agent import Agent
         from app.modules.leadhunter.models import Lead
+        from app.services.capability_readiness import execution_overview
+        from app.modules.leadhunter.embeddings import embeddings_enabled, embedding_model
+
         missions = db.query(Mission).count()
         runs = db.query(MissionRun).count()
         leads = db.query(Lead).count()
         agents = db.query(Agent).count()
+        awaiting = db.query(Mission).filter(Mission.status == "waiting_approval").count()
+        running = db.query(Mission).filter(Mission.status == "running").count()
+        planned = db.query(Mission).filter(Mission.status.in_(["planned", "ready"])).count()
+        completed = db.query(Mission).filter(Mission.status == "completed").count()
+        failed = db.query(Mission).filter(Mission.status == "failed").count()
+        runtimes = execution_overview(db)
+        emb_state = "enabled" if embeddings_enabled() else "disabled"
+        emb_model = embedding_model()
+
         if json_out:
-            _json({"missions": missions, "runs": runs, "leads": leads, "agents": agents})
+            _json({
+                "missions": missions,
+                "missions_by_status": {"running": running, "planned": planned,
+                                       "waiting_approval": awaiting,
+                                       "completed": completed, "failed": failed},
+                "runs": runs,
+                "agents": agents,
+                "leads": leads,
+                "approvals_pending": awaiting,
+                "execution": runtimes.get("overall"),
+                "runtimes_ready": len([r for r in runtimes.get("runtimes", []) if r.get("ready")]),
+                "runtimes_total": len(runtimes.get("runtimes", [])),
+                "embeddings": emb_state,
+            })
             return
-        table = Table(title="Conciencia status")
-        table.add_column("Componente", style="cyan")
+
+        console.print("[bold cyan]Conciencia status[/bold cyan]")
+        table = Table(title="Misiones")
+        table.add_column("Estado", style="cyan")
         table.add_column("Cantidad")
-        table.add_row("Misiones", str(missions))
-        table.add_row("Runs", str(runs))
-        table.add_row("Leads", str(leads))
-        table.add_row("Agentes", str(agents))
+        for label, n in (("running", running), ("planned/ready", planned),
+                         ("waiting_approval", awaiting), ("completed", completed),
+                         ("failed", failed)):
+            table.add_row(label, str(n))
         console.print(table)
+
+        extra = Table(title="Sistema")
+        extra.add_column("Componente", style="cyan")
+        extra.add_column("Estado")
+        extra.add_row("Total misiones", str(missions))
+        extra.add_row("Runs", str(runs))
+        extra.add_row("Agentes", str(agents))
+        extra.add_row("Leads (knowledge)", str(leads))
+        rt = runtimes.get("runtimes", [])
+        extra.add_row("Runtimes", f"{len([r for r in rt if r.get('ready')])} / {len(rt)} listos")
+        extra.add_row("Embeddings", emb_state + (f" ({emb_model})" if emb_state == "enabled" else ""))
+        console.print(extra)
+
+        if awaiting:
+            console.print(f"\n[yellow]⚠ {awaiting} misión(es) espera(n) tu aprobación: conciencia approvals[/yellow]")
+        else:
+            console.print("\nSin aprobaciones pendientes.", style="green")
     finally:
         db.close()
 

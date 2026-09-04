@@ -139,7 +139,7 @@ El CLI `conciencia` usa **la misma lógica de dominio** que la web/API (cero bac
 
 ```bash
 conciencia --help          # lista todos los comandos
-conciencia <cmd> --help    # ayuda de un comando
+conciencia mission --help   # ayuda de un grupo (cualquier grupo/comando sirve)
 ```
 
 ### health
