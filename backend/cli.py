@@ -367,7 +367,24 @@ def search(
             _json({"total": res.total, "items": _lead_rows(db, lead_objs, sq)})
             return
         if not res.items:
+            # §23 empty state que enseña: filtros + sugerencias accionables
+            total_local = db.query(Lead).count()
+            filters = {
+                "country": country, "region": region, "city": city,
+                "category": category, "industry": industry, "segment": segment,
+                "online": online, "min_score": min_score,
+            }
+            activos = " · ".join(f"{k}: {v}" for k, v in filters.items() if v) or "ninguno"
             console.print("Sin resultados.", style="yellow")
+            console.print(f"\nHay [bold]{total_local}[/bold] leads en total; tu búsqueda no coincidió con los filtros:")
+            console.print(f"  {activos}")
+            console.print("\nProbá:")
+            if online:
+                console.print(f"  • quitar --online {online} (filtra por canal de contacto)")
+            if query:
+                console.print(f"  • buscar con menos términos: conciencia search \"{query.split()[0] if query.split() else query}\" --country PY")
+            console.print("  • correr una caza nueva: conciencia hunt --industry <sector> --country PY")
+            console.print("  • ver qué hay: conciencia leads list --limit 10")
             return
         rows = _lead_rows(db, lead_objs, sq)
         table = Table(title=f"Leads ({res.total} total)")
@@ -1081,9 +1098,12 @@ def ask_cmd(
             raise typer.Exit(0)
 
         m = ask_service.create_from_proposal(db, proposal)
-        console.print(f"✅ Misión creada: [cyan]{m.name}[/cyan] ({m.id})")
+        short = _short_id("mission", str(m.id))
+        console.print(f"✅ Misión creada: [cyan]{m.name}[/cyan] ({short})")
         console.print(f"   Tipo: {m.type} · Status: {m.status} · Runtime: {m.runtime}")
-        console.print(f"   Siguiente: conciencia mission plan {m.id}")
+        console.print("   Next:")
+        console.print(f"     conciencia mission plan {short}")
+        console.print(f"     conciencia mission inspect {short}")
     except ValueError as e:
         console.print(f"Error: {e}", style="red")
         raise typer.Exit(1)
@@ -1452,6 +1472,66 @@ def runtime_list(json_out: bool = typer.Option(False, "--json")):
         db.close()
 
 
+@app.command("runtime-inspect")
+def runtime_inspect_cmd(
+    runtime_name: str = typer.Argument(..., help="Nombre del runtime: generic|claude_code|codex|opencode|openclaw"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Detalle de un runtime: capabilities, binario, versión, salud y política (§14)."""
+    db = _make_session()
+    try:
+        from app.core.agent_runtime import get_runtime_configs
+        from app.services.capability_readiness import runtime_readiness
+
+        cfg = next((c for c in get_runtime_configs(db) if c.name == runtime_name), None)
+        if not cfg:
+            console.print(f"Runtime no encontrado: {runtime_name}. Disponibles: "
+                          + ", ".join(c.name for c in get_runtime_configs(db)), style="red")
+            raise typer.Exit(1)
+        row = runtime_readiness(db, cfg.name, config=cfg)
+        if json_out:
+            _json(row)
+            return
+        table = Table(title=f"Runtime: {cfg.name}")
+        table.add_column("Campo", style="cyan")
+        table.add_column("Valor")
+        for k, v in row.items():
+            if k not in ("meta",):
+                table.add_row(k, str(v))
+        console.print(table)
+    finally:
+        db.close()
+
+
+@app.command("runtime-doctor")
+def runtime_doctor_cmd(json_out: bool = typer.Option(False, "--json")):
+    """Descubre runtimes instalados (PATH, PowerShell, Git Bash, WSL) y su salud (§15)."""
+    db = _make_session()
+    try:
+        from app.core.agent_runtime import get_runtime_configs
+        from app.services.capability_readiness import runtime_readiness
+
+        rows = [runtime_readiness(db, cfg.name, config=cfg) for cfg in get_runtime_configs(db)]
+        if json_out:
+            _json(rows)
+            return
+        table = Table(title="Runtime discovery")
+        for col in ("Runtime", "Detectado", "Estado", "Razón"):
+            table.add_column(col, style="cyan")
+        ready = 0
+        for row in rows:
+            mark = "✓" if row.get("detected") else "○"
+            state = row["state"]
+            if row.get("ready"):
+                ready += 1
+            table.add_row(f"{mark} {row['name']}", str(row.get("detected", "-")), state, row.get("reason", ""))
+        console.print(table)
+        console.print(f"\n{ready}/{len(rows)} runtimes listos")
+        console.print("\nHabilitá uno con: conciencia onboard  (o Settings → Agents → Runtimes)")
+    finally:
+        db.close()
+
+
 @app.command("onboard")
 def onboard_cmd(
     yes: bool = typer.Option(False, "--yes", "-y", help="Habilitar runtimes detectados sin otra confirmación"),
@@ -1774,57 +1854,92 @@ def workflow_run_cmd(workflow_id: str = typer.Argument(...), json_out: bool = ty
 @run_app.command("watch")
 @app.command("run-watch", hidden=True)
 def run_watch(
-    run_id: str = typer.Argument(..., help="ID del MissionRun"),
+    run_id: str = typer.Argument(..., help="ID del MissionRun (UUID o corto R-xxxx)"),
     interval: float = typer.Option(2.0, "--interval", help="Segundos entre polls"),
     max_waits: int = typer.Option(30, "--max-waits", help="Máximo de polls antes de salir"),
 ):
     """Observa un run de misión en vivo (logs + estado + costo)."""
-    import time as _time
-
     db = _make_session()
     try:
-        from rich.live import Live
-        from rich.panel import Panel
-
-        mission = None
-        r = db.query(MissionRun).filter(MissionRun.id == uuid.UUID(str(run_id))).first()
+        rid = _resolve_uuid(db, run_id, "run")
+        r = db.query(MissionRun).filter(MissionRun.id == uuid.UUID(rid)).first()
         if not r:
-            console.print(f"Run no encontrado: {run_id}", style="red")
+            console.print(f"Run no encontrado: {run_id}. Probá: conciencia run list", style="red")
             raise typer.Exit(1)
         mission = db.query(Mission).filter(Mission.id == r.mission_id).first()
-
-        def render() -> Panel:
-            db.expire_all()
-            rr = db.query(MissionRun).filter(MissionRun.id == r.id).first()
-            lines = [
-                f"Misión: {mission.name if mission else '?'} ({rr.mission_id})",
-                f"Status: [bold]{rr.status}[/bold] · Run: {rr.id}",
-                f"Costo: ${rr.cost_usd.get('total', 0)}"
-                + f" · Tokens: {rr.tokens.get('total', 0)}"
-                + f" (prompt {rr.tokens.get('prompt', 0)} + completion {rr.tokens.get('completion', 0)})",
-                f"Iniciado: {rr.started_at} · Completado: {rr.completed_at or '—'}",
-            ]
-            if rr.error:
-                lines.append(f"Error: {rr.error}")
-            logs = rr.logs or []
-            if logs:
-                lines.append("")
-                lines.append("Timeline (últimos):")
-                for lg in logs[-8:]:
-                    lines.append(f"  {lg.get('ts', '')[:23]} {lg.get('message', '')}")
-            return Panel("\n".join(lines), title=f"MISSION RUN {str(rr.id)[:8]}")
-
-        with Live(render(), refresh_per_second=2, console=console) as live:
-            for _ in range(max_waits):
-                live.update(render())
-                db.expire_all()
-                rr = db.query(MissionRun).filter(MissionRun.id == r.id).first()
-                if rr.status in ("completed", "failed", "cancelled"):
-                    live.update(render())
-                    break
-                _time.sleep(interval)
+        _watch_mission_run(db, r, mission, interval=interval, max_waits=max_waits)
     finally:
         db.close()
+
+
+@mission_app.command("watch")
+def mission_watch(
+    mission_id: Optional[str] = typer.Argument(None, help="ID de la misión (UUID o M-xxxx); vacío usa la única activa"),
+    interval: float = typer.Option(2.0, "--interval", help="Segundos entre polls"),
+    max_waits: int = typer.Option(30, "--max-waits", help="Máximo de polls antes de salir"),
+):
+    """Observa en vivo el último run de una misión (§21)."""
+    db = _make_session()
+    try:
+        if not mission_id:
+            mission, hint = _active_mission_or_pick(db)
+            if mission is None:
+                console.print(hint, style="yellow")
+                raise typer.Exit(1)
+        else:
+            mid = _resolve_uuid(db, mission_id, "mission")
+            mission = db.query(Mission).filter(Mission.id == uuid.UUID(mid)).first()
+        if not mission:
+            console.print(f"Misión no encontrada. Probá: conciencia mission list", style="red")
+            raise typer.Exit(1)
+        run = (db.query(MissionRun).filter(MissionRun.mission_id == mission.id)
+               .order_by(MissionRun.started_at.desc()).first())
+        if not run:
+            console.print(f"La misión {_short_id('mission', str(mission.id))} aún no tiene runs. "
+                          f"Ejecutala: conciencia mission run {_short_id('mission', str(mission.id))}", style="yellow")
+            raise typer.Exit(1)
+        _watch_mission_run(db, run, mission, interval=interval, max_waits=max_waits)
+    finally:
+        db.close()
+
+
+def _watch_mission_run(db, r, mission, interval: float, max_waits: int) -> None:
+    """Loop de observación en vivo compartido (run watch / mission watch)."""
+    import time as _time
+
+    from rich.live import Live
+    from rich.panel import Panel
+
+    def render() -> Panel:
+        db.expire_all()
+        rr = db.query(MissionRun).filter(MissionRun.id == r.id).first()
+        lines = [
+            f"Misión: {mission.name if mission else '?'} ({rr.mission_id})",
+            f"Status: [bold]{rr.status}[/bold] · Run: {rr.id}",
+            f"Costo: ${rr.cost_usd.get('total', 0)}"
+            + f" · Tokens: {rr.tokens.get('total', 0)}"
+            + f" (prompt {rr.tokens.get('prompt', 0)} + completion {rr.tokens.get('completion', 0)})",
+            f"Iniciado: {rr.started_at} · Completado: {rr.completed_at or '—'}",
+        ]
+        if rr.error:
+            lines.append(f"Error: {rr.error}")
+        logs = rr.logs or []
+        if logs:
+            lines.append("")
+            lines.append("Timeline (últimos):")
+            for lg in logs[-8:]:
+                lines.append(f"  {lg.get('ts', '')[:23]} {lg.get('message', '')}")
+        return Panel("\n".join(lines), title=f"MISSION RUN {str(rr.id)[:8]}")
+
+    with Live(render(), refresh_per_second=2, console=console) as live:
+        for _ in range(max_waits):
+            live.update(render())
+            db.expire_all()
+            rr = db.query(MissionRun).filter(MissionRun.id == r.id).first()
+            if rr.status in ("completed", "failed", "cancelled"):
+                live.update(render())
+                break
+            _time.sleep(interval)
 
 
 # ---------------------------------------------------------------------------

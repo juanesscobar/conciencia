@@ -206,17 +206,23 @@ conciencia modules --json
 
 ### mission — misiones (Fase B: Mission = unidad central de trabajo)
 
+> IDs: aceptan el UUID completo **o el corto con prefijo** `M-6998bc52`
+> (`R-` runs, `T-` teams, `H-` harnesses, `S-` signals, `W-` workflows).
+
 ```bash
 conciencia mission create "Auditar arquitectura" "Identificar deuda técnica" --type technical-audit
 conciencia mission list
-conciencia mission inspect <mission_id>
-conciencia mission plan <mission_id>      # genera workflow por defecto del tipo
-conciencia mission run <mission_id>       # crea MissionRun + ejecuta workflow
-conciencia approvals                      # misiones esperando aprobación
-conciencia approve <mission_id> <step>    # aprueba el step (--reject para rechazar)
-conciencia run list --mission <id>
-conciencia run inspect <run_id>
-conciencia status                         # resumen: misiones/runs/leads/agentes
+conciencia mission inspect MISSION_ID    # sin ID: usa la única misión activa (o lista candidatas)
+conciencia mission plan MISSION_ID       # genera workflow por defecto del tipo
+conciencia mission run MISSION_ID        # crea MissionRun + ejecuta workflow
+conciencia mission watch MISSION_ID      # observa en vivo el último run de la misión
+conciencia approvals                     # misiones esperando aprobación
+conciencia approve MISSION_ID STEP_INDEX # aprueba el step (MISSION_ID/STEP_INDEX son placeholders)
+conciencia reject MISSION_ID STEP_INDEX  # rechaza el step
+conciencia run list --mission MISSION_ID
+conciencia run inspect RUN_ID
+conciencia run watch RUN_ID              # en vivo: status, costo, tokens y timeline
+conciencia status                        # overview: misiones por estado + approvals + runtimes
 ```
 
 Tipos de misión: research, software-development, code-review, debugging, architecture, testing, devops, deployment, technical-audit, agent-design, workflow-design, automation, integration, data-analysis, product-research, competitive-research, technical-discovery, lead-research, technical-proposal.
