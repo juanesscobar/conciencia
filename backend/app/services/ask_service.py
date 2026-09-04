@@ -9,20 +9,21 @@ intent classifier puede refinar el tipo de misión.
 """
 
 import re
-from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.mission import Mission, MISSION_TYPES
+from app.models.mission import Mission
 from app.services import mission_service
 from app.services.capability_matching import match_agents
+from app.services.workflow_registry import resolve_workflow
 
 # ---------------------------------------------------------------------------
 # 1. Intent classification por reglas (funciona sin LLM)
 # ---------------------------------------------------------------------------
 
 # keyword → tipo de misión. Orden importa: más específico primero.
-_INTENT_KEYWORDS: List[tuple] = [
+_INTENT_KEYWORDS: list[tuple] = [
+    ("technical-proposal", ["devpost", "hackathon submission", "submission", "pitch deck", "demo para jurado", "presentacion al jurado", "entrega del proyecto"]),
     ("technical-audit", ["audit", "auditar", "deuda técnica", "technical debt", "revisar arquitectura", "assessment"]),
     ("code-review", ["code review", "revisar pr", "review pr", "revisión de código", "revisar código", "pull request"]),
     ("debugging", ["debug", "bug", "error", "falla", "crash", "no funciona", "fix"]),
@@ -49,16 +50,37 @@ _DEFAULT_TYPE = "research"
 
 def classify_intent(text: str) -> str:
     """Clasifica el intent por keywords. Fallback: research."""
+    return classify_intent_details(text)["type"]
+
+
+def classify_intent_details(text: str) -> dict:
+    """Return the selected intent with confidence and a visible alternative."""
     t = (text or "").lower()
+    matches = []
     for mtype, keywords in _INTENT_KEYWORDS:
-        for kw in keywords:
-            if kw in t:
-                return mtype
-    return _DEFAULT_TYPE
+        matched = [kw for kw in keywords if kw in t]
+        if matched and mtype not in [item[0] for item in matches]:
+            matches.append((mtype, matched))
+    if not matches:
+        return {
+            "type": _DEFAULT_TYPE,
+            "confidence": 0.4,
+            "alternative": None,
+            "reason": "no specific intent signal; safe research default",
+        }
+    selected, keywords = matches[0]
+    distinctive = {"devpost", "hackathon submission", "pitch deck", "deploy", "desplegar"}
+    confidence = 0.94 if any(keyword in distinctive for keyword in keywords) else 0.82
+    return {
+        "type": selected,
+        "confidence": confidence,
+        "alternative": matches[1][0] if len(matches) > 1 else None,
+        "reason": f"matched: {', '.join(keywords[:3])}",
+    }
 
 
 # capabilities requeridas por tipo de misión (para sugerir agentes)
-_TYPE_CAPABILITIES: Dict[str, List[str]] = {
+_TYPE_CAPABILITIES: dict[str, list[str]] = {
     "research": ["research"],
     "software-development": ["code", "refactoring"],
     "code-review": ["code_review"],
@@ -81,7 +103,7 @@ _TYPE_CAPABILITIES: Dict[str, List[str]] = {
 }
 
 # runtime sugerido por tipo
-_TYPE_RUNTIME: Dict[str, str] = {
+_TYPE_RUNTIME: dict[str, str] = {
     "software-development": "claude_code",
     "code-review": "codex",
     "debugging": "claude_code",
@@ -93,11 +115,24 @@ _TYPE_RUNTIME: Dict[str, str] = {
 }
 
 
+def runtime_readiness(
+    db: Session,
+    preferred: str,
+    provider: str | None = None,
+    model: str | None = None,
+) -> dict:
+    """Compatibility wrapper over canonical capability readiness."""
+    from app.services.capability_readiness import runtime_readiness as resolve_runtime
+
+    status = resolve_runtime(db, preferred, provider=provider, model=model)
+    return {**status, "preferred": preferred, "selected": preferred}
+
+
 # ---------------------------------------------------------------------------
 # 2. Costo estimado (precios por millón de tokens, input/output)
 # ---------------------------------------------------------------------------
 
-_MODEL_PRICES: Dict[str, tuple] = {
+_MODEL_PRICES: dict[str, tuple] = {
     "deepseek-chat": (0.27, 1.10),
     "gpt-4o-mini": (0.15, 0.60),
     "claude-sonnet-4-20250514": (3.00, 15.00),
@@ -106,7 +141,7 @@ _MODEL_PRICES: Dict[str, tuple] = {
 }
 
 # tokens estimados por step según tipo (input/output)
-_STEP_TOKENS: Dict[str, tuple] = {
+_STEP_TOKENS: dict[str, tuple] = {
     "research": (800, 300),
     "synthesis": (600, 400),
     "plan": (500, 200),
@@ -123,7 +158,7 @@ _STEP_TOKENS: Dict[str, tuple] = {
 }
 
 
-def estimate_cost(workflow_steps: List[dict], model: str = "default") -> dict:
+def estimate_cost(workflow_steps: list[dict], model: str = "default") -> dict:
     """Estima costo y tokens de un workflow (sin llamadas reales).
 
     Recorre también steps anidados de bloques paralelos (Fase F).
@@ -165,7 +200,8 @@ def estimate_cost(workflow_steps: List[dict], model: str = "default") -> dict:
 
 def build_proposal(db: Session, text: str) -> dict:
     """Texto natural → propuesta de misión completa (sin crear nada)."""
-    mtype = classify_intent(text)
+    intent = classify_intent_details(text)
+    mtype = intent["type"]
     caps = _TYPE_CAPABILITIES.get(mtype, ["research"])
 
     agents = match_agents(db, required_capabilities=caps)
@@ -177,19 +213,30 @@ def build_proposal(db: Session, text: str) -> dict:
     teams = team_service.match_teams(db, required_capabilities=caps)[:3]
     suggested_team = teams[0] if teams else None
 
-    runtime = _TYPE_RUNTIME.get(mtype, "generic")
+    preferred_runtime = _TYPE_RUNTIME.get(mtype, "generic")
     if suggested_team:
-        runtime = suggested_team.get("default_runtime") or runtime
-    workflow_steps = mission_service.DEFAULT_WORKFLOWS.get(mtype, mission_service.DEFAULT_WORKFLOWS["research"])
+        preferred_runtime = suggested_team.get("default_runtime") or preferred_runtime
+    provider = top_agents[0].get("provider") if top_agents else None
+    model = top_agents[0].get("model") if top_agents else None
+    runtime_status = runtime_readiness(
+        db,
+        preferred_runtime,
+        provider=provider if preferred_runtime == "generic" else None,
+        model=model if preferred_runtime == "generic" else None,
+    )
+    runtime = preferred_runtime
+    workflow_resolution = resolve_workflow(mtype)
+    if not workflow_resolution.resolvable:
+        raise ValueError(f"No hay workflow resoluble para tipo '{mtype}': {workflow_resolution.reason}")
+    workflow_steps = list(workflow_resolution.steps)
 
-    model = "default"
-    if top_agents:
-        model = top_agents[0].get("model") or "default"
+    model = model or "default"
     cost = estimate_cost(workflow_steps, model=model)
 
     return {
         "text": text,
         "mission_type": mtype,
+        "intent": intent,
         "name": _proposal_name(text, mtype),
         "objective": text,
         "runtime": runtime,
@@ -201,6 +248,14 @@ def build_proposal(db: Session, text: str) -> dict:
         ],
         "cost_estimate": cost,
         "success_criteria": _default_criteria(mtype),
+        "readiness": {
+            "workflow": {
+                "resolvable": workflow_resolution.resolvable,
+                "source": workflow_resolution.source,
+                "reason": workflow_resolution.reason,
+            },
+            "runtime": runtime_status,
+        },
     }
 
 
@@ -212,7 +267,7 @@ def _proposal_name(text: str, mtype: str) -> str:
     return clean or f"Mission {mtype}"
 
 
-def _default_criteria(mtype: str) -> List[str]:
+def _default_criteria(mtype: str) -> list[str]:
     base = ["resultado documentado", "evidencia adjunta"]
     extra = {
         "software-development": ["código implementado", "tests pasando"],
@@ -228,6 +283,9 @@ def _default_criteria(mtype: str) -> List[str]:
 
 def create_from_proposal(db: Session, proposal: dict) -> Mission:
     """Crea la misión a partir de una propuesta confirmada."""
+    resolution = resolve_workflow(proposal.get("mission_type", ""))
+    if not resolution.resolvable:
+        raise ValueError(f"La propuesta no es planificable: {resolution.reason}")
     team_id = (proposal.get("team") or {}).get("team_id")
     # Si hay team seleccionado, los agentes explícitos quedan de referencia:
     # los miembros del team pueblan agent_ids en create_mission.

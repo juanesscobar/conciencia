@@ -102,7 +102,7 @@ def runtime_configs(db: Session = Depends(get_db)):
     from app.core.agent_runtime import get_runtime_configs, check_runtime_health
 
     return [
-        {**cfg.to_dict(), **check_runtime_health(cfg)}
+        {**cfg.to_dict(), **check_runtime_health(cfg, db)}
         for cfg in get_runtime_configs(db)
     ]
 
@@ -120,7 +120,7 @@ def update_runtime_configs(req: RuntimesUpdate, db: Session = Depends(get_db),
     from app.core.agent_runtime import save_runtime_configs, check_runtime_health
 
     saved = save_runtime_configs(db, req.configs)
-    return [{**cfg.to_dict(), **check_runtime_health(cfg)} for cfg in saved]
+    return [{**cfg.to_dict(), **check_runtime_health(cfg, db)} for cfg in saved]
 
 
 @router.get("/runtimes", response_model=List[dict])

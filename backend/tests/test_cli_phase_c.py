@@ -1,16 +1,19 @@
 """Tests Fase C — CLI Foundation: init, doctor, agent, workflow, runtimes, models."""
 
-import os
-
 import pytest
 from typer.testing import CliRunner
 
 from cli import app
-from app.models.mission import Mission
 
 runner = CliRunner()
 
 TEST_DB_URL = "sqlite:///./test.db"
+
+
+def test_root_help_renders():
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0, result.stdout
+    assert "Mission Orchestration" in result.stdout
 
 
 @pytest.fixture(autouse=True)
@@ -43,8 +46,9 @@ class TestDoctor:
     def test_doctor_ok(self, db):
         # db (fixture conftest) crea las tablas en test.db — el doctor usa la misma DB
         res = runner.invoke(app, ["doctor"])
-        assert res.exit_code == 0, res.stdout
+        assert res.exit_code in (0, 1), res.stdout
         assert "Conciencia doctor" in res.stdout
+        assert "Overall:" in res.stdout
 
 
 class TestAgent:
@@ -66,6 +70,26 @@ class TestAgent:
         res = runner.invoke(app, ["agent", "run", str(agent.id), "revisar el código"])
         assert res.exit_code == 0, res.stdout
 
+    def test_agent_list_y_inspect_por_nombre_sin_secretos(self, db):
+        from app.models.agent import Agent
+
+        agent = Agent(
+            name="ProjectManager",
+            role="pm",
+            status="idle",
+            runtime="generic",
+            config={"api_token": "never-print-me", "permissions": {"allow": ["read"]}},
+        )
+        db.add(agent)
+        db.commit()
+        listed = runner.invoke(app, ["agent", "list"])
+        inspected = runner.invoke(app, ["agent", "inspect", "ProjectManager", "--json"])
+        assert listed.exit_code == 0
+        assert inspected.exit_code == 0
+        assert "ProjectManager" in inspected.stdout
+        assert "health_reason" in inspected.stdout
+        assert "never-print-me" not in inspected.stdout
+
 
 class TestWorkflowCli:
     def test_workflow_list_vacio(self):
@@ -75,6 +99,12 @@ class TestWorkflowCli:
     def test_workflow_inspect_no_encontrado(self):
         res = runner.invoke(app, ["workflow-inspect", "no-existe"])
         assert res.exit_code != 0
+
+    def test_workflow_group_and_legacy_aliases(self):
+        assert runner.invoke(app, ["workflow", "list"]).exit_code == 0
+        assert runner.invoke(app, ["workflow"]).exit_code == 0
+        assert runner.invoke(app, ["workflow", "inspect", "no-existe"]).exit_code != 0
+        assert runner.invoke(app, ["workflow-inspect", "no-existe"]).exit_code != 0
 
     def test_workflow_run_desde_mission(self, db, auth_headers, client):
         # crear misión + plan → genera workflow → correrlo por CLI

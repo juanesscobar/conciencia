@@ -12,48 +12,16 @@ from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.mission import Mission, MissionRun, MISSION_TYPES, MISSION_STATUSES
+from app.models.mission import Mission, MissionRun, MISSION_TYPES
 from app.models.workflow import Workflow, WorkflowRun
 from app.services import workflow_engine
+from app.services.workflow_registry import WORKFLOW_REGISTRY, resolve_workflow
 
 log = logging.getLogger("missions")
 
 # Tipo de misión → workflow por defecto (steps declarativos, reusados por workflow_engine)
-DEFAULT_WORKFLOWS = {
-    "research": [
-        {"name": "research", "agent": None, "capabilities": ["research"], "timeout": 300, "retry": 1},
-        {"name": "synthesis", "agent": None, "capabilities": ["research"], "timeout": 300, "retry": 1},
-        {"name": "approval", "approval": True, "capabilities": [], "timeout": 0},
-    ],
-    "software-development": [
-        {"name": "plan", "agent": None, "capabilities": ["planning"], "timeout": 300, "retry": 1},
-        {"name": "approval", "approval": True, "capabilities": [], "timeout": 0},
-        {"name": "implement", "agent": None, "capabilities": ["code"], "timeout": 900, "retry": 2},
-        {"name": "test", "agent": None, "capabilities": ["testing"], "timeout": 600, "retry": 2},
-    ],
-    "code-review": [
-        {"name": "review", "agent": None, "capabilities": ["code_review"], "timeout": 600, "retry": 1},
-        {"name": "report", "agent": None, "capabilities": ["reporting"], "timeout": 300, "retry": 1},
-    ],
-    "technical-audit": [
-        {"name": "audit", "agent": None, "capabilities": ["research"], "timeout": 600, "retry": 1},
-        {"name": "approval", "approval": True, "capabilities": [], "timeout": 0},
-        {"name": "report", "agent": None, "capabilities": ["reporting"], "timeout": 300, "retry": 1},
-    ],
-    "lead-research": [
-        {
-            "name": "discovery",
-            "parallel": True,
-            "max_parallel": 2,
-            "steps": [
-                {"name": "discover-leads", "capabilities": ["leads.read", "search.execute"], "timeout": 600, "retry": 2},
-                {"name": "enrich-websites", "capabilities": ["website_fetch"], "timeout": 600, "retry": 2},
-            ],
-        },
-        {"name": "classify", "agent": None, "capabilities": ["classification"], "timeout": 300, "retry": 1},
-        {"name": "approval", "approval": True, "capabilities": [], "timeout": 0},
-    ],
-}
+# Compatibility export for callers predating the central registry.
+DEFAULT_WORKFLOWS = WORKFLOW_REGISTRY
 
 
 def create_mission(
@@ -122,6 +90,10 @@ def create_mission(
         if not wf:
             raise ValueError(f"Workflow no encontrado: {workflow_id}")
 
+    resolution = resolve_workflow(type, workflow_id)
+    if not resolution.resolvable:
+        raise ValueError(f"No hay workflow resoluble para tipo '{type}': {resolution.reason}")
+
     mission = Mission(
         name=name,
         objective=objective,
@@ -150,9 +122,10 @@ def plan_mission(db: Session, mission: Mission) -> Mission:
     """Genera el workflow por defecto para el tipo de misión (si no tiene uno)."""
     if mission.workflow_id:
         return mission
-    steps = DEFAULT_WORKFLOWS.get(mission.type)
-    if not steps:
-        raise ValueError(f"No hay workflow por defecto para tipo '{mission.type}'")
+    resolution = resolve_workflow(mission.type)
+    if not resolution.resolvable:
+        raise ValueError(f"No hay workflow resoluble para tipo '{mission.type}': {resolution.reason}")
+    steps = list(resolution.steps)
     wf = Workflow(name=f"{mission.name} · {mission.type}", project_id=str(mission.project_id) if mission.project_id else None, definition=steps)
     db.add(wf)
     db.commit()

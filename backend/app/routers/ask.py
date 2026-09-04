@@ -1,7 +1,5 @@
 """Ask API — texto natural → propuesta de misión (master prompt §9)."""
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -9,7 +7,6 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.routers.auth import get_current_user
 from app.services import ask_service
-from app.models.mission import Mission
 
 router = APIRouter(prefix="/api/v1/ask", tags=["ask"], dependencies=[Depends(get_current_user)])
 
@@ -21,14 +18,16 @@ class AskRequest(BaseModel):
 class AskProposal(BaseModel):
     text: str
     mission_type: str
+    intent: dict | None = None
     name: str
     objective: str
     runtime: str
     agents: list
-    team: Optional[dict] = None
+    team: dict | None = None
     workflow: list
     cost_estimate: dict
     success_criteria: list
+    readiness: dict | None = None
 
 
 class AskConfirm(BaseModel):

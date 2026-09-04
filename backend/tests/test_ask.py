@@ -62,6 +62,16 @@ def test_classify_intent_fallback_research():
     assert classify_intent("") == "research"
 
 
+def test_classify_devpost_submission_is_not_infrastructure_deployment():
+    from app.services.ask_service import classify_intent_details
+
+    submission = classify_intent_details("Preparar submission de Devpost y demo para el jurado")
+    deployment = classify_intent_details("Desplegar la API a produccion")
+    assert submission["type"] == "technical-proposal"
+    assert submission["confidence"] >= 0.9
+    assert deployment["type"] == "deployment"
+
+
 # ---------------------------------------------------------------------------
 # 2. Propuesta (service)
 # ---------------------------------------------------------------------------
@@ -89,6 +99,9 @@ def test_build_proposal_runtime_y_workflow_por_tipo(db):
     assert p["runtime"] == "claude_code"
     names = [s["name"] for s in p["workflow"]]
     assert "implement" in names or "plan" in names
+    assert p["readiness"]["workflow"]["resolvable"] is True
+    assert p["readiness"]["runtime"]["resolvable"] is False
+    assert p["readiness"]["runtime"]["state"] == "disabled"
 
 
 def test_create_from_proposal_crea_mission(db):
@@ -163,6 +176,17 @@ def test_ask_cli_json_no_crea(db):
     assert db.query(Mission).count() == 0
 
 
+def test_ask_cli_json_largo_es_parseable(db):
+    import json
+
+    text = "Preparar presentación, demo, submission y documentación para jueces " * 3
+    res = runner.invoke(app, ["ask", "--json", text])
+    assert res.exit_code == 0, res.stdout
+    proposal = json.loads(res.stdout)
+    assert proposal["objective"] == text
+    assert proposal["mission_type"] == "technical-proposal"
+
+
 def test_ask_cli_yes_crea_mision(db):
     _seed_agent(db, caps=["code", "refactoring"])
     res = runner.invoke(app, ["ask", "--yes", "implementar un módulo de reportes"])
@@ -187,3 +211,11 @@ def test_ask_cli_cancelado(db):
     from app.models.mission import Mission
     db.expire_all()
     assert db.query(Mission).count() == 0
+
+
+def test_ask_cli_interactivo_sin_texto(db):
+    _seed_agent(db)
+    res = runner.invoke(app, ["ask"], input="investigar agentes\nn\n")
+    assert res.exit_code == 0, res.stdout
+    assert "Qué querés lograr" in res.stdout
+    assert "Cancelado" in res.stdout

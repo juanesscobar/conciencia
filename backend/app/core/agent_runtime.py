@@ -15,7 +15,6 @@ Seguridad (spec §28/§47):
 
 import json
 import os
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -166,19 +165,12 @@ def get_runtime(db: Session, name: str) -> Optional[RuntimeConfig]:
     return None
 
 
-def check_runtime_health(cfg: RuntimeConfig) -> Dict[str, Any]:
-    """¿Está disponible el binario? (no ejecuta nada)."""
-    if cfg.type == TYPE_INTERNAL:
-        return {"name": cfg.name, "enabled": cfg.enabled, "online": True, "detail": "motor embebido"}
-    if cfg.type == TYPE_MCP:
-        return {"name": cfg.name, "enabled": cfg.enabled, "online": True, "detail": "MCP tools (vía routers/mcp.py)"}
-    if not cfg.command:
-        return {"name": cfg.name, "enabled": cfg.enabled, "online": False, "detail": "sin comando configurado"}
-    path = shutil.which(cfg.command)
-    return {
-        "name": cfg.name, "enabled": cfg.enabled,
-        "online": bool(path), "detail": path or f"'{cfg.command}' no encontrado en PATH",
-    }
+def check_runtime_health(cfg: RuntimeConfig, db: Session | None = None) -> Dict[str, Any]:
+    """Compatibility view backed by canonical execution readiness."""
+    from app.services.capability_readiness import runtime_readiness
+
+    readiness = runtime_readiness(db, cfg.name, config=cfg)
+    return {**readiness, "online": readiness["ready"], "detail": readiness["reason"]}
 
 
 def run_in_runtime(db: Session, runtime_name: str, task: str,
@@ -191,10 +183,6 @@ def run_in_runtime(db: Session, runtime_name: str, task: str,
     if not cfg:
         return RunResult(ok=False, status="failed", runtime=runtime_name,
                          error=f"Runtime '{runtime_name}' no configurado")
-    if not cfg.enabled:
-        return RunResult(ok=False, status="failed", runtime=runtime_name,
-                         error=f"Runtime '{runtime_name}' está deshabilitado — habilitalo en Settings → Agents → Runtimes (solo el dueño)")
-
     if cfg.type == TYPE_INTERNAL:
         return RunResult(ok=False, status="failed", runtime=runtime_name,
                          error="Usá el adapter generic (motor embebido) para este runtime")
@@ -202,10 +190,16 @@ def run_in_runtime(db: Session, runtime_name: str, task: str,
         return RunResult(ok=False, status="failed", runtime=runtime_name,
                          error="MCP: usá los endpoints de /api/v1/mcp (tool registry)")
 
+    from app.services.capability_readiness import runtime_readiness
+
+    readiness = runtime_readiness(db, runtime_name, config=cfg)
+    if not readiness["ready"]:
+        detail = readiness["reason"]
+        action = readiness.get("action")
+        error = f"{detail}. {action}" if action else detail
+        return RunResult(ok=False, status="failed", runtime=runtime_name, error=error)
+
     # --- CLI externo (subprocess seguro) ---
-    if not cfg.command:
-        return RunResult(ok=False, status="failed", runtime=runtime_name,
-                         error=f"Runtime '{runtime_name}' sin comando configurado")
 
     argv = CLI_ARGS.get(runtime_name, [])
     if not argv and runtime_name not in CLI_ARGS:

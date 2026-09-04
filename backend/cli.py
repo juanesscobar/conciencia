@@ -26,6 +26,10 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 # El CLI puede correr desde cualquier CWD: garantizamos que `app` resuelva
 # (válido para `python cli.py` y para el entry point `conciencia`).
 _BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -48,7 +52,8 @@ from app.models.mission import Mission, MissionRun, MISSION_TYPES
 app = typer.Typer(
     name="conciencia",
     help="Conciencia Platform — Mission Orchestration Control Plane CLI (misma lógica que UI/API).",
-    no_args_is_help=True,
+    no_args_is_help=False,
+    invoke_without_command=True,
 )
 leads_app = typer.Typer(help="Leads: listar, exportar, inspeccionar.")
 lead_app = typer.Typer(help="Lead individual: inspect, enrich, score.")
@@ -56,6 +61,7 @@ config_app = typer.Typer(help="Configuración persistente (Settings).")
 mission_app = typer.Typer(help="Missions: crear, planear, ejecutar, inspeccionar.")
 run_app = typer.Typer(help="Runs: listar e inspeccionar ejecuciones de missions.")
 agent_app = typer.Typer(help="Agente individual: inspect, run.")
+workflow_app = typer.Typer(help="Workflows: listar, inspeccionar y ejecutar.", invoke_without_command=True)
 team_app = typer.Typer(help="Teams: agrupar agentes especializados (Fase F).")
 harness_app = typer.Typer(help="Harnesses: contratos versionados de ejecución (Fase G).")
 signal_app = typer.Typer(help="Signals: hallazgos trazables con evidencia (Fase I).")
@@ -68,6 +74,7 @@ app.add_typer(config_app, name="config")
 app.add_typer(mission_app, name="mission")
 app.add_typer(run_app, name="run")
 app.add_typer(agent_app, name="agent")
+app.add_typer(workflow_app, name="workflow")
 app.add_typer(team_app, name="team")
 app.add_typer(harness_app, name="harness")
 app.add_typer(signal_app, name="signal")
@@ -128,7 +135,78 @@ def _make_session():
 
 
 def _json(obj) -> None:
-    console.print(json.dumps(obj, ensure_ascii=False, indent=2, default=str))
+    typer.echo(json.dumps(obj, ensure_ascii=False, indent=2, default=str))
+
+
+def _agent_health(db, agent) -> dict:
+    """Explain agent and runtime readiness without exposing agent config secrets."""
+    from app.services.capability_readiness import runtime_readiness
+
+    runtime = agent.runtime.value if hasattr(agent.runtime, "value") else str(agent.runtime)
+    provider = agent.provider.value if hasattr(agent.provider, "value") else str(agent.provider)
+    runtime_health = runtime_readiness(
+        db,
+        runtime,
+        provider=provider if runtime == "generic" else None,
+        model=agent.model if runtime == "generic" else None,
+    )
+    agent_status = agent.status.value if hasattr(agent.status, "value") else str(agent.status)
+    health = agent.health_status or "unknown"
+    if agent_status == "error":
+        reason = "agent status is error; no persisted diagnostic is available"
+    elif agent.availability != "available":
+        reason = f"agent availability is {agent.availability}"
+    elif not runtime_health["registered"] or not runtime_health["enabled"]:
+        reason = f"runtime {runtime} is disabled or not configured"
+    elif not runtime_health["ready"]:
+        reason = f"runtime {runtime} unavailable: {runtime_health['reason']}"
+    elif health == "unknown":
+        reason = "agent has not reported a heartbeat"
+    else:
+        reason = f"agent health is {health}"
+    return {
+        "health_status": health,
+        "availability": agent.availability,
+        "last_heartbeat": agent.last_heartbeat,
+        "health_reason": reason,
+        "runtime_ready": runtime_health["ready"],
+        "runtime_reason": runtime_health["reason"],
+    }
+
+
+@app.callback()
+def root_dashboard(ctx: typer.Context) -> None:
+    """Show an operational summary when conciencia is invoked without a command."""
+    if ctx.invoked_subcommand is not None:
+        return
+    db = _make_session()
+    try:
+        from app.services.workspace_service import workspace_home
+
+        home = workspace_home(db)
+        table = Table(title=f"Conciencia · {home['workspace']}")
+        table.add_column("Estado", style="cyan")
+        table.add_column("Valor")
+        current = home["current_project"]
+        table.add_row("Proyecto actual", current["name"] if current else "ninguno")
+        table.add_row("Misiones activas", str(home["active_missions"]))
+        table.add_row("Aprobaciones pendientes", str(home["pending_approvals"]))
+        table.add_row("Ejecución", home["execution"]["overall"])
+        console.print(table)
+        if home["recent_projects"]:
+            console.print("\nProyectos recientes:")
+            for project in home["recent_projects"]:
+                console.print(f"  {project['status']:<10} {project['name']}")
+        if home["recent_missions"]:
+            console.print("\nMisiones recientes:")
+            for mission in home["recent_missions"]:
+                console.print(f"  {mission['id'][:8]}  {mission['status']:<18} {mission['name']}")
+        console.print("\nAcciones: ask | mission list | approvals | runtime | onboard | doctor")
+    except Exception as exc:  # noqa: BLE001 - dashboard must not hide the CLI
+        console.print(f"Dashboard no disponible: {exc}", style="yellow")
+        console.print(ctx.get_help())
+    finally:
+        db.close()
 
 
 def _lead_rows(db, leads: List[Lead], sq: Optional[SearchQuery] = None) -> list:
@@ -477,6 +555,7 @@ def config_set(key: str = typer.Argument(...), value: str = typer.Argument(...))
 
 
 @app.command("agents")
+@agent_app.command("list")
 def agent_list(json_out: bool = typer.Option(False, "--json")):
     """Lista agentes registrados (tabla agents)."""
     db = _make_session()
@@ -820,9 +899,45 @@ def run_inspect(
 # Fase E — Mission Planning: conciencia ask (master prompt §9/§E)
 # ---------------------------------------------------------------------------
 
+@run_app.command("logs")
+def run_logs(
+    run_id: str = typer.Argument(..., help="ID del run"),
+    limit: int = typer.Option(50, "--limit", "-n", min=1, max=500),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Show the persisted event timeline for a mission run."""
+    db = _make_session()
+    try:
+        try:
+            parsed_id = uuid.UUID(str(run_id))
+        except ValueError:
+            console.print(f"Run no encontrado: {run_id}", style="red")
+            raise typer.Exit(1)
+        run = db.query(MissionRun).filter(MissionRun.id == parsed_id).first()
+        if not run:
+            console.print(f"Run no encontrado: {run_id}", style="red")
+            raise typer.Exit(1)
+        logs = (run.logs or [])[-limit:]
+        if json_out:
+            _json(logs)
+            return
+        if not logs:
+            console.print("Sin logs.", style="yellow")
+            return
+        for entry in logs:
+            style = "red" if entry.get("level") == "error" else None
+            console.print(
+                f"{entry.get('ts', '')[:23]} {entry.get('level', 'info'):<5} {entry.get('message', '')}",
+                style=style,
+                markup=False,
+            )
+    finally:
+        db.close()
+
+
 @app.command("ask")
 def ask_cmd(
-    text: str = typer.Argument(..., help="Texto natural: qué querés lograr"),
+    text: Optional[str] = typer.Argument(None, help="Texto natural: qué querés lograr"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirmar y crear sin preguntar"),
     json_out: bool = typer.Option(False, "--json", help="Mostrar la propuesta como JSON (no crea nada)"),
 ):
@@ -831,6 +946,10 @@ def ask_cmd(
 
     db = _make_session()
     try:
+        if not text:
+            text = typer.prompt("Qué querés lograr").strip()
+        if not text:
+            raise ValueError("El objetivo no puede estar vacío")
         proposal = ask_service.build_proposal(db, text)
         if json_out:
             _json(proposal)
@@ -839,6 +958,15 @@ def ask_cmd(
         console.print(f"[bold cyan]📋 Propuesta de misión[/bold cyan] — tipo: {proposal['mission_type']}")
         console.print(f"   Nombre: {proposal['name']}")
         console.print(f"   Runtime: {proposal['runtime']}")
+        intent = proposal["intent"]
+        alternative = f" · alternativa: {intent['alternative']}" if intent.get("alternative") else ""
+        console.print(f"   Confianza de intent: {intent['confidence']:.0%}{alternative}")
+        readiness = proposal["readiness"]
+        console.print(f"   Workflow resoluble: {readiness['workflow']['resolvable']} ({readiness['workflow']['reason']})")
+        execution_state = "READY" if readiness["runtime"]["ready"] else "BLOCKED"
+        console.print(f"   Execution readiness: {execution_state} ({readiness['runtime']['reason']})")
+        if readiness["runtime"].get("action"):
+            console.print(f"   Acción requerida: {readiness['runtime']['action']}")
         cost = proposal["cost_estimate"]
         console.print(f"   Costo est.: ${cost['cost_usd']} · {cost['tokens_total']} tokens ({cost['model']})")
         if proposal.get("team"):
@@ -1026,66 +1154,79 @@ def init_cmd(
 def doctor_cmd(json_out: bool = typer.Option(False, "--json")):
     """Diagnóstico del sistema: DB, tablas, runtimes, embeddings, CLI."""
     import sqlalchemy
-    from app.core.agent_runtime import get_runtime_configs, check_runtime_health
+    from app.services.capability_readiness import execution_overview
     from app.modules.leadhunter.embeddings import embeddings_enabled, embedding_model
 
-    checks = []
-
-    def add(name, ok, detail):
-        checks.append({"name": name, "ok": ok, "detail": detail})
-
-    # DB
+    core = []
     try:
         db = _make_session()
         db.execute(sqlalchemy.text("SELECT 1"))
-        db.close()
-        add("database", True, "conexión ok")
+        core.append({"name": "database", "state": "ready", "reason": "conexión ok"})
     except Exception as e:  # noqa: BLE001
-        add("database", False, str(e))
+        db = None
+        core.append({"name": "database", "state": "blocked", "reason": str(e)})
 
-    # Tablas core
-    for tbl in ("missions", "mission_runs", "leads", "agents", "workflows"):
+    for table_name in ("missions", "mission_runs", "agents", "workflows"):
         try:
-            db = _make_session()
-            exists = sqlalchemy.inspect(db.get_bind()).has_table(tbl)
-            db.close()
-            add(f"table:{tbl}", exists, "ok" if exists else "NO EXISTE")
+            exists = bool(db and sqlalchemy.inspect(db.get_bind()).has_table(table_name))
+            core.append({
+                "name": table_name,
+                "state": "ready" if exists else "blocked",
+                "reason": "tabla disponible" if exists else "tabla no disponible",
+            })
         except Exception as e:  # noqa: BLE001
-            add(f"table:{tbl}", False, str(e))
+            core.append({"name": table_name, "state": "blocked", "reason": str(e)})
 
-    # Runtimes: deshabilitado NO es fallo (es configuración). Solo falla si
-    # está habilitado pero el binario no está disponible.
-    try:
-        db = _make_session()
-        for cfg in get_runtime_configs(db):
-            health = check_runtime_health(cfg)
-            ok = True if not cfg.enabled else health.get("status") != "missing"
-            add(f"runtime:{cfg.name}", ok, f"enabled={cfg.enabled} · {health.get('status', '?')}")
-        db.close()
-    except Exception as e:  # noqa: BLE001
-        add("runtimes", False, str(e))
-
-    # Embeddings: deshabilitado es válido (modo simulado)
-    try:
-        add("embeddings", True, f"enabled={embeddings_enabled()} · {embedding_model()}")
-    except Exception as e:  # noqa: BLE001
-        add("embeddings", False, str(e))
+    execution = execution_overview(db) if db else {
+        "overall": "BLOCKED FOR MISSION EXECUTION",
+        "ready": False,
+        "runtimes": [],
+    }
+    core_ready = all(item["state"] == "ready" for item in core)
+    overall = execution["overall"] if core_ready else "BLOCKED"
+    optional = {
+        "embeddings": {
+            "state": "ready" if embeddings_enabled() else "disabled",
+            "reason": embedding_model(),
+        }
+    }
+    report = {
+        "overall": overall,
+        "core": core,
+        "execution": execution,
+        "optional": optional,
+    }
 
     if json_out:
-        _json(checks)
+        _json(report)
+        if db:
+            db.close()
         return
-    table = Table(title="Conciencia doctor")
-    table.add_column("Chequeo", style="cyan")
+    table = Table(title="Conciencia doctor · Core")
+    table.add_column("Capacidad", style="cyan")
     table.add_column("Estado")
-    table.add_column("Detalle")
-    for c in checks:
-        table.add_row(c["name"], "✅" if c["ok"] else "❌", c["detail"])
+    table.add_column("Razón")
+    for item in core:
+        table.add_row(item["name"], item["state"], item["reason"])
     console.print(table)
-    failed = [c for c in checks if not c["ok"]]
-    if failed:
-        console.print(f"\n⚠️  {len(failed)} chequeo(s) fallido(s).", style="yellow")
+
+    runtime_table = Table(title="Mission execution")
+    for column in ("Runtime", "Estado", "Detectado", "Habilitado", "Razón"):
+        runtime_table.add_column(column, style="cyan" if column == "Runtime" else None)
+    for runtime in execution["runtimes"]:
+        runtime_table.add_row(
+            runtime["name"],
+            runtime["state"],
+            str(runtime.get("detected", "-")),
+            str(runtime["enabled"]),
+            runtime["reason"],
+        )
+    console.print(runtime_table)
+    console.print(f"\nOverall: [bold]{overall}[/bold]")
+    if db:
+        db.close()
+    if overall in {"BLOCKED", "BLOCKED FOR MISSION EXECUTION"}:
         raise typer.Exit(1)
-    console.print("\n✅ Todo ok.", style="green")
 
 
 @app.command("tool")
@@ -1095,6 +1236,7 @@ def tool_list(json_out: bool = typer.Option(False, "--json")):
     try:
         from app.models.setting import Setting
         from app.routers.mcp import MCP_SETTINGS_KEY, BUILTIN_EMAIL_SERVER
+        from app.services.capability_readiness import tool_readiness
         row = db.query(Setting).filter(Setting.key == MCP_SETTINGS_KEY).first()
         servers = []
         if row and row.value:
@@ -1104,14 +1246,22 @@ def tool_list(json_out: bool = typer.Option(False, "--json")):
                 servers = []
         if not any(s.get("name") == "email" for s in servers):
             servers.append(BUILTIN_EMAIL_SERVER)
+        rows = [tool_readiness(server) for server in servers]
         if json_out:
-            _json(servers)
+            _json(rows)
             return
         table = Table(title="Tools / MCP servers")
-        for col in ("Nombre", "Tipo", "Habilitado"):
+        for col in ("Nombre", "Detectado", "Configurado", "Habilitado", "Estado", "Razón"):
             table.add_column(col, style="cyan")
-        for s in servers:
-            table.add_row(s.get("name", "?"), s.get("label", s.get("command", "?")), str(s.get("enabled", True)))
+        for row in rows:
+            table.add_row(
+                row["name"],
+                str(row["detected"]),
+                str(row["configured"]),
+                str(row["enabled"]),
+                row["state"],
+                row["reason"],
+            )
         console.print(table)
     finally:
         db.close()
@@ -1122,18 +1272,73 @@ def runtime_list(json_out: bool = typer.Option(False, "--json")):
     """Lista runtimes registrados + salud de cada binario."""
     db = _make_session()
     try:
-        from app.core.agent_runtime import get_runtime_configs, check_runtime_health
-        configs = get_runtime_configs(db)
+        from app.core.agent_runtime import get_runtime_configs
+        from app.services.capability_readiness import runtime_readiness
+
+        rows = [runtime_readiness(db, cfg.name, config=cfg) for cfg in get_runtime_configs(db)]
         if json_out:
-            _json([{**cfg.to_dict(), **check_runtime_health(cfg)} for cfg in configs])
+            _json(rows)
             return
         table = Table(title="Runtimes")
-        for col in ("Nombre", "Tipo", "Habilitado", "Salud"):
+        for col in ("Nombre", "Tipo", "Detectado", "Habilitado", "Estado", "Razón"):
             table.add_column(col, style="cyan")
-        for cfg in configs:
-            health = check_runtime_health(cfg)
-            table.add_row(cfg.name, cfg.type, "✅" if cfg.enabled else "—", health.get("status", "?"))
+        for row in rows:
+            table.add_row(
+                row["name"],
+                row["type"],
+                str(row.get("detected", "-")),
+                str(row["enabled"]),
+                row["state"],
+                row["reason"],
+            )
         console.print(table)
+    finally:
+        db.close()
+
+
+@app.command("onboard")
+def onboard_cmd(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Habilitar runtimes detectados sin otra confirmación"),
+    json_out: bool = typer.Option(False, "--json", help="Sólo mostrar detección; no modifica configuración"),
+):
+    """Detect and optionally enable external AI runtimes with explicit consent."""
+    from app.core.agent_runtime import TYPE_CLI, get_runtime_configs, save_runtime_configs
+    from app.services.capability_readiness import runtime_readiness
+
+    db = _make_session()
+    try:
+        configs = get_runtime_configs(db)
+        rows = [
+            runtime_readiness(db, cfg.name, config=cfg)
+            for cfg in configs
+            if cfg.type == TYPE_CLI
+        ]
+        candidates = [row for row in rows if row["detected"] and not row["enabled"]]
+        if json_out:
+            _json({"runtimes": rows, "configurable": [row["name"] for row in candidates]})
+            return
+        table = Table(title="Detected AI runtimes")
+        for column in ("Runtime", "Detectado", "Habilitado", "Estado"):
+            table.add_column(column, style="cyan" if column == "Runtime" else None)
+        for row in rows:
+            table.add_row(row["name"], str(row["detected"]), str(row["enabled"]), row["state"])
+        console.print(table)
+        if not candidates:
+            console.print("No hay runtimes detectados pendientes de configuración.")
+            return
+        names = ", ".join(row["name"] for row in candidates)
+        console.print(f"\n{len(candidates)} runtime(s) detectados y deshabilitados: {names}")
+        if not yes and not typer.confirm("¿Habilitarlos en Conciencia?", default=False):
+            console.print("Sin cambios.", style="yellow")
+            return
+        candidate_names = {row["name"] for row in candidates}
+        payload = [
+            {**cfg.to_dict(), "enabled": True if cfg.name in candidate_names else cfg.enabled}
+            for cfg in configs
+        ]
+        save_runtime_configs(db, payload)
+        console.print(f"Habilitados: {names}", style="green")
+        console.print("Ejecutá `conciencia doctor` para verificar readiness.")
     finally:
         db.close()
 
@@ -1159,6 +1364,10 @@ def agent_inspect(
         if not agent:
             agent = db.query(Agent).filter(Agent.role == agent_id.lower()).first()
         if not agent:
+            from sqlalchemy import func
+
+            agent = db.query(Agent).filter(func.lower(Agent.name) == agent_id.lower()).first()
+        if not agent:
             console.print(f"Agente no encontrado: {agent_id}", style="red")
             raise typer.Exit(1)
 
@@ -1174,8 +1383,9 @@ def agent_inspect(
             "model": agent.model,
             "status": agent.status.value if hasattr(agent.status, "value") else agent.status,
             "capabilities": agent.capabilities or [],
-            "config": agent.config or {},
+            "config": {"permissions": (agent.config or {}).get("permissions")},
             "soul": persona[:2000],
+            **_agent_health(db, agent),
         }
         if json_out:
             _json(d)
@@ -1183,8 +1393,10 @@ def agent_inspect(
         table = Table(title=f"{agent.emoji or ''} {agent.name} ({role})")
         table.add_column("Campo", style="cyan")
         table.add_column("Valor")
-        for k in ("id", "runtime", "provider", "model", "status"):
+        for k in ("id", "runtime", "provider", "model", "status", "health_status", "availability", "runtime_ready"):
             table.add_row(k, str(d[k]))
+        table.add_row("health_reason", d["health_reason"])
+        table.add_row("runtime_reason", d["runtime_reason"])
         table.add_row("capabilities", ", ".join(d["capabilities"]))
         if d.get("config", {}).get("permissions"):
             perm = d["config"]["permissions"]
@@ -1223,6 +1435,10 @@ def agent_run(
             agent = None
         if not agent:
             agent = db.query(Agent).filter(Agent.role == agent_id.lower()).first()
+        if not agent:
+            from sqlalchemy import func
+
+            agent = db.query(Agent).filter(func.lower(Agent.name) == agent_id.lower()).first()
         if not agent:
             console.print(f"Agente no encontrado: {agent_id}", style="red")
             raise typer.Exit(1)
@@ -1290,28 +1506,49 @@ def model_list(json_out: bool = typer.Option(False, "--json")):
     db = _make_session()
     try:
         from app.models.agent import Agent
+        from app.services.capability_readiness import provider_readiness
+
         agents = db.query(Agent).order_by(Agent.name).all()
-        seen = {}
+        seen = set()
         for a in agents:
             prov = getattr(a, "provider", None)
             prov_name = prov.value if hasattr(prov, "value") else (prov or "?")
             model = getattr(a, "model", None) or "default"
-            seen.setdefault(prov_name, set()).add(model)
-        rows = [{"provider": p, "models": sorted(m)} for p, m in seen.items()]
+            seen.add((prov_name, model))
+        active = provider_readiness()
+        seen.add((active["provider"], active["model"]))
+        rows = [provider_readiness(provider=provider, model=model) for provider, model in sorted(seen)]
         if json_out:
             _json(rows)
             return
-        table = Table(title="Providers / modelos en uso")
-        for col in ("Provider", "Modelos"):
+        table = Table(title="Models / providers")
+        for col in ("Provider", "Model", "Registrado", "Configurado", "Credenciales", "Estado"):
             table.add_column(col, style="cyan")
-        for r in rows:
-            table.add_row(r["provider"], ", ".join(r["models"]))
+        for row in rows:
+            table.add_row(
+                row["provider"],
+                row["model"],
+                str(row["registered"]),
+                str(row["configured"]),
+                row["credentials"],
+                row["state"],
+            )
         console.print(table)
     finally:
         db.close()
 
 
-@app.command("workflow")
+@workflow_app.callback()
+def workflow_root(
+    ctx: typer.Context,
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Keep `conciencia workflow` as a legacy alias for workflow list."""
+    if ctx.invoked_subcommand is None:
+        workflow_list(json_out=json_out)
+
+
+@workflow_app.command("list")
 def workflow_list(json_out: bool = typer.Option(False, "--json")):
     """Lista workflows (declarativos, con estado)."""
     db = _make_session()
@@ -1334,7 +1571,8 @@ def workflow_list(json_out: bool = typer.Option(False, "--json")):
         db.close()
 
 
-@app.command("workflow-inspect")
+@workflow_app.command("inspect")
+@app.command("workflow-inspect", hidden=True)
 def workflow_inspect(workflow_id: str = typer.Argument(...)):
     """Muestra la definición de steps de un workflow."""
     db = _make_session()
@@ -1353,7 +1591,8 @@ def workflow_inspect(workflow_id: str = typer.Argument(...)):
         db.close()
 
 
-@app.command("workflow-run")
+@workflow_app.command("run")
+@app.command("workflow-run", hidden=True)
 def workflow_run_cmd(workflow_id: str = typer.Argument(...), json_out: bool = typer.Option(False, "--json")):
     """Ejecuta un workflow directamente (workflow_engine)."""
     db = _make_session()
@@ -1376,7 +1615,8 @@ def workflow_run_cmd(workflow_id: str = typer.Argument(...), json_out: bool = ty
         db.close()
 
 
-@app.command("run-watch")
+@run_app.command("watch")
+@app.command("run-watch", hidden=True)
 def run_watch(
     run_id: str = typer.Argument(..., help="ID del MissionRun"),
     interval: float = typer.Option(2.0, "--interval", help="Segundos entre polls"),

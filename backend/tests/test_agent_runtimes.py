@@ -39,6 +39,8 @@ def _make_admin(client, db):
 
 
 def _mock_subprocess(monkeypatch, stdout="OK desde CLI externo", returncode=0):
+    from app.services import capability_readiness
+
     class FakeProc:
         def __init__(self):
             self.returncode = returncode
@@ -49,6 +51,7 @@ def _mock_subprocess(monkeypatch, stdout="OK desde CLI externo", returncode=0):
         return FakeProc()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(capability_readiness.shutil, "which", lambda command: f"/bin/{command}")
 
 
 def _enable_runtime(client, db, name="codex"):
@@ -176,4 +179,5 @@ class TestUnit:
         from app.core.agent_runtime import get_runtime, check_runtime_health
         cfg = get_runtime(db, "generic")
         h = check_runtime_health(cfg)
-        assert h["online"] is True
+        assert h["online"] is h["ready"]
+        assert h["state"] in {"ready", "blocked", "misconfigured", "unavailable"}
