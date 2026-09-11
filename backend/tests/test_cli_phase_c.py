@@ -61,12 +61,36 @@ class TestAgent:
         assert res.exit_code == 0, res.stdout
         assert "DevBot" in res.stdout
 
-    def test_agent_run_generic(self, db):
+    def test_agent_run_generic_sin_credenciales_falla_con_accion(self, db):
+        """Fail-fast (intencional, semana cli2-cli5): sin credenciales el adapter
+        generic NO simula éxito — reporta el error con acción concreta."""
         from app.models.agent import Agent
+
         agent = Agent(name="DevBot", role="dev", status="idle", runtime="generic")
         db.add(agent)
         db.commit()
-        # Modo simulado sin API keys → generic adapter responde sin error
+        res = runner.invoke(app, ["agent", "run", str(agent.id), "revisar el código"])
+        assert res.exit_code == 1
+        assert "Credenciales no disponibles" in res.stdout
+        assert "DEEPSEEK_API_KEY" in res.stdout  # acción accionable, no error genérico
+
+    def test_agent_run_generic_con_credenciales_y_dispatch_fake(self, db, monkeypatch):
+        """Con credenciales presentes y dispatch fake (sin red) el run funciona."""
+        from app.adapters.base import DispatchResult
+        from app.adapters.generic import GenericAgentAdapter
+        from app.models.agent import Agent
+        from app.models.setting import Setting
+
+        db.add(Setting(key="DEEPSEEK_API_KEY", value="fake-key-para-test"))
+        agent = Agent(name="DevBot", role="dev", status="idle", runtime="generic")
+        db.add(agent)
+        db.commit()
+
+        def _fake_dispatch(self, identity, task, context=None):
+            return DispatchResult(ok=True, status="completed", output=f"ok: {task}",
+                                  runtime="generic", provider=identity.provider, duration_ms=1)
+
+        monkeypatch.setattr(GenericAgentAdapter, "dispatch_task", _fake_dispatch)
         res = runner.invoke(app, ["agent", "run", str(agent.id), "revisar el código"])
         assert res.exit_code == 0, res.stdout
 

@@ -79,9 +79,22 @@ def test_aprobar_run_completado_rechazado(client, auth_headers, dev_agent, fake_
     assert "no está esperando aprobación" in res.json()["detail"]
 
 
-def test_aprobar_step_inexistente_rechazado(client, auth_headers, db):
-    """La API de misión acepta step_index: un índice que no espera aprobación → 400."""
+def test_aprobar_step_inexistente_rechazado(client, auth_headers, db, monkeypatch):
+    """La API de misión acepta step_index: un índice que no espera aprobación → 400.
+
+    Usa un dispatch fake (determinista, sin credenciales/red): el preflight de
+    readiness del adapter generic es intencional (semana cli2-cli5) y aquí solo
+    interesa el comportamiento del gate de aprobación.
+    """
+    from app.adapters.base import DispatchResult
+    from app.adapters.generic import GenericAgentAdapter
     from app.models.agent import Agent
+
+    def _fake_dispatch(self, identity, task, context=None):
+        return DispatchResult(ok=True, status="completed", output="ok",
+                              runtime="generic", provider=identity.provider, duration_ms=1)
+
+    monkeypatch.setattr(GenericAgentAdapter, "dispatch_task", _fake_dispatch)
     a = Agent(name="Bot", role=AgentRole.RD, capabilities=["research"],
               runtime=AgentRuntime.GENERIC, provider=AgentProvider.DEEPSEEK, status="idle")
     db.add(a)
