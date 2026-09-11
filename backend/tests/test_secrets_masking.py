@@ -54,6 +54,14 @@ def test_config_get_enmascara_secrets_en_tabla(db):
     assert "deepseek-chat" in result.output  # no-secret visible
 
 
+def test_config_set_enmascara_secrets_en_salida():
+    result = runner.invoke(app, ["config", "set", "DEEPSEEK_API_KEY", "sk-super-secret-value-12345"])
+    assert result.exit_code == 0, result.output
+    assert "sk-super-secret-value-12345" not in result.output
+    assert "DEEPSEEK_API_KEY" in result.output
+    assert "…" in result.output
+
+
 def test_config_get_enmascara_single_key_y_json(db):
     _seed(db, "DEEPSEEK_API_KEY", "sk-super-secret-value-12345")
     _seed(db, "LLM_MODEL", "deepseek-chat")

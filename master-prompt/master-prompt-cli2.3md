@@ -1,0 +1,376 @@
+We are now in DOGFOOD / BUGFIX mode.
+
+Do NOT add new features, commands, models, abstractions, integrations, or architecture.
+
+The current Work → Search → Summary → Report implementation exists, but the real CLI dogfood is failing.
+
+Fix the observed failures and prove the existing milestone end-to-end.
+
+## P0 — Normalize datetime semantics
+
+Observed failures:
+
+```text
+TypeError: can't compare offset-naive and offset-aware datetimes
+```
+
+This occurs through:
+
+```text
+work_service.collect_work_items()
+→ items.sort(key=lambda item: item.timestamp, reverse=True)
+```
+
+and affects:
+
+```bash
+conciencia work summarize --since 2026-08-27
+conciencia ask "Resumime todo lo que desarrollé desde el 27 de agosto hasta hoy"
+conciencia work search "WebMCP"
+```
+
+Do NOT patch only the `.sort()` line.
+
+Audit all timestamp sources used by Work:
+
+* database activities
+* missions
+* mission runs
+* signals
+* evidence
+* deliverables/reports
+* Git commits
+* since/until parsing
+* datetime.utcnow()/now()
+* SQLAlchemy values
+
+Define ONE internal datetime policy.
+
+Preferred:
+
+```text
+timezone-aware UTC internally
+```
+
+Normalize every WorkItem timestamp at the ingestion boundary.
+
+Also normalize `since` and `until`.
+
+Do not compare mixed datetime semantics anywhere.
+
+Add regression tests containing BOTH:
+
+```text
+naive datetime
+aware datetime
+```
+
+and verify sorting/filtering works deterministically.
+
+---
+
+## P0 — Fix Report project UUID boundary
+
+Observed:
+
+```text
+AttributeError: 'str' object has no attribute 'hex'
+```
+
+during:
+
+```bash
+conciencia report create --project Conciencia
+```
+
+The resolved project identifier is reaching a SQLAlchemy UUID comparison as a string.
+
+Audit:
+
+```text
+CLI project resolver
+→ report_create
+→ summarize_work
+→ collect_work_items
+→ SQLAlchemy filters
+```
+
+Establish a clear identifier boundary.
+
+If database models use UUID objects, convert/validate once before DB filtering.
+
+Do not scatter ad-hoc `UUID(...)` conversions throughout the codebase.
+
+Reuse the existing Project resolution service/helper where possible.
+
+Test:
+
+```bash
+conciencia report create --project Conciencia
+conciencia report create --project <UUID>
+```
+
+Both should resolve to the same project.
+
+---
+
+## P1 — Validate project scoping
+
+The current WorkItems show many historical records with:
+
+```text
+project_id=None
+```
+
+while the current workspace knows the active Conciencia project.
+
+Do NOT silently assign old records to Conciencia.
+
+Instead verify and document current semantics:
+
+```text
+project_id present
+→ project-scoped evidence
+
+project_id absent
+→ workspace-level/unscoped historical evidence
+```
+
+For:
+
+```bash
+conciencia work summarize --since 2026-08-27
+```
+
+when run from the Conciencia repository, decide explicitly whether the default means:
+
+A. current project only
+
+or
+
+B. workspace-wide history with current project context
+
+Use the product model consistently.
+
+Recommended:
+
+```text
+conciencia work ...
+→ workspace-wide by default
+
+conciencia work ... --project current
+→ current project
+
+conciencia work ... --project Conciencia
+→ explicit project
+```
+
+Do not lose unscoped historical evidence.
+
+---
+
+# REQUIRED REAL DOGFOOD
+
+After fixing the two P0 bugs, execute ALL of these yourself.
+
+### 1
+
+```bash
+conciencia work
+```
+
+Must not traceback.
+
+### 2
+
+```bash
+conciencia work timeline --since 2026-08-27
+```
+
+Must return actual WorkItems ordered correctly.
+
+### 3
+
+```bash
+conciencia work summarize --since 2026-08-27
+```
+
+Must produce a real evidence-backed summary.
+
+### 4
+
+```bash
+conciencia work search "WebMCP"
+```
+
+Must return relevant workspace history.
+
+At this stage lexical/hybrid search is acceptable if embeddings are not configured.
+
+Clearly report whether retrieval was:
+
+```text
+lexical
+hybrid
+semantic
+```
+
+Do not claim semantic search if no embedding provider/index was used.
+
+### 5
+
+```bash
+conciencia ask "Resumime todo lo que desarrollé desde el 27 de agosto hasta hoy"
+```
+
+Expected route:
+
+```text
+workspace_summary
+```
+
+It MUST answer from Work retrieval.
+
+It MUST NOT create a Research Mission.
+
+### 6
+
+```bash
+conciencia ask "¿Qué hicimos para WebMCP?"
+```
+
+Expected:
+
+```text
+workspace_query
+```
+
+It should retrieve actual WorkItems/Evidence.
+
+### 7
+
+```bash
+conciencia report create \
+  --from-work \
+  --since 2026-08-27 \
+  --project Conciencia
+```
+
+Must create and persist a report successfully.
+
+Then:
+
+```bash
+conciencia report
+conciencia report inspect <created-id>
+```
+
+must work.
+
+---
+
+# QUALITY CHECK
+
+For the generated summary inspect whether it is genuinely useful.
+
+It should not merely dump:
+
+```text
+mission.created
+mission.failed
+git.commit
+...
+```
+
+It should organize evidence into useful sections such as:
+
+```text
+Major accomplishments
+Architecture / engineering
+Features implemented
+Tests and validation
+Deployments
+Research / product work
+Problems encountered
+Resolved issues
+Pending work
+Evidence / provenance
+```
+
+If the current deterministic summary cannot provide this quality yet, do NOT immediately add an LLM.
+
+First improve evidence grouping and deduplication.
+
+An LLM synthesis layer can come after deterministic retrieval is reliable.
+
+---
+
+# TESTS
+
+Add focused regressions for:
+
+1. mixed aware/naive WorkItem timestamps;
+2. since/until normalization;
+3. Git timestamp normalization;
+4. project UUID/name resolution in Reports;
+5. workspace_summary routing;
+6. workspace_query routing;
+7. no unnecessary Mission creation;
+8. Work search returning provenance;
+9. Report creation from WorkSummary.
+
+Run targeted tests.
+
+Also run:
+
+```bash
+python -m py_compile ...
+git diff --check
+```
+
+If the full pytest suite is still blocked by the mixed binary dependency environment, state that explicitly.
+
+Do NOT perform broad dependency upgrades as part of this bugfix.
+
+---
+
+# STOP CONDITION
+
+Do not continue into:
+
+* Nebius
+* Tavily
+* LINTEAM API
+* new runtimes
+* marketplace
+* billing
+* large TUI
+* additional agents
+
+until this exact chain works:
+
+```text
+Workspace
+   ↓
+Project
+   ↓
+Work
+   ↓
+Search
+   ↓
+Summary
+   ↓
+Report
+```
+
+At completion return only:
+
+1. root causes;
+2. files changed;
+3. tests executed/results;
+4. exact output/status of the 7 dogfood scenarios;
+5. retrieval mode currently active;
+6. known limitations;
+7. next recommended single step.
+
+Do not start that next step automatically.

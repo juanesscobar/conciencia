@@ -115,6 +115,56 @@ _TYPE_RUNTIME: dict[str, str] = {
 }
 
 
+def route_request(text: str) -> dict:
+    """Classify natural language into workspace, research or mission actions.
+
+    This is intentionally rule-based: workspace questions should avoid creating
+    a new mission when the answer can be reconstructed from local evidence.
+    """
+    t = (text or "").lower().strip()
+    if not t:
+        return {"route": "mission_request", "reason": "empty text defaults to mission proposal"}
+
+    action_signals = (
+        "implement", "implementar", "fix", "arregla", "deploy", "desplegar",
+        "build", "crear", "refactor", "refactorizar",
+    )
+    if any(signal in t for signal in ("linteam", "enviarlo", "publicar informe", "publish report")):
+        return {"route": "external_action_request", "reason": "external publication request"}
+    if any(signal in t for signal in action_signals):
+        return {"route": "action_request", "reason": "action/implementation request"}
+    if any(signal in t for signal in ("generá un informe", "genera un informe", "crear informe", "create report", "informe de lo que", "reporte de lo que")):
+        return {"route": "report_request", "reason": "report generation request"}
+    if any(signal in t for signal in ("necesita mi atención", "necesita mi atencion", "needs attention", "requiere mi atención", "requiere mi atencion")):
+        return {"route": "recommendation_query", "reason": "attention request"}
+    if any(signal in t for signal in ("herramientas de ia", "ai tools", "runtimes disponibles", "runtime disponible")):
+        return {"route": "runtime_query", "reason": "AI workforce request"}
+    if any(signal in t for signal in ("en qué estoy trabajando", "en que estoy trabajando", "what am i working on")):
+        return {"route": "status_query", "reason": "current workspace status request"}
+
+    workspace_summary_signals = (
+        "resum", "summary", "summary", "sumario", "todo lo que", "what did we build",
+        "what changed", "desde", "this week", "esta semana",
+    )
+    workspace_query_signals = (
+        "how are", "como vamos", "cómo vamos", "status de", "estado de", "webmcp", "que hicimos", "qué hicimos",
+        "work", "work history", "historial", "actividad", "what did we implement",
+    )
+    external_research_signals = (
+        "research the current", "investiga los requisitos oficiales", "official requirements",
+        "current official", "actual requirements", "requisitos oficiales",
+    )
+    if any(sig in t for sig in external_research_signals):
+        return {"route": "external_research", "reason": "explicit external research request"}
+    if any(sig in t for sig in workspace_summary_signals):
+        return {"route": "workspace_summary", "reason": "summary-oriented workspace request"}
+    if any(sig in t for sig in workspace_query_signals if sig != "work") or re.search(r"\bwork\b", t):
+        return {"route": "workspace_query", "reason": "workspace state / retrieval request"}
+    if any(sig in t for sig in action_signals):
+        return {"route": "action_request", "reason": "action/implementation request"}
+    return {"route": "mission_request", "reason": "default mission proposal"}
+
+
 def runtime_readiness(
     db: Session,
     preferred: str,

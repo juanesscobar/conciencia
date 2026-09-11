@@ -1,0 +1,513 @@
+Continue from the current implementation state.
+
+`project` has now been added as a real CLI command group:
+
+* `conciencia project` lists workspace projects.
+* `conciencia project inspect` resolves the current project from `.conciencia/project.yaml`.
+* Resolution supports UUID, project name, and the single-project fallback where appropriate.
+* Current project is marked in project listing.
+* CLI regression coverage was added.
+* `py_compile` passes.
+* `git diff --check` passes.
+* Full pytest has NOT been run because the backend Python environment currently has inconsistent mixed binary dependencies.
+
+Do not rewrite this implementation.
+
+# STEP 1 — CLOSE PROJECT FOUNDATION
+
+First inspect the current diff and finish validating the existing `project` implementation.
+
+Run practical CLI smoke tests for:
+
+```bash
+conciencia project
+conciencia project inspect
+conciencia project inspect Conciencia
+conciencia project inspect <real-project-id>
+conciencia project inspect nonexistent-project
+```
+
+Also verify behavior:
+
+* inside a project containing `.conciencia/project.yaml`;
+* outside a project;
+* when there are multiple workspace projects;
+* when project context cannot be resolved.
+
+Errors must be actionable.
+
+Do not spend this phase expanding Project into a large subsystem.
+
+Once stable, consider the Project CLI foundation closed.
+
+---
+
+# STEP 2 — AUDIT EXISTING WORK / SEARCH INFRASTRUCTURE
+
+Before implementing anything new, inspect and report what already exists for:
+
+```text
+Projects
+Missions
+Mission Runs
+Signals
+Evidence
+Context Packs
+Knowledge
+Memory
+Semantic search
+Embeddings
+pgvector/vector storage
+Git/project discovery
+Reports/documents
+```
+
+Especially inspect LeadHunter semantic search.
+
+Determine what can be generalized instead of building a second semantic-search architecture.
+
+Output a short reuse matrix:
+
+```text
+Capability | Existing implementation | Reuse | Change needed
+```
+
+Then continue implementation.
+
+---
+
+# STEP 3 — INTRODUCE `work`
+
+Add `Work` as a first-class workspace concept.
+
+Do NOT confuse Work with Team.
+
+Semantics:
+
+```text
+Workspace
+ ├── Projects
+ ├── Work
+ ├── Missions
+ ├── Knowledge
+ └── Reports
+```
+
+`Work` represents meaningful technological activity that actually happened.
+
+Initial CLI:
+
+```bash
+conciencia work
+conciencia work timeline
+conciencia work search "query"
+conciencia work summarize
+```
+
+Do not build a large TUI.
+
+Running:
+
+```bash
+conciencia work
+```
+
+should provide a useful default overview instead of `Missing command`.
+
+---
+
+# STEP 4 — WORK ACTIVITY LEDGER
+
+Implement the minimum durable `WorkActivity` abstraction needed to reconstruct work history.
+
+Suggested fields:
+
+```text
+id
+workspace_id
+project_id optional
+type
+title
+summary
+timestamp
+source_type
+source_ref
+metadata
+tags
+evidence_refs
+created_at
+```
+
+Initial meaningful sources:
+
+```text
+Git commits
+Missions
+Mission Runs
+Signals
+Evidence
+Approvals
+Deployments if already represented
+Reports/documents if already represented
+```
+
+Do not ingest noisy events just to increase counts.
+
+Every activity should preserve provenance.
+
+For Git:
+
+```text
+source_type = git_commit
+source_ref = commit hash
+```
+
+For Missions:
+
+```text
+source_type = mission
+source_ref = mission UUID
+```
+
+---
+
+# STEP 5 — FIRST DOGFOOD FEATURE: TEMPORAL WORK SUMMARY
+
+Before advanced semantic search, make this useful:
+
+```bash
+conciencia work summarize --since 2026-08-27
+```
+
+It should reconstruct actual work from available evidence.
+
+Target output:
+
+```text
+WORK SUMMARY
+2026-08-27 → today
+
+Projects
+...
+
+Major accomplishments
+...
+
+Features / changes
+...
+
+Architecture decisions
+...
+
+Tests and validation
+...
+
+Deployments
+...
+
+Failures / problems discovered
+...
+
+Resolved problems
+...
+
+Documents / deliverables
+...
+
+Pending work
+...
+
+Evidence
+...
+```
+
+IMPORTANT:
+
+Do not fabricate achievements or counts.
+
+If Conciencia only has partial history, say:
+
+```text
+Coverage: partial
+```
+
+and explain which sources were available.
+
+Git history should be one important source, not the only source.
+
+---
+
+# STEP 6 — SEMANTIC WORKSPACE SEARCH
+
+Once temporal retrieval works, generalize the existing semantic infrastructure.
+
+Semantic search must become a CORE workspace capability rather than LeadHunter-only functionality.
+
+Target searchable entities:
+
+```text
+Project
+Mission
+MissionRun
+WorkActivity
+Signal
+Evidence
+Knowledge
+Report
+Document
+GitCommit
+```
+
+Each indexed item must preserve:
+
+```text
+entity_type
+entity_id
+project_id
+timestamp
+source
+provenance
+```
+
+Do not hard-code OpenAI embeddings.
+
+Reuse the existing provider abstraction/simulation infrastructure where possible.
+
+Do not create a second vector database architecture if one already exists.
+
+---
+
+# STEP 7 — HYBRID RETRIEVAL
+
+`work search` should combine:
+
+```text
+semantic similarity
+keyword search
+time
+project
+entity type
+structured metadata
+```
+
+Example:
+
+```bash
+conciencia work search "WebMCP Challenge" --since 2026-08-27
+```
+
+It should be able to find related work even when exact wording differs.
+
+Return provenance with every important result.
+
+---
+
+# STEP 8 — FIX `ask` ROUTING
+
+Current product behavior assumes too often:
+
+```text
+natural language → Mission
+```
+
+Replace this conceptually with:
+
+```text
+Natural Language
+       ↓
+Intent Router
+       ├── workspace_query
+       ├── workspace_summary
+       ├── external_research
+       ├── mission_request
+       └── action_request
+```
+
+Examples:
+
+```text
+"What did we build for WebMCP?"
+→ workspace retrieval
+
+"Summarize everything I developed since August 27."
+→ workspace summary
+
+"How are the WebMCP Missions going?"
+→ workspace state/retrieval
+
+"Research the current official requirements for WebMCP."
+→ external research Mission
+
+"Implement semantic workspace search."
+→ software-development Mission
+```
+
+Do not create a new Research Mission merely to answer something already known by the workspace.
+
+---
+
+# STEP 9 — REPORT FOUNDATION
+
+Once WorkSummary works, implement/reuse minimal reports.
+
+Target:
+
+```bash
+conciencia report
+conciencia report create
+conciencia report inspect <id>
+```
+
+First important flow:
+
+```text
+Work Activity
+     ↓
+Retrieval
+     ↓
+Work Summary
+     ↓
+Report
+```
+
+Support Markdown and structured JSON first.
+
+Do NOT prioritize PDF yet unless an existing implementation makes it trivial.
+
+Reports must preserve Evidence/provenance.
+
+---
+
+# STEP 10 — DO NOT IMPLEMENT LINTEAM YET
+
+Prepare for:
+
+```text
+Report
+ ↓
+Human Approval
+ ↓
+External Connector
+ ↓
+LINTEAM
+```
+
+but do NOT perform production writes or invent the LINTEAM API.
+
+Once the report pipeline works, we will inspect the real LINTEAM API/auth contract and build it as a reusable Connector/Tool adapter.
+
+LINTEAM must not be hard-coded into Mission core.
+
+---
+
+# REQUIRED DOGFOOD
+
+The milestone is NOT complete until this works:
+
+```bash
+conciencia work summarize --since 2026-08-27
+```
+
+Then:
+
+```bash
+conciencia ask
+```
+
+Prompt:
+
+```text
+Resumime lo más completo posible todo lo que desarrollé
+desde el 27 de agosto hasta hoy.
+```
+
+Expected behavior:
+
+```text
+workspace_summary
+      ↓
+temporal + semantic retrieval
+      ↓
+actual projects/work/missions/git/evidence
+      ↓
+evidence-backed summary
+```
+
+NOT:
+
+```text
+create generic research Mission
+```
+
+Then test:
+
+```bash
+conciencia work search "WebMCP"
+```
+
+and:
+
+```text
+¿Qué hicimos para WebMCP?
+```
+
+Both must retrieve actual workspace history.
+
+Finally verify:
+
+```text
+conciencia report create
+```
+
+can persist the resulting work summary.
+
+---
+
+# TESTING / ENVIRONMENT
+
+Do not claim full test-suite success while the Python environment has mixed binary dependency problems.
+
+For each increment:
+
+1. run targeted tests where possible;
+2. run `py_compile`;
+3. run `git diff --check`;
+4. execute real CLI smoke tests;
+5. document any test blocked by environment.
+
+Also diagnose the mixed binary dependency problem separately, but do not let an environment repair become an uncontrolled dependency upgrade.
+
+Do not globally upgrade dependencies.
+
+Identify the incompatible package(s), interpreter, architecture and environment first.
+
+---
+
+# STOP CONDITION
+
+Stop this implementation phase once this real user workflow succeeds:
+
+```text
+PROJECT
+  ↓
+WORK HISTORY
+  ↓
+SEARCH
+  ↓
+SUMMARY
+  ↓
+REPORT
+```
+
+Do not continue into marketplace, billing, LINTEAM writes, Nebius integration, large TUI work, or additional agent catalogs.
+
+At completion report:
+
+* files changed;
+* schema/migrations;
+* reused components;
+* CLI commands added;
+* semantic strategy;
+* test results;
+* known limitations;
+* exact dogfood commands to run next.

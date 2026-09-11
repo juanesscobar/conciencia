@@ -25,7 +25,8 @@ class Deliverable(Base):
     __tablename__ = "deliverables"
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
-    project_id = Column(Uuid, ForeignKey("projects.id"), nullable=False)
+    # Workspace reports are intentionally not assigned to an arbitrary project.
+    project_id = Column(Uuid, ForeignKey("projects.id"), nullable=True)
     sprint_id = Column(Uuid, ForeignKey("sprints.id"), nullable=True)
     task_id = Column(Uuid, ForeignKey("tasks.id"), nullable=True)
 

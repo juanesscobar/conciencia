@@ -16,4 +16,5 @@ from app.models.mission import Mission, MissionRun
 from app.models.team import Team
 from app.models.harness import Harness
 from app.models.signal import Signal, Evidence
+from app.models.connection import Connection
 from app.modules.leadhunter.models import Lead, LeadHuntRun, LeadEvent, LeadProposal, LeadHunterJob, LeadHunterJobStatus

@@ -16,20 +16,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        'harnesses',
-        sa.Column('id', sa.Uuid(), nullable=False),
-        sa.Column('name', sa.String(length=100), nullable=False),
-        sa.Column('version', sa.String(length=20), nullable=True),
-        sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('spec', sa.JSON(), nullable=False),
-        sa.Column('status', sa.String(length=20), nullable=True),
-        sa.Column('versions', sa.JSON(), nullable=True),
-        sa.Column('created_at', sa.DateTime(), nullable=True),
-        sa.Column('updated_at', sa.DateTime(), nullable=True),
-        sa.PrimaryKeyConstraint('id'),
-    )
-    op.add_column('missions', sa.Column('harness_id', sa.String(length=50), nullable=True))
+    inspector = sa.inspect(op.get_bind())
+    if not inspector.has_table('harnesses'):
+        op.create_table(
+            'harnesses', sa.Column('id', sa.Uuid(), nullable=False),
+            sa.Column('name', sa.String(length=100), nullable=False), sa.Column('version', sa.String(length=20), nullable=True),
+            sa.Column('description', sa.Text(), nullable=True), sa.Column('spec', sa.JSON(), nullable=False),
+            sa.Column('status', sa.String(length=20), nullable=True), sa.Column('versions', sa.JSON(), nullable=True),
+            sa.Column('created_at', sa.DateTime(), nullable=True), sa.Column('updated_at', sa.DateTime(), nullable=True), sa.PrimaryKeyConstraint('id'),
+        )
+    if 'harness_id' not in {column['name'] for column in inspector.get_columns('missions')}:
+        op.add_column('missions', sa.Column('harness_id', sa.String(length=50), nullable=True))
 
 
 def downgrade() -> None:

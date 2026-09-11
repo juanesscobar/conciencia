@@ -118,6 +118,11 @@ def simulated_embedding(text: str, dim: int = SIM_DIM) -> List[float]:
 
 def embed_text(text: str) -> List[float]:
     """Embedding real (OpenAI-compatible) si hay key; si no, simulado."""
+    return embed_text_with_mode(text)[0]
+
+
+def embed_text_with_mode(text: str) -> Tuple[List[float], str]:
+    """Return an embedding together with the backend truth used for it."""
     provider = embedding_provider()
     key = _api_key(provider)
     base_url = _setting("EMBEDDING_BASE_URL", "")
@@ -131,10 +136,10 @@ def embed_text(text: str) -> List[float]:
                 kwargs["base_url"] = base_url
             client = OpenAI(**kwargs)
             res = client.embeddings.create(model=model, input=[text])
-            return res.data[0].embedding
+            return res.data[0].embedding, "real"
         except Exception:
             pass  # fallback silencioso a simulado
-    return simulated_embedding(text)
+    return simulated_embedding(text), "simulated"
 
 
 # ---------------------------------------------------------------------------

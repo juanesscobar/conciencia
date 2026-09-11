@@ -17,12 +17,19 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Agrega normalized_name / normalized_domain / normalized_phone a leads (dedupe v2 indexado)."""
-    op.add_column('leads', sa.Column('normalized_name', sa.String(), nullable=True))
-    op.add_column('leads', sa.Column('normalized_domain', sa.String(), nullable=True))
-    op.add_column('leads', sa.Column('normalized_phone', sa.String(), nullable=True))
-    op.create_index('ix_leads_normalized_name', 'leads', ['normalized_name'])
-    op.create_index('ix_leads_normalized_domain', 'leads', ['normalized_domain'])
-    op.create_index('ix_leads_normalized_phone', 'leads', ['normalized_phone'])
+    inspector = sa.inspect(op.get_bind())
+    columns = {column['name'] for column in inspector.get_columns('leads')}
+    for name in ('normalized_name', 'normalized_domain', 'normalized_phone'):
+        if name not in columns:
+            op.add_column('leads', sa.Column(name, sa.String(), nullable=True))
+    indexes = {index['name'] for index in inspector.get_indexes('leads')}
+    for name, column in (
+        ('ix_leads_normalized_name', 'normalized_name'),
+        ('ix_leads_normalized_domain', 'normalized_domain'),
+        ('ix_leads_normalized_phone', 'normalized_phone'),
+    ):
+        if name not in indexes:
+            op.create_index(name, 'leads', [column])
 
 
 def downgrade() -> None:

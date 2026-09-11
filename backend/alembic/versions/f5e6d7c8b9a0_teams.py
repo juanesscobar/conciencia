@@ -16,22 +16,19 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        'teams',
-        sa.Column('id', sa.Uuid(), nullable=False),
-        sa.Column('name', sa.String(length=100), nullable=False),
-        sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('purpose', sa.String(length=255), nullable=True),
-        sa.Column('emoji', sa.String(length=10), nullable=True),
-        sa.Column('status', sa.String(length=20), nullable=True),
-        sa.Column('member_ids', sa.JSON(), nullable=True),
-        sa.Column('default_runtime', sa.String(length=50), nullable=True),
-        sa.Column('config', sa.JSON(), nullable=True),
-        sa.Column('created_at', sa.DateTime(), nullable=True),
-        sa.Column('updated_at', sa.DateTime(), nullable=True),
-        sa.PrimaryKeyConstraint('id'),
-    )
-    op.add_column('missions', sa.Column('team_id', sa.String(length=50), nullable=True))
+    inspector = sa.inspect(op.get_bind())
+    if not inspector.has_table('teams'):
+        op.create_table(
+            'teams', sa.Column('id', sa.Uuid(), nullable=False),
+            sa.Column('name', sa.String(length=100), nullable=False),
+            sa.Column('description', sa.Text(), nullable=True), sa.Column('purpose', sa.String(length=255), nullable=True),
+            sa.Column('emoji', sa.String(length=10), nullable=True), sa.Column('status', sa.String(length=20), nullable=True),
+            sa.Column('member_ids', sa.JSON(), nullable=True), sa.Column('default_runtime', sa.String(length=50), nullable=True),
+            sa.Column('config', sa.JSON(), nullable=True), sa.Column('created_at', sa.DateTime(), nullable=True),
+            sa.Column('updated_at', sa.DateTime(), nullable=True), sa.PrimaryKeyConstraint('id'),
+        )
+    if 'team_id' not in {column['name'] for column in inspector.get_columns('missions')}:
+        op.add_column('missions', sa.Column('team_id', sa.String(length=50), nullable=True))
 
 
 def downgrade() -> None:

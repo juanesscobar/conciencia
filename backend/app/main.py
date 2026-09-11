@@ -42,16 +42,19 @@ from app.config import get_cors_origins, ENVIRONMENT
 from app.services.system_logger import setup_logging
 from app.database import Base, engine
 
-# Crea tablas faltantes automáticamente (idempotente, no pisa migraciones alembic)
 from app import models  # noqa: F401  (registra todos los modelos en Base.metadata)
-Base.metadata.create_all(bind=engine)
-
 from app.db_sync import sync_schema
-sync_schema(engine, Base)
+
+
+def _bootstrap_schema() -> None:
+    # Crea tablas faltantes automáticamente al arrancar la app.
+    Base.metadata.create_all(bind=engine)
+    sync_schema(engine, Base)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _bootstrap_schema()
     start_scheduler()
     yield
     stop_scheduler()

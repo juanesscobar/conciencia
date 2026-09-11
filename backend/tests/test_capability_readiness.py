@@ -1,6 +1,8 @@
 """Regression tests for canonical runtime, provider and planner readiness."""
 
 import json
+import os
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -98,20 +100,45 @@ def test_doctor_model_and_runtime_agree_when_generic_is_blocked(db, monkeypatch)
     doctor = runner.invoke(app, ["doctor", "--json"])
     models = runner.invoke(app, ["model", "--json"])
     runtimes = runner.invoke(app, ["runtime", "--json"])
+    runtime_list = runner.invoke(app, ["runtime", "list", "--json"])
 
     assert doctor.exit_code == 0, doctor.stdout
     doctor_data = json.loads(doctor.stdout)
     model_data = json.loads(models.stdout)
     runtime_data = json.loads(runtimes.stdout)
+    runtime_list_data = json.loads(runtime_list.stdout)
     generic = next(item for item in runtime_data if item["name"] == "generic")
     deepseek = next(item for item in model_data if item["provider"] == "deepseek")
     assert doctor_data["overall"] == "BLOCKED FOR MISSION EXECUTION"
     assert generic["state"] == "blocked"
     assert deepseek["state"] == "blocked"
+    assert any(item["name"] == "generic" for item in runtime_list_data)
 
     human = runner.invoke(app, ["doctor"])
     assert human.exit_code == 1
     assert "BLOCKED FOR MISSION EXECUTION" in human.stdout
+
+
+def test_runtime_inspect_subcommand_exists(db, monkeypatch):
+    _without_llm_credentials(monkeypatch)
+    result = runner.invoke(app, ["runtime", "inspect", "generic", "--json"])
+    assert result.exit_code == 0, result.stdout
+    data = json.loads(result.stdout)
+    assert data["name"] == "generic"
+
+
+def test_doctor_reports_workspace_semantic(db, monkeypatch):
+    _without_llm_credentials(monkeypatch)
+    monkeypatch.setenv("EMBEDDING_ENABLED", "1")
+    doctor = runner.invoke(app, ["doctor", "--json"])
+    health = runner.invoke(app, ["health"])
+
+    assert doctor.exit_code == 0, doctor.stdout
+    doctor_data = json.loads(doctor.stdout)
+    assert "workspace_semantic" in doctor_data
+    assert doctor_data["workspace_semantic"]["state"] in {"ready", "empty"}
+    assert health.exit_code == 0, health.stdout
+    assert "Workspace semantic" in health.stdout
 
 
 def test_onboard_json_detects_without_enabling(db, monkeypatch):
@@ -132,7 +159,9 @@ def test_workspace_home_works_without_current_project(db, tmp_path, monkeypatch)
     _without_llm_credentials(monkeypatch)
     db.add(Project(name="Conciencia"))
     db.commit()
-    home = workspace_home(db, cwd=tmp_path)
+    external = Path(os.environ["TEMP"]) / f"conciencia-outside-{tmp_path.name}"
+    external.mkdir(parents=True, exist_ok=True)
+    home = workspace_home(db, cwd=external)
     assert home["current_project"] is None
     assert home["recent_projects"][0]["name"] == "Conciencia"
     assert home["execution"]["overall"] == "BLOCKED FOR MISSION EXECUTION"

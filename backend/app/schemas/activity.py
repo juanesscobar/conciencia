@@ -1,7 +1,16 @@
-from pydantic import BaseModel, model_validator
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
+
+from pydantic import BaseModel
+
+try:
+    from pydantic import model_validator
+except ImportError:  # pydantic v1 compatibility for local test env
+    from pydantic import root_validator
+
+    def model_validator(*args, **kwargs):  # type: ignore[override]
+        return root_validator(pre=True)
 
 
 class ActivityBase(BaseModel):
@@ -45,3 +54,4 @@ class Activity(ActivityBase):
 
     class Config:
         from_attributes = True
+        orm_mode = True

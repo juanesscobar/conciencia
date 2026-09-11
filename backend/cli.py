@@ -19,7 +19,8 @@ import os
 import re
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import List, Optional
 
 import typer
@@ -37,6 +38,7 @@ if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
 
 from app.database import SessionLocal
+from app.models.project import Project
 from app.modules.leadhunter.models import Lead, LeadStatus
 from app.modules.leadhunter.search import SearchEngine, SearchQuery
 from app.modules.leadhunter.ranking import (
@@ -68,8 +70,17 @@ signal_app = typer.Typer(help="Signals: hallazgos trazables con evidencia (Fase 
 context_app = typer.Typer(help="Context packs: retrieval eficiente de contexto (Fase J).")
 webmcp_app = typer.Typer(help="WebMCP: interactuar con apps web WebMCP-enabled (Fase K).")
 economics_app = typer.Typer(help="Economics: economía de misiones inspeccionable (Fase L).")
+runtime_app = typer.Typer(help="Runtimes: listar, inspeccionar y diagnosticar.")
+project_app = typer.Typer(help="Projects: listar e inspeccionar proyectos del workspace.")
+work_app = typer.Typer(help="Work: actividad, timeline, búsqueda y resúmenes.")
+report_app = typer.Typer(help="Reports: crear, listar, inspeccionar y exportar.")
+connection_app = typer.Typer(help="Connections: inspeccionar sistemas externos.", invoke_without_command=True)
 app.add_typer(leads_app, name="leads")
 app.add_typer(lead_app, name="lead")
+app.add_typer(project_app, name="project")
+app.add_typer(work_app, name="work")
+app.add_typer(report_app, name="report")
+app.add_typer(connection_app, name="connection")
 app.add_typer(config_app, name="config")
 app.add_typer(mission_app, name="mission")
 app.add_typer(run_app, name="run")
@@ -81,6 +92,7 @@ app.add_typer(signal_app, name="signal")
 app.add_typer(context_app, name="context")
 app.add_typer(webmcp_app, name="webmcp")
 app.add_typer(economics_app, name="economics")
+app.add_typer(runtime_app, name="runtime")
 
 console = Console()
 
@@ -188,6 +200,129 @@ def _short_id(kind: str, full_id: str) -> str:
     return f"{prefix}-{full_id[:8]}"
 
 
+def _mission_ref(mission: Mission) -> str:
+    return _short_id("mission", str(mission.id))
+
+
+def _run_ref(run: MissionRun) -> str:
+    return _short_id("run", str(run.id))
+
+
+def _pending_approval_steps(db, mission: Mission) -> list[dict]:
+    """Read pending approval gates from canonical MissionRun/WorkflowRun state."""
+    from app.models.workflow import WorkflowRun
+
+    run = (
+        db.query(MissionRun)
+        .filter(MissionRun.mission_id == mission.id)
+        .order_by(MissionRun.started_at.desc())
+        .first()
+    )
+    if not run or not run.workflow_run_id:
+        return []
+    workflow_run = db.query(WorkflowRun).filter(WorkflowRun.id == run.workflow_run_id).first()
+    if not workflow_run:
+        return []
+    pending = []
+    for step in workflow_run.step_results or []:
+        if step.get("status") != "waiting_approval":
+            continue
+        pending.append(
+            {
+                "mission_id": str(mission.id),
+                "mission_ref": _mission_ref(mission),
+                "mission_name": mission.name,
+                "run_id": str(run.id),
+                "run_ref": _run_ref(run),
+                "workflow_run_id": workflow_run.id,
+                "step_index": step.get("step_index"),
+                "step_name": step.get("step_name") or f"step_{step.get('step_index')}",
+                "approval_token": step.get("approval_token"),
+            }
+        )
+    return pending
+
+
+def _all_pending_approvals(db) -> list[dict]:
+    rows = []
+    for mission in mission_service.list_missions(db, status="waiting_approval", limit=100):
+        rows.extend(_pending_approval_steps(db, mission))
+    return rows
+
+
+def _render_approval_rows(rows: list[dict]) -> None:
+    if not rows:
+        console.print("Sin aprobaciones pendientes.", style="green")
+        return
+    table = Table(title=f"Aprobaciones pendientes ({len(rows)})")
+    for col in ("Mission", "Nombre", "Step", "Approval", "Run"):
+        table.add_column(col, style="cyan" if col in {"Mission", "Step"} else None)
+    for row in rows:
+        table.add_row(
+            row["mission_ref"],
+            row["mission_name"][:48],
+            str(row["step_index"]),
+            row["step_name"],
+            row["run_ref"],
+        )
+    console.print(table)
+    console.print("")
+    console.print("Next:")
+    if len(rows) == 1:
+        console.print(f"  conciencia approve {rows[0]['mission_ref']}")
+    else:
+        first = rows[0]
+        console.print(f"  conciencia approve {first['mission_ref']} {first['step_index']}")
+    console.print("  conciencia reject <mission> <step>")
+
+
+def _resolve_project(db, raw: Optional[str], cwd: Optional[str] = None):
+    """Resuelve proyecto por UUID, nombre o contexto actual del workspace."""
+    from sqlalchemy import func
+    import uuid as _uuid
+
+    def normalized_name(value: str) -> str:
+        # Workspace metadata commonly uses a repository slug while Projects
+        # uses a display name (for example, mission-control / Mission Control).
+        return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+    def lookup(token: str):
+        try:
+            return db.query(Project).filter(Project.id == _uuid.UUID(token)).first()
+        except Exception:
+            pass
+        project = db.query(Project).filter(func.lower(Project.name) == token.lower()).first()
+        if project:
+            return project
+        normalized = normalized_name(token)
+        matches = [project for project in db.query(Project).all()
+                   if normalized_name(project.name) == normalized]
+        if len(matches) == 1:
+            return matches[0]
+        if len(token) >= 8:
+            prefix = token[:8].lower()
+            matches = [p for p in db.query(Project).all() if str(p.id).startswith(prefix)]
+            if len(matches) == 1:
+                return matches[0]
+        return None
+
+    if raw:
+        return lookup(raw.strip())
+
+    current = _detect_project_context(cwd).get("project")
+    if current:
+        name = current.get("name")
+        if name:
+            project = lookup(name)
+            if project:
+                return project
+
+    projects = db.query(Project).order_by(Project.updated_at.desc()).all()
+    if len(projects) == 1:
+        return projects[0]
+    return None
+
+
 def _mask_secret(key: str, value: str) -> str:
     """Enmascara valores de claves secretas (API keys, passwords, tokens).
 
@@ -199,16 +334,109 @@ def _mask_secret(key: str, value: str) -> str:
     return value
 
 
+def _cli_database_url(url: str) -> str:
+    """Resolve a relative SQLite URL against the CLI installation directory."""
+    if not url.startswith("sqlite:///"):
+        return url
+    database_path = url[len("sqlite:///"):]
+    if database_path in {":memory:", ""} or os.path.isabs(database_path):
+        return url
+    return f"sqlite:///{(Path(_BACKEND_DIR) / database_path).resolve().as_posix()}"
+
+
 def _make_session():
     """Sesión propia del CLI: respeta DATABASE_URL (para tests/deploy)."""
     url = os.getenv("DATABASE_URL", "").strip()
     if url:
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
+        url = _cli_database_url(url)
         kw = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
         engine = create_engine(url, **kw)
         return sessionmaker(autocommit=False, autoflush=False, bind=engine)()
     return SessionLocal()
+
+
+def _detect_project_context(cwd: Optional[str] = None) -> dict:
+    """Detecta el proyecto actual y el stack sin duplicar lógica entre init/root."""
+    import subprocess
+    from pathlib import Path
+
+    from app.services.workspace_service import discover_current_project
+
+    root = Path(cwd or Path.cwd()).resolve()
+    current_project = discover_current_project(root)
+    info = {
+        "path": str(root),
+        "initialized": bool(current_project),
+        "project": current_project,
+        "git": False,
+        "branch": None,
+        "remotes": [],
+        "stack": [],
+        "detected": [],
+    }
+
+    if (root / ".git").exists():
+        info["git"] = True
+        try:
+            branch = subprocess.run(
+                ["git", "-C", str(root), "branch", "--show-current"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            info["branch"] = branch.stdout.strip() or None
+            rem = subprocess.run(
+                ["git", "-C", str(root), "remote", "-v"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            info["remotes"] = [l.split()[1] for l in rem.stdout.splitlines() if l.split()]
+        except Exception:
+            pass
+
+    markers = {
+        "Python": ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
+        "Node.js": ["package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"],
+        "FastAPI": ["app/main.py"],
+        "React": ["frontend/package.json", "vite.config.ts", "vite.config.js"],
+        "Docker": ["Dockerfile", "docker-compose.yml", "compose.yaml"],
+        "PostgreSQL": ["docker-compose.yml", "docker-compose.dev.yml"],
+        "CI": [".github/workflows", ".gitlab-ci.yml"],
+        "Tests": ["tests/", "pytest.ini", "pyproject.toml"],
+    }
+    for name, files in markers.items():
+        present = [f for f in files if (root / f).exists()]
+        if present:
+            info["stack"].append(name)
+            info["detected"].append(f"{name}: {', '.join(present)}")
+
+    return info
+
+
+def _print_onboarding(info: dict) -> None:
+    """Renderiza un first-run útil cuando el proyecto no está inicializado."""
+    table = Table(title="CONCIENCIA")
+    table.add_column("Campo", style="cyan")
+    table.add_column("Valor")
+    table.add_row("Mission Control", "Mission Control for Autonomous Work")
+    table.add_row("Current directory", info["path"])
+    table.add_row("Git repository", "✓" if info["git"] else "○")
+    table.add_row("Python", "✓" if "Python" in info["stack"] else "○")
+    table.add_row("FastAPI", "✓" if "FastAPI" in info["stack"] else "○")
+    table.add_row("Docker", "✓" if "Docker" in info["stack"] else "○")
+    table.add_row("pytest", "✓" if "Tests" in info["stack"] else "○")
+    project = info.get("project")
+    table.add_row("Conciencia project", project["name"] if project else "Not initialized")
+    console.print(table)
+    console.print("\nActions")
+    console.print("  - Initialize this project")
+    console.print("  - Inspect without initializing")
+    console.print("  - Connect to existing workspace")
+    console.print("  - Run doctor")
+    console.print("  - Exit")
 
 
 def _json(obj) -> None:
@@ -258,9 +486,12 @@ def root_dashboard(ctx: typer.Context) -> None:
         return
     db = _make_session()
     try:
+        info = _detect_project_context()
         from app.services.workspace_service import workspace_home
 
-        home = workspace_home(db)
+        home = workspace_home(db, cwd=os.getcwd())
+        _render_workspace_home(home, info)
+        return
         table = Table(title=f"Conciencia · {home['workspace']}")
         table.add_column("Estado", style="cyan")
         table.add_column("Valor")
@@ -286,6 +517,52 @@ def root_dashboard(ctx: typer.Context) -> None:
         db.close()
 
 
+def _repository_dirty(cwd: str) -> bool:
+    """Fast local git state for display only; failures mean unknown/clean."""
+    import subprocess
+    try:
+        result = subprocess.run(["git", "-C", cwd, "status", "--porcelain"], capture_output=True, text=True, timeout=2)
+        return bool(result.stdout.strip())
+    except OSError:
+        return False
+
+
+def _home_section(title: str, lines: list[str]) -> None:
+    console.print(f"\n[bold]{title}[/bold]")
+    for line in lines or ["None"]:
+        console.print(line)
+
+
+def _workforce_line(row: dict) -> str:
+    state = "ready" if row["ready"] else ("detected · disabled" if row["detected"] and not row["enabled"] else row["state"])
+    provider = f"{row['provider']} · " if row.get("provider") else ""
+    return f"{row['label']:<12} {provider}{state}"
+
+
+def _render_workspace_home(home: dict, info: dict) -> None:
+    """Compact operational Home; intentionally excludes IDs, evidence and logs."""
+    console.print("[bold cyan]CONCIENCIA[/bold cyan]")
+    console.print("Workspace status")
+    console.print("\n[bold]CURRENT CONTEXT[/bold]")
+    current = home["current"]
+    if current["kind"] == "global":
+        console.print("Global workspace")
+    else:
+        state = "dirty" if _repository_dirty(os.getcwd()) else "clean"
+        console.print(f"{current['name']} · branch: {info.get('branch') or 'no branch'} · {state}")
+    _home_section("PROJECTS", [f"{row['name']} · {row['status']} · {row['description'][:70]}" for row in home["projects"]])
+    _home_section("AI WORKFORCE", [_workforce_line(row) for row in home["workforce"]])
+    _home_section("ACTIVE WORK", [f"{row['status']:<16} {row['kind']}: {row['name'][:72]}" for row in home["active_work"][:5]])
+    _home_section("NEEDS ATTENTION", [f"{row['severity']}: {row['reason']}" for row in home["recommendations"][:5]])
+    _home_section("RECENT WORK", [f"{row['type']}: {row['title'][:78]}" for row in home["recent_work"][:5]])
+    _home_section("CONNECTIONS", [f"{row['name']}: {row['status']}" for row in home["connections"][:5]])
+    _home_section("RECOMMENDED", [f"{row['recommended_action']} -> {row['command']}" for row in home["recommendations"][:5]])
+    console.print("\n[bold]QUICK ACTIONS[/bold]")
+    console.print("Ask  conciencia ask   Work  conciencia work   Projects  conciencia project")
+    console.print("Missions  conciencia mission   Runtimes  conciencia runtime   Approvals  conciencia approvals")
+    console.print("Connections  conciencia connection")
+
+
 def _lead_rows(db, leads: List[Lead], sq: Optional[SearchQuery] = None) -> list:
     """Leads enriquecidos (Fase 4) para salida JSON/CSV."""
     out = []
@@ -295,12 +572,82 @@ def _lead_rows(db, leads: List[Lead], sq: Optional[SearchQuery] = None) -> list:
     return out
 
 
+@connection_app.callback(invoke_without_command=True)
+def connection_root(ctx: typer.Context, json_out: bool = typer.Option(False, "--json")) -> None:
+    """List configured boundaries and contract-required integrations."""
+    if ctx.invoked_subcommand is None:
+        connection_list(json_out=json_out)
+
+
+@connection_app.command("list")
+def connection_list(json_out: bool = typer.Option(False, "--json")) -> None:
+    """List connections without exposing credential material."""
+    from app.services.connection_service import list_connections
+
+    db = _make_session()
+    try:
+        rows = list_connections(db)
+        if json_out:
+            _json(rows)
+            return
+        console.print("CONNECTIONS")
+        for row in rows:
+            console.print(f"{row['name']:<12} {row['type']:<10} {row['status']}")
+    finally:
+        db.close()
+
+
+@connection_app.command("inspect")
+def connection_inspect(name: str = typer.Argument(...), json_out: bool = typer.Option(False, "--json")) -> None:
+    """Inspect a connection boundary; references are safe but secrets are omitted."""
+    from app.services.connection_service import inspect_connection
+
+    db = _make_session()
+    try:
+        row = inspect_connection(db, name)
+        if not row:
+            console.print(f"Connection not found: {name}", style="red")
+            raise typer.Exit(1)
+        if json_out:
+            _json(row)
+            return
+        console.print(f"{row['name']}: {row['status']}")
+        console.print(f"Type: {row['type']}")
+        console.print(f"Capabilities: {', '.join(row['capabilities']) or 'none'}")
+        if row.get("reason"):
+            console.print(f"Reason: {row['reason']}")
+    finally:
+        db.close()
+
+
+@connection_app.command("doctor")
+def connection_doctor(name: str = typer.Argument(...), json_out: bool = typer.Option(False, "--json")) -> None:
+    """Validate the declared connector boundary without making external calls."""
+    from app.services.connection_service import doctor_connection
+
+    db = _make_session()
+    try:
+        row = doctor_connection(db, name)
+        if not row:
+            console.print(f"Connection not found: {name}", style="red")
+            raise typer.Exit(1)
+        if json_out:
+            _json(row)
+            return
+        console.print(f"{row['name']}: {row['state']}")
+        if row.get("action"):
+            console.print(f"Action: {row['action']}")
+    finally:
+        db.close()
+
+
 @app.command("health")
 def health():
     """Estado del sistema: DB, conteos, embeddings."""
     db = _make_session()
     try:
         from app.modules.leadhunter.embeddings import embeddings_enabled, embedding_model, get_backend
+        from app.services.workspace_semantic import workspace_semantic_status
         leads = db.query(Lead).count()
         agents = 0
         try:
@@ -315,7 +662,648 @@ def health():
         table.add_row("Leads", str(leads))
         table.add_row("Agentes", str(agents))
         table.add_row("Embeddings", f"{'enabled' if embeddings_enabled() else 'disabled'} · {embedding_model()}")
+        semantic = workspace_semantic_status(db)
+        table.add_row("Workspace semantic", f"{semantic['state']} · {semantic['backend']} · {semantic['indexed']}")
         console.print(table)
+    finally:
+        db.close()
+
+
+@project_app.callback(invoke_without_command=True)
+def project_root(
+    ctx: typer.Context,
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Alias legible para `conciencia project list`."""
+    if ctx.invoked_subcommand is None:
+        project_list(json_out=json_out)
+
+
+@project_app.command("list")
+def project_list(json_out: bool = typer.Option(False, "--json")):
+    """Lista proyectos del workspace con el proyecto actual resaltado."""
+    db = _make_session()
+    try:
+        home = None
+        try:
+            from app.services.workspace_service import discover_current_project
+
+            home = discover_current_project()
+        except Exception:
+            home = None
+        current_name = (home or {}).get("name")
+        projects = db.query(Project).order_by(Project.updated_at.desc()).all()
+        rows = []
+        for project in projects:
+            rows.append({
+                "id": str(project.id),
+                "name": project.name,
+                "status": project.status.value if hasattr(project.status, "value") else str(project.status),
+                "priority": project.priority.value if hasattr(project.priority, "value") else str(project.priority),
+                "category": project.category.value if hasattr(project.category, "value") else str(project.category),
+                "github_repo": project.github_repo,
+                "tech_stack": project.tech_stack or [],
+                "current": bool(current_name and project.name.lower() == current_name.lower()),
+            })
+        if json_out:
+            _json(rows)
+            return
+        if not rows:
+            console.print("Sin proyectos.", style="yellow")
+            console.print("Creá uno desde la API o inicializá el workspace con: conciencia init")
+            return
+        table = Table(title=f"Projects ({len(rows)})")
+        for col in ("Current", "Name", "Status", "Priority", "Category", "Repo"):
+            table.add_column(col, style="cyan" if col in {"Current", "Name"} else None)
+        for row in rows:
+            mark = "●" if row["current"] else "○"
+            table.add_row(mark, row["name"], row["status"], row["priority"], row["category"], row["github_repo"] or "-")
+        console.print(table)
+        if current_name:
+            console.print(f"\nCurrent workspace project: {current_name}")
+    finally:
+        db.close()
+
+
+@project_app.command("inspect")
+def project_inspect(
+    project_id: Optional[str] = typer.Argument(None, help="UUID, nombre, id corto o vacío para usar el contexto actual"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Muestra detalle de un proyecto del workspace."""
+    db = _make_session()
+    try:
+        project = _resolve_project(db, project_id)
+        if not project:
+            if project_id:
+                console.print(f"Proyecto no encontrado: {project_id}", style="red")
+                raise typer.Exit(1)
+            console.print("No pude resolver un proyecto actual. Usá: conciencia project list", style="yellow")
+            raise typer.Exit(1)
+
+        from app.models.mission import Mission
+        from app.models.task import Task
+
+        missions_count = db.query(Mission).filter(Mission.project_id == project.id).count()
+        tasks_count = db.query(Task).filter(Task.project_id == project.id).count()
+        payload = {
+            "id": str(project.id),
+            "name": project.name,
+            "description": project.description,
+            "status": project.status.value if hasattr(project.status, "value") else str(project.status),
+            "priority": project.priority.value if hasattr(project.priority, "value") else str(project.priority),
+            "category": project.category.value if hasattr(project.category, "value") else str(project.category),
+            "github_repo": project.github_repo,
+            "tech_stack": project.tech_stack or [],
+            "created_at": project.created_at,
+            "updated_at": project.updated_at,
+            "missions_count": missions_count,
+            "tasks_count": tasks_count,
+        }
+        if json_out:
+            _json(payload)
+            return
+        table = Table(title=f"Project: {project.name}")
+        table.add_column("Campo", style="cyan")
+        table.add_column("Valor")
+        for key in ("id", "status", "priority", "category", "github_repo", "missions_count", "tasks_count"):
+            table.add_row(key, str(payload[key] or "-"))
+        table.add_row("tech_stack", ", ".join(payload["tech_stack"]) or "-")
+        if project.description:
+            table.add_row("description", project.description)
+        console.print(table)
+    finally:
+        db.close()
+
+
+def _current_project_id(db, cwd: Optional[str] = None) -> Optional[uuid.UUID]:
+    """Resolve the active project from workspace context when possible."""
+    project = _resolve_project(db, None, cwd=cwd)
+    return project.id if project else None
+
+
+def _work_scope(db, project: Optional[str], cwd: Optional[str]) -> Optional[uuid.UUID]:
+    """Resolve an explicit Work filter; no filter means workspace-wide history."""
+    if not project:
+        return None
+    if project.strip().lower() == "current":
+        return _current_project_id(db, cwd=cwd)
+    resolved = _resolve_project(db, project, cwd=cwd)
+    return resolved.id if resolved else None
+
+
+def _extract_since_from_text(text: str) -> Optional[str]:
+    """Parse a few common natural-language date phrases used for summaries."""
+    from datetime import date as _date
+
+    if not text:
+        return None
+    lower = text.lower()
+    iso = re.search(r"(\d{4}-\d{2}-\d{2})", lower)
+    if iso:
+        return iso.group(1)
+    explicit = re.search(r"(\d{1,2}[./]\d{1,2}[./]\d{2,4})", lower)
+    if explicit:
+        try:
+            from app.services.report_dates import parse_report_date
+            return parse_report_date(explicit.group(1)).isoformat()
+        except ValueError:
+            return None
+    month_map = {
+        "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+        "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
+        "noviembre": 11, "diciembre": 12,
+    }
+    m = re.search(r"(?:desde(?: el)?|a partir de(?: el)?)\s+(\d{1,2})\s+de\s+([a-záéíóúñ]+)", lower)
+    if not m:
+        return None
+    day = int(m.group(1))
+    month = month_map.get(m.group(2))
+    if not month:
+        return None
+    year = datetime.now(timezone.utc).year
+    try:
+        return _date(year, month, day).isoformat()
+    except ValueError:
+        return None
+
+
+def _render_work_rows(rows: list[dict], title: str = "Work timeline") -> None:
+    if not rows:
+        console.print("Sin actividad relevante.", style="yellow")
+        return
+    table = Table(title=title)
+    for col in ("Time", "Type", "Title", "Source", "Project"):
+        table.add_column(col, style="cyan" if col in {"Time", "Title"} else None)
+    for row in rows:
+        table.add_row(
+            (row.get("timestamp") or "")[:19],
+            row.get("type", "-"),
+            row.get("title", "-")[:60],
+            f"{row.get('source_type', '-')}: {row.get('source_ref', '-')[:12]}",
+            row.get("project_id") or "-",
+        )
+    console.print(table)
+
+
+@work_app.callback(invoke_without_command=True)
+def work_root(
+    ctx: typer.Context,
+    since: Optional[str] = typer.Option(None, "--since", help="Fecha inicio ISO o natural simple"),
+    until: Optional[str] = typer.Option(None, "--until", help="Fecha fin ISO o natural simple"),
+    project: Optional[str] = typer.Option(None, "--project", help="Proyecto UUID, nombre o contexto"),
+    limit: int = typer.Option(12, "--limit", help="Máximo de items mostrados"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Overview por defecto del trabajo del workspace."""
+    if ctx.invoked_subcommand is not None:
+        return
+    if since is None:
+        since = (datetime.now(timezone.utc).date() - timedelta(days=7)).isoformat()
+    work_summarize_cmd(since=since, until=until, project=project, limit=limit, json_out=json_out)
+
+
+@work_app.command("timeline")
+def work_timeline_cmd(
+    since: Optional[str] = typer.Option(None, "--since"),
+    until: Optional[str] = typer.Option(None, "--until"),
+    project: Optional[str] = typer.Option(None, "--project"),
+    limit: int = typer.Option(25, "--limit"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Muestra la línea temporal de actividad de trabajo."""
+    from app.services.work_service import collect_work_items
+
+    db = _make_session()
+    try:
+        scope = _work_scope(db, project, cwd=os.getcwd())
+        rows = collect_work_items(db, since=since, until=until, project_id=scope, cwd=os.getcwd())[:limit]
+        payload = [row.to_dict() for row in rows]
+        if json_out:
+            _json(payload)
+            return
+        _render_work_rows(payload, title="Work timeline")
+    finally:
+        db.close()
+
+
+@work_app.command("search")
+def work_search_cmd(
+    query: str = typer.Argument(..., help="Texto a buscar en trabajo histórico"),
+    since: Optional[str] = typer.Option(None, "--since"),
+    until: Optional[str] = typer.Option(None, "--until"),
+    project: Optional[str] = typer.Option(None, "--project"),
+    limit: int = typer.Option(20, "--limit"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Busca trabajo histórico con relevancia textual y temporal."""
+    from app.services.workspace_semantic import retrieve_workspace
+
+    db = _make_session()
+    try:
+        scope = _work_scope(db, project, cwd=os.getcwd())
+        result = retrieve_workspace(
+            db,
+            query=query,
+            since=since,
+            until=until,
+            project_id=scope,
+            limit=limit,
+            cwd=os.getcwd(),
+        )
+        rows = result["items"]
+        if json_out:
+            _json({"retrieval": result["retrieval"], "embedding_backend": result["embedding_backend"], "lexical_baseline": result["lexical_baseline"], "items": rows})
+            return
+        if not rows:
+            console.print(f'No hubo coincidencias para "{query}".', style="yellow")
+            console.print("Probá con otra frase o quitá filtros de fecha/proyecto.")
+            return
+        table = Table(title=f'Work search ({result["retrieval"]}): "{query}"')
+        for col in ("Score", "Time", "Type", "Title", "Source"):
+            table.add_column(col, style="cyan" if col in {"Score", "Title"} else None)
+        for row in rows:
+            table.add_row(
+                str(row.get("score", row.get("lexical_score", 0))),
+                (row.get("timestamp") or "")[:19],
+                row.get("type", "-"),
+                row.get("title", "-")[:55],
+                f"{row.get('source_type', '-')}: {row.get('source_ref', '-')[:12]}",
+            )
+        console.print(table)
+    finally:
+        db.close()
+
+
+def _deliverable_payload(deliverable) -> dict:
+    """Normalize a deliverable/report row for CLI output."""
+    return {
+        "id": str(deliverable.id),
+        "project_id": str(deliverable.project_id) if deliverable.project_id else None,
+        "title": deliverable.title,
+        "description": deliverable.description,
+        "type": getattr(deliverable.type, "value", str(deliverable.type)),
+        "status": getattr(deliverable.status, "value", str(deliverable.status)),
+        "url": deliverable.url,
+        "external_id": deliverable.external_id,
+        "created_at": deliverable.created_at.isoformat() if deliverable.created_at else None,
+        "updated_at": deliverable.updated_at.isoformat() if getattr(deliverable, "updated_at", None) else None,
+    }
+
+
+def _next_export_path(directory: Path, stem: str, extension: str) -> Path:
+    """Never overwrite an export generated by a prior report command."""
+    candidate = directory / f"{stem}.{extension}"
+    index = 2
+    while candidate.exists():
+        candidate = directory / f"{stem}-{index}.{extension}"
+        index += 1
+    return candidate
+
+
+def _export_professional_report(report: dict, report_id: str, report_dir: Path, format: str) -> Path:
+    from app.services import report_renderer
+
+    normalized = {"markdown": "md", "md": "md", "txt": "txt", "json": "json", "pdf": "pdf"}.get(format.casefold())
+    if not normalized:
+        raise ValueError("Unsupported report format. Use txt, md, json, or pdf.")
+    exports = report_dir / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    path = _next_export_path(exports, report_id, normalized)
+    if normalized == "md":
+        path.write_text(report_renderer.render_markdown(report), encoding="utf-8")
+    elif normalized == "txt":
+        path.write_text(report_renderer.render_txt(report), encoding="utf-8")
+    elif normalized == "json":
+        path.write_text(report_renderer.render_json(report), encoding="utf-8")
+    else:
+        report_renderer.render_pdf(report, path)
+    return path
+
+
+@work_app.command("summarize")
+def work_summarize_cmd(
+    since: Optional[str] = typer.Option(None, "--since", help="Fecha inicio ISO o natural simple"),
+    until: Optional[str] = typer.Option(None, "--until", help="Fecha fin ISO o natural simple"),
+    project: Optional[str] = typer.Option(None, "--project", help="Proyecto UUID, nombre o contexto"),
+    limit: int = typer.Option(25, "--limit", help="Máximo de actividades base consideradas"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Resume el trabajo del workspace con evidencia y cobertura."""
+    from app.services.work_service import collect_work_items, summarize_work, summarize_work_text
+
+    db = _make_session()
+    try:
+        scope = _work_scope(db, project, cwd=os.getcwd())
+        since_value = _extract_since_from_text(since) or since
+        summary = summarize_work(db, since=since_value, until=until, project_id=scope, cwd=os.getcwd())
+        rows = collect_work_items(db, since=since_value, until=until, project_id=scope, cwd=os.getcwd())[:limit]
+        if json_out:
+            _json({"summary": summary, "items": [row.to_dict() for row in rows]})
+            return
+        console.print(summarize_work_text(summary))
+        if rows:
+            console.print("")
+            _render_work_rows([row.to_dict() for row in rows], title="Representative items")
+    finally:
+        db.close()
+
+
+@work_app.command("inspect")
+def work_inspect_cmd(
+    item_id: str = typer.Argument(..., help="WorkItem id o prefijo"),
+    project: Optional[str] = typer.Option(None, "--project"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Inspecciona un WorkItem individual."""
+    from app.services.work_service import collect_work_items
+
+    db = _make_session()
+    try:
+        scope = _work_scope(db, project, cwd=os.getcwd())
+        items = collect_work_items(db, project_id=scope, cwd=os.getcwd())
+        match = next((item for item in items if item.id == item_id or item.id.startswith(item_id)), None)
+        if not match:
+            console.print(f"WorkItem no encontrado: {item_id}", style="red")
+            raise typer.Exit(1)
+        payload = match.to_dict()
+        if json_out:
+            _json(payload)
+            return
+        table = Table(title=f"WorkItem: {match.title}")
+        table.add_column("Campo", style="cyan")
+        table.add_column("Valor")
+        for key in ("id", "type", "source_type", "source_ref", "project_id", "timestamp"):
+            table.add_row(key, str(payload.get(key) or "-"))
+        table.add_row("summary", str(payload.get("summary") or "-"))
+        table.add_row("metadata", json.dumps(payload.get("metadata") or {}, ensure_ascii=False))
+        console.print(table)
+    finally:
+        db.close()
+
+
+def _report_rows(db, project: Optional[str] = None) -> list:
+    """Canonical report list query shared by the root alias and `report list`."""
+    from app.models.deliverable import Deliverable
+
+    scope = _work_scope(db, project, cwd=os.getcwd())
+    query = db.query(Deliverable).filter(Deliverable.type == "report").order_by(Deliverable.created_at.desc())
+    return query.filter(Deliverable.project_id == scope).all() if scope else query.all()
+
+
+def _render_report_list(db, project: Optional[str], json_out: bool) -> None:
+    payload = [_deliverable_payload(row) for row in _report_rows(db, project)]
+    if json_out:
+        _json(payload)
+        return
+    if not payload:
+        console.print("Sin reportes.", style="yellow")
+        return
+    table = Table(title=f"Reports ({len(payload)})")
+    for col in ("ID", "Title", "Status", "Project", "Created"):
+        table.add_column(col, style="cyan" if col == "Title" else None)
+    for row in payload:
+        table.add_row(str(row["id"])[:8], row["title"], row["status"], (row["project_id"] or "-")[:8], (row["created_at"] or "")[:19])
+    console.print(table)
+
+
+def resolve_report_ref(db, ref: str):
+    """Resolve latest, full UUID, or a unique UUID prefix without guessing."""
+    from app.models.deliverable import Deliverable
+
+    raw = (ref or "").strip()
+    reports = db.query(Deliverable).filter(Deliverable.type == "report", Deliverable.status == "final").order_by(Deliverable.created_at.desc()).all()
+    if raw.casefold() == "latest":
+        if reports:
+            return reports[0]
+        raise ValueError("Report not found: latest")
+    try:
+        wanted = uuid.UUID(raw)
+    except ValueError:
+        matches = [report for report in reports if str(report.id).casefold().startswith(raw.casefold())]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise ValueError(f"Ambiguous report reference: {raw}")
+        raise ValueError(f"Report not found: {raw}")
+    report = next((row for row in reports if row.id == wanted), None)
+    if not report:
+        raise ValueError(f"Report not found: {raw}")
+    return report
+
+
+@report_app.callback(invoke_without_command=True)
+def report_root(ctx: typer.Context, json_out: bool = typer.Option(False, "--json")) -> None:
+    """Alias legible para `conciencia report list`."""
+    if ctx.invoked_subcommand is None:
+        db = _make_session()
+        try:
+            _render_report_list(db, project=None, json_out=json_out)
+        finally:
+            db.close()
+
+
+@report_app.command("list")
+def report_list(project: Optional[str] = typer.Option(None, "--project"), json_out: bool = typer.Option(False, "--json")):
+    """Lista reportes persistidos como deliverables."""
+    db = _make_session()
+    try:
+        _render_report_list(db, project=project, json_out=json_out)
+    finally:
+        db.close()
+
+
+@report_app.command("create")
+def report_create(
+    from_work: bool = typer.Option(True, "--from-work/--no-from-work", help="Construye el report desde el work summary"),
+    since: Optional[str] = typer.Option(None, "--since"),
+    until: Optional[str] = typer.Option(None, "--until"),
+    project: Optional[str] = typer.Option(None, "--project"),
+    title: Optional[str] = typer.Option(None, "--title"),
+    format: str = typer.Option("markdown", "--format"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Crea un reporte persistente desde el work summary."""
+    from pathlib import Path
+
+    from app.models.deliverable import Deliverable, DeliverableStatus, DeliverableType
+    from app.services.work_service import summarize_work, summarize_work_text
+
+    db = _make_session()
+    try:
+        if not from_work:
+            console.print("report create actualmente soporta solo --from-work.", style="yellow")
+            raise typer.Exit(1)
+        # An explicit project creates a project report. No project means the
+        # whole workspace; never infer the current directory as a scope.
+        scope = _work_scope(db, project, cwd=os.getcwd()) if project else None
+        if project and not scope:
+            console.print(f"Project not found: {project}", style="red")
+            raise typer.Exit(1)
+        if scope is None:
+            from sqlalchemy import inspect as sqlalchemy_inspect
+            columns = {column["name"]: column for column in sqlalchemy_inspect(db.get_bind()).get_columns("deliverables")}
+            if columns.get("project_id", {}).get("nullable") is False:
+                console.print("Workspace reports require the workspace-reports database migration. Run: alembic upgrade heads", style="red")
+                raise typer.Exit(1)
+        from app.services import report_renderer
+        from app.services.report_service import build_professional_report, to_external_payload
+
+        professional = build_professional_report(
+            db, project_id=scope, since=since, until=until, cwd=os.getcwd(), title=title,
+        )
+        report_dir = Path(".conciencia") / "reports"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        db_report = Deliverable(
+            project_id=scope,
+            title=professional["title"],
+            description=report_renderer.render_markdown(professional),
+            type=DeliverableType.REPORT,
+            status=DeliverableStatus.FINAL,
+            external_id=f"professional-work:{professional['period_from']}:{professional['period_to']}",
+        )
+        db.add(db_report)
+        db.commit()
+        db.refresh(db_report)
+        canonical_path = report_dir / f"{db_report.id}.json"
+        canonical_path.write_text(report_renderer.render_json(professional), encoding="utf-8")
+        db_report.url = str(canonical_path)
+        db.commit()
+        export_path = _export_professional_report(professional, str(db_report.id), report_dir, format)
+        payload = {"report": _deliverable_payload(db_report), "professional_report": professional, "external_payload": to_external_payload(professional), "canonical_path": str(canonical_path), "export_path": str(export_path)}
+        if json_out:
+            _json(payload)
+        else:
+            console.print(f"Report created: {professional['title']}")
+            console.print(f"Canonical: {canonical_path}")
+            console.print(f"Export: {export_path}")
+        return
+
+        summary = summarize_work(db, since=since, until=until, project_id=scope, cwd=os.getcwd())
+        report_title = title or f"Work summary {summary.get('period', {}).get('since') or 'workspace'}"
+        payload_text = summarize_work_text(summary)
+        report_dir = Path(".conciencia") / "reports"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        db_report = Deliverable(
+            project_id=scope,
+            title=report_title,
+            description=payload_text,
+            type=DeliverableType.REPORT,
+            status=DeliverableStatus.FINAL,
+            url=str(report_dir / "latest.md"),
+            external_id=f"work:{datetime.now(timezone.utc).isoformat()}",
+        )
+        db.add(db_report)
+        db.commit()
+        db.refresh(db_report)
+        report_path = report_dir / f"{db_report.id}.md"
+        if format == "json":
+            report_path = report_dir / f"{db_report.id}.json"
+            report_path.write_text(json.dumps({"report": _deliverable_payload(db_report), "summary": summary}, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        else:
+            report_path.write_text(payload_text, encoding="utf-8")
+        db_report.url = str(report_path)
+        db.commit()
+        if json_out:
+            _json({"report": _deliverable_payload(db_report), "summary": summary, "path": str(report_path)})
+            return
+        console.print(f"✓ Report created: {db_report.title}")
+        console.print(f"  ID: {db_report.id}")
+        console.print(f"  Path: {report_path}")
+        console.print("  Next:")
+        console.print(f"    conciencia report inspect {db_report.id}")
+    finally:
+        db.close()
+
+
+@report_app.command("today")
+def report_today(
+    project: Optional[str] = typer.Option(None, "--project"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Create a report from today's recorded work."""
+    report_create(since="today", until=None, project=project, title=None, format="markdown", json_out=json_out)
+
+
+@report_app.command("week")
+def report_week(
+    project: Optional[str] = typer.Option(None, "--project"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Create a report from the last seven days of recorded work."""
+    report_create(since=(datetime.now(timezone.utc).date() - timedelta(days=7)).isoformat(), until=None, project=project, title=None, format="markdown", json_out=json_out)
+
+
+@report_app.command("export")
+def report_export(
+    report_ref: str = typer.Argument("latest", help="latest, UUID, or unique UUID prefix"),
+    format: str = typer.Option("txt", "--format"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Export a canonical professional report without overwriting files."""
+    db = _make_session()
+    try:
+        try:
+            report = resolve_report_ref(db, report_ref)
+        except ValueError as exc:
+            console.print(str(exc), style="red")
+            raise typer.Exit(1)
+        if not report.url:
+            console.print(f"Report not found: {report_ref}", style="red")
+            raise typer.Exit(1)
+        canonical_path = Path(report.url)
+        if not canonical_path.is_file():
+            console.print("Latest report has no canonical professional representation. Create a new report first.", style="yellow")
+            raise typer.Exit(1)
+        try:
+            professional = json.loads(canonical_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            console.print("Latest report is not a canonical professional report. Create a new report first.", style="yellow")
+            raise typer.Exit(1)
+        path = _export_professional_report(professional, str(report.id), canonical_path.parent, format)
+        payload = {"title": professional["title"], "format": format, "path": str(path)}
+        if json_out:
+            _json(payload)
+        else:
+            console.print(f"Export created: {path}")
+    finally:
+        db.close()
+
+
+@report_app.command("inspect")
+def report_inspect(
+    report_id: str = typer.Argument(..., help="latest, UUID, or unique UUID prefix"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Inspecta un reporte persistido."""
+    db = _make_session()
+    try:
+        try:
+            report = resolve_report_ref(db, report_id)
+        except ValueError as exc:
+            console.print(str(exc), style="red")
+            raise typer.Exit(1)
+        payload = {
+            "id": str(report.id),
+            "project_id": str(report.project_id) if report.project_id else None,
+            "title": report.title,
+            "description": report.description,
+            "status": getattr(report.status, "value", str(report.status)),
+            "url": report.url,
+            "external_id": report.external_id,
+            "created_at": report.created_at.isoformat() if report.created_at else None,
+        }
+        if json_out:
+            _json(payload)
+            return
+        table = Table(title=f"Report: {report.title}")
+        table.add_column("Campo", style="cyan")
+        table.add_column("Valor")
+        for key in ("id", "project_id", "status", "url", "external_id", "created_at"):
+            table.add_row(key, str(payload.get(key) or "-"))
+        console.print(table)
+        if report.description:
+            console.print("\n" + report.description)
     finally:
         db.close()
 
@@ -595,6 +1583,16 @@ def hunt(
         db.close()
 
 
+@config_app.callback(invoke_without_command=True)
+def config_root(
+    ctx: typer.Context,
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Default seguro para `conciencia config`: muestra settings redacted."""
+    if ctx.invoked_subcommand is None:
+        config_get(key=None, json_out=json_out)
+
+
 @config_app.command("get")
 def config_get(
     key: Optional[str] = typer.Argument(None, help="Clave corta (search.country) — vacío lista todas"),
@@ -643,7 +1641,7 @@ def config_set(key: str = typer.Argument(...), value: str = typer.Argument(...))
             db.add(Setting(key=real, value=value))
         db.commit()
         os.environ[real] = value
-        console.print(f"✅ {key} ({real}) = {value}", style="green")
+        console.print(f"✅ {key} ({real}) = {_mask_secret(real, value)}", style="green")
     finally:
         db.close()
 
@@ -756,6 +1754,19 @@ def platform_map():
 # Missions (Fase B del master prompt: Mission = unidad central de trabajo)
 # ---------------------------------------------------------------------------
 
+@mission_app.callback(invoke_without_command=True)
+def mission_root(
+    ctx: typer.Context,
+    status: Optional[str] = typer.Option(None, "--status"),
+    type: Optional[str] = typer.Option(None, "--type"),
+    limit: int = typer.Option(20, "--limit", "-n", min=1, max=100),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Default seguro para `conciencia mission`: lista misiones recientes."""
+    if ctx.invoked_subcommand is None:
+        mission_list(status=status, type=type, limit=limit, json_out=json_out)
+
+
 @mission_app.command("create")
 def mission_create(
     name: str = typer.Argument(..., help="Nombre de la misión"),
@@ -814,7 +1825,7 @@ def mission_list(
         for col in ("ID", "Nombre", "Tipo", "Status", "Runtime"):
             table.add_column(col, style="cyan" if col == "Nombre" else None)
         for m in missions:
-            table.add_row(str(m.id)[:8], m.name, m.type, m.status, m.runtime)
+            table.add_row(_mission_ref(m), m.name, m.type, m.status, m.runtime)
         console.print(table)
     finally:
         db.close()
@@ -1041,6 +2052,130 @@ def run_logs(
         db.close()
 
 
+def _render_command_rows(rows: list[dict], title: str = "Commands") -> None:
+    if not rows:
+        return
+    table = Table(title=title)
+    for col in ("Command", "Category", "Description"):
+        table.add_column(col, style="cyan" if col == "Command" else None)
+    for row in rows:
+        table.add_row(row["command"], row["category"], row["description"][:70])
+    console.print(table)
+
+
+def _navigator_search(db, query: str, limit: int = 8) -> dict:
+    from app.services.command_registry import search_commands
+    from app.services.workspace_semantic import retrieve_workspace
+
+    workspace = retrieve_workspace(db, query=query, cwd=os.getcwd(), limit=limit)
+    return {
+        "query": query,
+        "commands": search_commands(query),
+        "retrieval": workspace["retrieval"],
+        "embedding_backend": workspace["embedding_backend"],
+        "items": workspace["items"],
+    }
+
+
+def _shell_agent_boundary(raw: str) -> dict:
+    body = raw[1:].strip()
+    if not body:
+        return {
+            "route": "agent_boundary",
+            "status": "needs_input",
+            "message": "Use @runtime task, for example: @codex inspect frontend",
+        }
+    parts = body.split(maxsplit=1)
+    runtime = parts[0].lower()
+    task = parts[1] if len(parts) > 1 else ""
+    return {
+        "route": "agent_boundary",
+        "runtime": runtime,
+        "task": task,
+        "status": "proposed",
+        "message": (
+            "Agent routing is prepared through canonical mission/runtime services; "
+            "no direct shell execution was started."
+        ),
+        "next": f'conciencia ask "{task}" --yes' if task else "conciencia runtime",
+    }
+
+
+@app.command("actions")
+def actions_cmd(
+    query: Optional[str] = typer.Argument(None, help="Filtro opcional"),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Lista acciones conocidas para CLI, shell y futura Web CLI."""
+    from app.services.command_registry import list_commands, search_commands
+
+    rows = search_commands(query) if query else list_commands()
+    if json_out:
+        _json(rows)
+        return
+    _render_command_rows(rows)
+
+
+@app.command("nav")
+def nav_cmd(
+    query: str = typer.Argument(..., help="Buscar en workspace y comandos"),
+    limit: int = typer.Option(8, "--limit", "-n", min=1, max=30),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Navegador deterministico del workspace."""
+    db = _make_session()
+    try:
+        result = _navigator_search(db, query, limit=limit)
+        if json_out:
+            _json(result)
+            return
+        _render_command_rows(result["commands"], title=f'Command matches: "{query}"')
+        console.print(f'Workspace retrieval ({result["retrieval"]})')
+        if result["embedding_backend"] == "lexical":
+            console.print("Embeddings unavailable; using lexical retrieval.", style="yellow")
+        if result["items"]:
+            _render_work_rows(result["items"], title="Workspace matches")
+        else:
+            console.print("Sin coincidencias relevantes.", style="yellow")
+    finally:
+        db.close()
+
+
+@app.command("shell")
+def shell_cmd(json_out: bool = typer.Option(False, "--json")):
+    """Shell liviano: / busca, > pregunta, @ prepara runtime, ! muestra atencion."""
+    if not sys.stdin.isatty():
+        console.print("conciencia shell requiere TTY interactiva. Usa nav/ask/approvals para scripts.", style="yellow")
+        raise typer.Exit(1)
+    console.print("CONCIENCIA")
+    console.print("/ search  > ask  @ runtime  ! attention  ? help  q quit")
+    while True:
+        raw = typer.prompt("conciencia").strip()
+        if raw in {"q", "quit", "exit"}:
+            return
+        if raw in {"?", "help"}:
+            actions_cmd(query=None, json_out=json_out)
+            continue
+        if raw.startswith("/"):
+            nav_cmd(query=raw[1:].strip(), json_out=json_out)
+            continue
+        if raw.startswith(">"):
+            ask_cmd(text=raw[1:].strip(), json_out=json_out)
+            continue
+        if raw.startswith("!"):
+            approvals_list(json_out=json_out)
+            continue
+        if raw.startswith("@"):
+            payload = _shell_agent_boundary(raw)
+            if json_out:
+                _json(payload)
+            else:
+                console.print(payload["message"])
+                console.print(f"Next: {payload['next']}")
+            continue
+        console.print("Unknown input. Type ? for commands.", style="yellow")
+
+
 @app.command("ask")
 def ask_cmd(
     text: Optional[str] = typer.Argument(None, help="Texto natural: qué querés lograr"),
@@ -1056,6 +2191,96 @@ def ask_cmd(
             text = typer.prompt("Qué querés lograr").strip()
         if not text:
             raise ValueError("El objetivo no puede estar vacío")
+        route = ask_service.route_request(text)
+        if route["route"] in {"status_query", "recommendation_query", "runtime_query"}:
+            from app.services.workspace_service import workspace_home
+
+            home = workspace_home(db, cwd=os.getcwd())
+            if route["route"] == "status_query":
+                payload = {"route": route, "current": home["current"], "active_work": home["active_work"], "recent_work": home["recent_work"]}
+                lines = [f"Current: {home['current']['name']}"] + [f"{row['status']}: {row['name']}" for row in home["active_work"][:5]]
+            elif route["route"] == "recommendation_query":
+                payload = {"route": route, "recommendations": home["recommendations"]}
+                lines = [f"{row['severity']}: {row['reason']} -> {row['command']}" for row in home["recommendations"]]
+            else:
+                payload = {"route": route, "workforce": home["workforce"]}
+                lines = [_workforce_line(row) for row in home["workforce"]]
+            if json_out:
+                _json(payload)
+            else:
+                console.print("\n".join(lines or ["No operational items found."]))
+            return
+        if route["route"] == "report_request":
+            command = "conciencia report create --since today"
+            payload = {"route": route, "action": "report_proposal", "command": command, "mutates": True}
+            if json_out:
+                _json(payload)
+            else:
+                console.print("Report proposal: summarize today's work before creating a persisted report.")
+                console.print(f"Next: {command}")
+            return
+        if route["route"] == "external_action_request":
+            from app.services.connection_service import inspect_connection
+
+            linteam = inspect_connection(db, "linteam")
+            payload = {"route": route, "connection": linteam, "state": "blocked", "reason": "LINTEAM connection not configured.", "mutates": False}
+            if json_out:
+                _json(payload)
+            else:
+                console.print("Blocked: LINTEAM connection not configured.", style="yellow")
+                console.print("No external action was created.")
+            return
+        if route["route"] in {"workspace_summary", "workspace_query"}:
+            from app.services import work_service
+            from app.services.workspace_semantic import retrieve_workspace
+
+            since_value = _extract_since_from_text(text)
+            if route["route"] == "workspace_summary" and not since_value:
+                since_value = (datetime.now(timezone.utc).date() - timedelta(days=30)).isoformat()
+            # Questions about past work search the workspace by default, so
+            # unscoped historical evidence remains visible.
+            scope = None
+            if route["route"] == "workspace_query":
+                result = retrieve_workspace(
+                    db,
+                    query=text,
+                    since=since_value,
+                    project_id=scope,
+                    cwd=os.getcwd(),
+                    limit=12,
+                )
+                items = result["items"]
+                if json_out:
+                    _json({"route": route, "retrieval": result["retrieval"], "embedding_backend": result["embedding_backend"], "items": items})
+                else:
+                    console.print(f'Workspace retrieval ({result["retrieval"]}) · {route["reason"]}')
+                    if not items:
+                        console.print("Sin coincidencias relevantes.", style="yellow")
+                    else:
+                        _render_work_rows(items, title="Workspace retrieval")
+                return
+
+            summary = work_service.summarize_work(
+                db,
+                since=since_value,
+                project_id=scope,
+                cwd=os.getcwd(),
+            )
+            items = work_service.collect_work_items(
+                db,
+                since=since_value,
+                project_id=scope,
+                cwd=os.getcwd(),
+            )[:12]
+            if json_out:
+                _json({"route": route, "summary": summary, "items": [row.to_dict() for row in items]})
+            else:
+                console.print(f'Workspace summary · {route["reason"]}')
+                console.print(work_service.summarize_work_text(summary))
+                if items:
+                    console.print("")
+                    _render_work_rows([row.to_dict() for row in items], title="Evidence trail")
+            return
         proposal = ask_service.build_proposal(db, text)
         if json_out:
             _json(proposal)
@@ -1116,41 +2341,60 @@ def approvals_list(json_out: bool = typer.Option(False, "--json")):
     """Lista misiones esperando aprobación."""
     db = _make_session()
     try:
-        missions = mission_service.list_missions(db, status="waiting_approval")
+        rows = _all_pending_approvals(db)
         if json_out:
-            _json([m.to_dict() for m in missions])
+            _json(rows)
             return
-        if not missions:
-            console.print("Sin aprobaciones pendientes.", style="green")
-            return
-        table = Table(title="Aprobaciones pendientes")
-        for col in ("Mission ID", "Nombre", "Tipo", "Workflow"):
-            table.add_column(col, style="cyan")
-        for m in missions:
-            table.add_row(str(m.id), m.name, m.type, m.workflow_id or "-")
-        console.print(table)
-        console.print("\nPara aprobar: conciencia approve <mission_id> <step_index> [--reject]")
+        _render_approval_rows(rows)
     finally:
         db.close()
 
 
 @app.command("approve")
 def approve(
-    mission_id: str = typer.Argument(..., help="ID de la misión (UUID o corto M-6998bc52)"),
-    step_index: int = typer.Argument(..., help="Índice del step a aprobar"),
+    mission_id: str = typer.Argument(..., help="ID de la mision (UUID o corto M-6998bc52)"),
+    step_index: Optional[int] = typer.Argument(None, help="Indice del step a aprobar; opcional si hay uno solo pendiente"),
     reject: bool = typer.Option(False, "--reject", help="Rechazar en vez de aprobar"),
 ):
-    """Aprueba (o rechaza) el step de aprobación de una misión."""
+    """Aprueba o rechaza el step de aprobacion de una mision."""
     db = _make_session()
     try:
         mid = _resolve_uuid(db, mission_id, "mission")
+        mission = db.query(Mission).filter(Mission.id == uuid.UUID(mid)).first()
+        if not mission:
+            console.print(f"Mision no encontrada: {mission_id}. Proba: conciencia mission", style="red")
+            raise typer.Exit(1)
+        pending = _pending_approval_steps(db, mission)
+        if step_index is None:
+            if len(pending) == 1:
+                step_index = int(pending[0]["step_index"])
+                console.print("Mission")
+                console.print(mission.name)
+                console.print("")
+                console.print("Approval")
+                console.print(f"Step {step_index} - {pending[0]['step_name']}")
+                if reject:
+                    console.print("Rejecting explicit --reject request.")
+                elif sys.stdin.isatty() and not typer.confirm("Approve?", default=True):
+                    console.print("Cancelado.", style="yellow")
+                    raise typer.Exit(0)
+            elif pending:
+                console.print(f"Esta mision tiene {len(pending)} approvals pendientes:", style="yellow")
+                _render_approval_rows(pending)
+                console.print(f"Run: conciencia approve {_mission_ref(mission)} {pending[0]['step_index']}")
+                raise typer.Exit(1)
+            else:
+                console.print("Esta mision no tiene approvals pendientes.", style="yellow")
+                console.print("Run: conciencia approvals")
+                raise typer.Exit(1)
         run = mission_service.approve_mission_step(db, mid, step_index, approved=not reject)
-        console.print(f"{'❌ Rechazado' if reject else '✅ Aprobado'} step {step_index} de misión {_short_id('mission', mid)}")
+        action = "Rechazado" if reject else "Aprobado"
+        console.print(f"{action} step {step_index} de mision {_short_id('mission', mid)}")
         console.print(f"   Run status: {run.status}")
         if run.status == "waiting_approval":
-            console.print("   ⏳ Siguiente step esperando aprobación")
+            console.print("   Siguiente step esperando aprobacion")
         elif run.status == "completed":
-            console.print("   🎉 Misión completada")
+            console.print("   Mision completada")
     except ValueError as e:
         console.print(f"Error: {e}", style="red")
         raise typer.Exit(1)
@@ -1260,7 +2504,6 @@ def init_cmd(
     json_out: bool = typer.Option(False, "--json"),
 ):
     """Detecta contexto del proyecto (git, stack, CI) y crea .conciencia/."""
-    import subprocess
     from pathlib import Path
 
     root = Path(dir).resolve()
@@ -1268,34 +2511,7 @@ def init_cmd(
         console.print(f"Directorio no encontrado: {root}", style="red")
         raise typer.Exit(1)
 
-    info = {"path": str(root), "git": False, "branch": None, "remotes": [], "stack": [], "detected": []}
-
-    # git
-    if (root / ".git").exists():
-        info["git"] = True
-        try:
-            branch = subprocess.run(["git", "-C", str(root), "branch", "--show-current"], capture_output=True, text=True, timeout=10)
-            info["branch"] = branch.stdout.strip() or None
-            rem = subprocess.run(["git", "-C", str(root), "remote", "-v"], capture_output=True, text=True, timeout=10)
-            info["remotes"] = [l.split()[1] for l in rem.stdout.splitlines() if l.split()]
-        except Exception:
-            pass
-
-    # stack markers
-    markers = {
-        "Python": ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
-        "Node.js": ["package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"],
-        "FastAPI": ["app/main.py"],
-        "React": ["frontend/package.json", "vite.config.ts", "vite.config.js"],
-        "Docker": ["Dockerfile", "docker-compose.yml", "compose.yaml"],
-        "PostgreSQL": ["docker-compose.yml", "docker-compose.dev.yml"],
-        "CI": [".github/workflows", ".gitlab-ci.yml"],
-        "Tests": ["tests/", "pytest.ini", "pyproject.toml"],
-    }
-    for name, files in markers.items():
-        if any((root / f).exists() for f in files):
-            info["stack"].append(name)
-            info["detected"].append(f"{name}: {', '.join(f for f in files if (root / f).exists())}")
+    info = _detect_project_context(str(root))
 
     # crear .conciencia/
     conf_dir = root / ".conciencia"
@@ -1358,6 +2574,10 @@ def doctor_cmd(json_out: bool = typer.Option(False, "--json")):
         "ready": False,
         "runtimes": [],
     }
+    semantic = {"enabled": False, "backend": "memory", "model": "-", "simulated": True, "indexed": 0, "state": "disabled", "reason": "DB no disponible"}
+    if db:
+        from app.services.workspace_semantic import workspace_semantic_status
+        semantic = workspace_semantic_status(db)
     core_ready = all(item["state"] == "ready" for item in core)
     overall = execution["overall"] if core_ready else "BLOCKED"
     optional = {
@@ -1370,6 +2590,7 @@ def doctor_cmd(json_out: bool = typer.Option(False, "--json")):
         "overall": overall,
         "core": core,
         "execution": execution,
+        "workspace_semantic": semantic,
         "optional": optional,
     }
 
@@ -1398,6 +2619,12 @@ def doctor_cmd(json_out: bool = typer.Option(False, "--json")):
             runtime["reason"],
         )
     console.print(runtime_table)
+    semantic_table = Table(title="Workspace semantic")
+    semantic_table.add_column("Key", style="cyan")
+    semantic_table.add_column("Value")
+    for key in ("state", "backend", "model", "indexed", "reason"):
+        semantic_table.add_row(key, str(semantic.get(key) or "-"))
+    console.print(semantic_table)
     console.print(f"\nOverall: [bold]{overall}[/bold]")
     if db:
         db.close()
@@ -1443,7 +2670,17 @@ def tool_list(json_out: bool = typer.Option(False, "--json")):
         db.close()
 
 
-@app.command("runtime")
+@runtime_app.callback(invoke_without_command=True)
+def runtime_root(
+    ctx: typer.Context,
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Alias legible para `conciencia runtime list`."""
+    if ctx.invoked_subcommand is None:
+        runtime_list(json_out=json_out)
+
+
+@runtime_app.command("list")
 def runtime_list(json_out: bool = typer.Option(False, "--json")):
     """Lista runtimes registrados + salud de cada binario."""
     db = _make_session()
@@ -1472,7 +2709,8 @@ def runtime_list(json_out: bool = typer.Option(False, "--json")):
         db.close()
 
 
-@app.command("runtime-inspect")
+@runtime_app.command("inspect")
+@app.command("runtime-inspect", hidden=True)
 def runtime_inspect_cmd(
     runtime_name: str = typer.Argument(..., help="Nombre del runtime: generic|claude_code|codex|opencode|openclaw"),
     json_out: bool = typer.Option(False, "--json"),
@@ -1503,7 +2741,8 @@ def runtime_inspect_cmd(
         db.close()
 
 
-@app.command("runtime-doctor")
+@runtime_app.command("doctor")
+@app.command("runtime-doctor", hidden=True)
 def runtime_doctor_cmd(json_out: bool = typer.Option(False, "--json")):
     """Descubre runtimes instalados (PATH, PowerShell, Git Bash, WSL) y su salud (§15)."""
     db = _make_session()
@@ -2477,6 +3716,36 @@ def context_assemble(
             console.print(f"  • {p['title']} (score {p['score']})")
         console.print("\n--- contexto ---")
         console.print(result["context"][:2000])
+    finally:
+        db.close()
+
+
+@context_app.command("from-work")
+def context_from_work(
+    query: str = typer.Argument(..., help="Objetivo para recuperar historial del workspace"),
+    project: Optional[str] = typer.Option(None, "--project", "-p"),
+    since: Optional[str] = typer.Option(None, "--since"),
+    until: Optional[str] = typer.Option(None, "--until"),
+    top_k: int = typer.Option(6, "--top-k", min=1, max=20),
+    max_chars: int = typer.Option(6000, "--max-chars", min=200, max=100_000),
+    json_out: bool = typer.Option(False, "--json"),
+):
+    """Crea un ContextPack acotado desde la retrieval canÃ³nica de Work."""
+    from app.services.workspace_context import create_workspace_context_pack
+
+    db = _make_session()
+    try:
+        scope = _work_scope(db, project, cwd=os.getcwd())
+        result = create_workspace_context_pack(
+            db, query=query, project_id=scope, since=since, until=until,
+            top_k=top_k, max_chars=max_chars, cwd=os.getcwd(),
+        )
+        if json_out:
+            _json(result)
+            return
+        console.print(f"ContextPack created: {result['pack']['id']}")
+        console.print(f"  {result['item_count']} item(s) / {result['approximate_chars']} chars")
+        console.print(f"  Retrieval: {result['retrieval_mode']} / {result['embedding_backend']}")
     finally:
         db.close()
 

@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/v1/webmcp", tags=["webmcp"], dependencies=[Depen
 
 class WebMCPRun(BaseModel):
     url: str = Field(..., description="Base URL de la app WebMCP-enabled")
-    actions: List[Dict[str, Any]] = Field(..., min_length=1)
+    actions: List[Dict[str, Any]] = Field(..., min_items=1)
 
 
 @router.post("/run")
