@@ -145,7 +145,7 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Sidebar */}
       <div
-        className={`fixed inset-y-0 left-0 w-64 bg-bg-900 border-r border-bg-700 z-40 transform transition-transform duration-200 md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 w-64 bg-bg-900 border-r border-bg-700 z-40 transform transition-transform duration-200 md:translate-x-0 flex flex-col ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -155,7 +155,7 @@ export default function Layout({ children }: LayoutProps) {
           <span className="text-lg font-bold text-primary-400 tracking-wider">◉ CONCIENCIA PLATFORM</span>
         </div>
 
-        <nav className="p-4 space-y-4">
+        <nav className="flex-1 overflow-y-auto p-4 space-y-4">
           {visibleNav.map((group) => (
             <div key={group.section}>
               <p className="px-4 mb-1 text-[10px] font-semibold tracking-[0.2em] text-gray-700">

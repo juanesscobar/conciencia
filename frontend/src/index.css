@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400..700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -119,4 +120,37 @@ input, textarea, select {
 
 .hack-card {
   @apply bg-bg-900 border border-bg-700 rounded-lg shadow;
+}
+
+/* ============================================================
+   Design tokens del rediseño (2026-09-13) — aditivos.
+   Lenguaje: azul profundo + violeta + cyan · Geist (títulos) + JetBrains Mono (UI).
+   Se aplican por pantalla; el resto del app conserva su tema actual.
+   ============================================================ */
+
+:root {
+  --cd-bg-deep: #080a12;
+  --cd-bg: #0b0e19;
+  --cd-surface: #101426;
+  --cd-surface-raised: #171b33;
+  --cd-border-subtle: #242944;
+  --cd-border-strong: #3d456d;
+  --cd-text-primary: #c9d1ff;
+  --cd-text-secondary: #969fc7;
+  --cd-text-muted: #697398;
+  --cd-brand-violet: #7c6cff;
+  --cd-brand-violet-hover: #9689ff;
+  --cd-signal-cyan: #66d9e8;
+  --cd-success: #71d6a0;
+  --cd-warning: #e3b866;
+  --cd-danger: #ed7182;
+  --cd-font-sans: "Geist", system-ui, sans-serif;
+  --cd-font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --cd-radius: 4px;
+  --cd-dur-fast: 150ms;
+}
+
+.cd-focus:focus-visible {
+  outline: 2px solid var(--cd-brand-violet);
+  outline-offset: 2px;
 }

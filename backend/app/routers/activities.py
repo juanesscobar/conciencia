@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
+from app.routers.auth import get_current_user
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
 from app.models import Activity
 from app.schemas import Activity as ActivitySchema, ActivityCreate
 
-router = APIRouter(prefix="/api/v1/activities", tags=["activities"])
+router = APIRouter(prefix="/api/v1/activities", tags=["activities"], dependencies=[Depends(get_current_user)])
 
 @router.get("/", response_model=List[ActivitySchema])
 def get_activities(db: Session = Depends(get_db), skip: int = 0, limit: int = 100):

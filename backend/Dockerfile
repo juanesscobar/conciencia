@@ -12,6 +12,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Instala el paquete (entry point `conciencia`) para poder usar el CLI dentro del contenedor:
+#   docker exec mission-control-backend-1 conciencia status
+RUN pip install --no-cache-dir -e .
+
 RUN chmod +x entrypoint.sh
 
 ENV PYTHONPATH=/app

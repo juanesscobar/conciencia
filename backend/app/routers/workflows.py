@@ -23,6 +23,16 @@ class StepDef(BaseModel):
     timeout: Optional[int] = None
     retries: int = 0
     max_cost: Optional[float] = None
+    # Fase F: bloque paralelo (fan-out/fan-in)
+    parallel: bool = False
+    steps: Optional[List[dict]] = None
+    max_parallel: Optional[int] = None
+    # Fase F: filtrar matching por runtime (ej: claude_code)
+    runtime: Optional[str] = None
+    # Fase G: harness versionado para este step (override del de la misión)
+    harness_id: Optional[str] = None
+    # Fase K: step WebMCP — interactúa con una app web WebMCP-enabled
+    webmcp: Optional[dict] = None
 
 
 class WorkflowCreate(BaseModel):
@@ -49,8 +59,9 @@ class RunResponse(BaseModel):
     workflow_id: str
     workflow_name: Optional[str] = None
     status: str
-    step_results: list
-    current_step: int
+    step_results: list = []
+    events: list = []
+    current_step: int = 0
     error: Optional[str] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
@@ -144,7 +155,11 @@ def approve_run(run_id: str, req: ApprovalRequest, db: Session = Depends(get_db)
     run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    run = approve_step(db, run, run.current_step, req.approved)
+    try:
+        # audit §12: approve_step valida que el run esté paused/waiting_approval
+        run = approve_step(db, run, run.current_step, req.approved)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return RunResponse(**run.to_dict())
 
 

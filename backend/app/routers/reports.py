@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from app.routers.auth import get_current_user
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
@@ -8,7 +9,7 @@ from app.integrations.github import github_client
 from uuid import UUID
 from datetime import datetime
 
-router = APIRouter(prefix="/api/v1", tags=["reports"])
+router = APIRouter(prefix="/api/v1", tags=["reports"], dependencies=[Depends(get_current_user)])
 
 
 # ============================================================

@@ -60,4 +60,6 @@ def test_me_endpoint(client, auth_headers):
 
 def test_me_without_token(client):
     res = client.get("/api/v1/auth/me")
+    # HTTPBearer(auto_error=True) responde 403 cuando el header falta por completo
+    # (401 solo cuando hay header pero el token es inválido) — verificado en el audit.
     assert res.status_code == 403

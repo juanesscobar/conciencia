@@ -69,6 +69,8 @@ export const agentsApi = {
   getActivity: (id: string) => api.get(`/api/v1/agents/${id}/activity`),
   getFiles: (id: string) => api.get(`/api/v1/agents/${id}/files`),
   run: (id: string, data: any) => api.post(`/api/v1/agents/${id}/run`, data),
+  runtimeConfigs: () => api.get('/api/v1/agents/runtimes/config'),
+  runtimeConfigsSave: (configs: any[]) => api.put('/api/v1/agents/runtimes/config', { configs }),
 }
 
 export const metricsApi = {
@@ -118,10 +120,27 @@ export const leadsApi = {
   stats: () => api.get('/api/v1/leads/stats'),
   enrich: (id: string) => api.post(`/api/v1/leads/${id}/enrich`),
   enrichWebsite: (id: string) => api.post(`/api/v1/leads/${id}/enrich-website`),
-  huntRun: (source?: string) => api.post('/api/v1/leads/hunt/run', null, { params: source ? { source } : {} }),
+  huntRun: (params?: any) => api.post('/api/v1/leads/hunt/run', null, { params }),
   huntSources: () => api.get('/api/v1/leads/hunt/sources'),
   huntRuns: () => api.get('/api/v1/leads/hunt/runs', { params: { limit: 5 } }),
+  geoScope: (params?: any) => api.get('/api/v1/leads/geo/scope', { params }),
+  searchInterpret: (text: string) => api.post('/api/v1/leads/search/interpret', { text }),
+  search: (query: any) => api.post('/api/v1/leads/search', query),
+  semanticSearch: (query: string, top_k = 20) => api.post('/api/v1/leads/search/semantic', { query, top_k }),
+  semanticStatus: () => api.get('/api/v1/leads/search/semantic/status'),
+  rankingWeights: () => api.get('/api/v1/leads/ranking/weights'),
+  rankingWeightsSave: (data: any) => api.put('/api/v1/leads/ranking/weights', data),
   regions: () => api.get('/api/v1/leads/regions'),
+  searches: () => api.get('/api/v1/leads/searches'),
+  searchSave: (data: any) => api.post('/api/v1/leads/searches', data),
+  searchDelete: (id: string) => api.delete(`/api/v1/leads/searches/${id}`),
+  lists: () => api.get('/api/v1/leads/lists'),
+  listCreate: (data: any) => api.post('/api/v1/leads/lists', data),
+  listDelete: (id: string) => api.delete(`/api/v1/leads/lists/${id}`),
+  listDetail: (id: string) => api.get(`/api/v1/leads/lists/${id}/leads`),
+  listAddLead: (id: string, leadId: string) => api.post(`/api/v1/leads/lists/${id}/leads`, { lead_id: leadId }),
+  listRemoveLead: (id: string, leadId: string) => api.delete(`/api/v1/leads/lists/${id}/leads/${leadId}`),
+  leadLists: (leadId: string) => api.get(`/api/v1/leads/${leadId}/lists`),
   importCsv: (file: File) => {
     const fd = new FormData()
     fd.append('file', file)

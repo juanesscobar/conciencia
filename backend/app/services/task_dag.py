@@ -19,6 +19,10 @@ def _get_task(db: Session, task_id: str) -> Optional[Task]:
 
 def add_dependency(db: Session, task_id: str, depends_on_id: str, kind: str = "finish_to_start") -> TaskDependency:
     """Crea un arco task_id → depends_on_id (task_id espera a depends_on_id)."""
+    # Normalizar a UUID real: las columnas son Uuid y SQLite exige objetos UUID
+    # (Postgres castea str automáticamente, por eso prod nunca falló).
+    task_id = _uuid(task_id)
+    depends_on_id = _uuid(depends_on_id)
     if task_id == depends_on_id:
         raise ValueError("Una tarea no puede depender de sí misma")
 
@@ -48,6 +52,8 @@ def add_dependency(db: Session, task_id: str, depends_on_id: str, kind: str = "f
 
 
 def remove_dependency(db: Session, task_id: str, depends_on_id: str) -> None:
+    task_id = _uuid(task_id)
+    depends_on_id = _uuid(depends_on_id)
     row = (
         db.query(TaskDependency)
         .filter(TaskDependency.task_id == task_id, TaskDependency.depends_on_id == depends_on_id)
@@ -64,6 +70,8 @@ def remove_dependency(db: Session, task_id: str, depends_on_id: str) -> None:
 
 def _would_create_cycle(db: Session, task_id: str, depends_on_id: str) -> bool:
     """DFS desde depends_on_id: si llegamos a task_id, hay ciclo."""
+    task_id = _uuid(task_id)
+    depends_on_id = _uuid(depends_on_id)
 
     def dfs(current: str, visited: set) -> bool:
         if current == task_id:
@@ -81,6 +89,7 @@ def _would_create_cycle(db: Session, task_id: str, depends_on_id: str) -> bool:
 
 def _dependency_status(db: Session, task_id: str) -> List[dict]:
     """Estado de las dependencias directas de una tarea."""
+    task_id = _uuid(task_id)
     rows = db.query(TaskDependency).filter(TaskDependency.task_id == task_id).all()
     out = []
     for row in rows:
@@ -128,6 +137,7 @@ def propagate(db: Session, changed_task_id: str) -> List[str]:
 
     Devuelve los ids de tareas actualizadas.
     """
+    changed_task_id = _uuid(changed_task_id)
     updated: List[str] = []
     dependents = db.query(TaskDependency).filter(TaskDependency.depends_on_id == changed_task_id).all()
     for row in dependents:
@@ -146,5 +156,6 @@ def propagate(db: Session, changed_task_id: str) -> List[str]:
 
 def task_dag(db: Session, task_id: str) -> dict:
     """Vista del DAG de una tarea: dependencias directas + transitivas (2 niveles)."""
+    task_id = _uuid(task_id)
     deps = _dependency_status(db, task_id)
     return {"task_id": task_id, "dependencies": deps, "blocked_by": blocked_dependencies(db, task_id)}

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 
 from .service import JobScoutService
-from .models import OpportunityStatus
+from .models import Opportunity, OpportunityStatus
 
 
 @shared_task

@@ -2,6 +2,11 @@ import { useState, FormEvent } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
+/**
+ * Login del Control Plane — lenguaje visual del rediseño (2026-09-13):
+ * azul profundo + violeta + cyan · Geist (títulos) + JetBrains Mono (UI).
+ * La lógica de autenticación es la misma que antes (login/register + redirect).
+ */
 export default function Login() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -35,98 +40,202 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-bg-950 scanlines flex items-center justify-center relative overflow-hidden">
-      {/* Líneas decorativas estilo grid hacker */}
-      <div className="absolute inset-0 opacity-20" style={{
-        backgroundImage: 'linear-gradient(rgba(0,255,65,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,65,0.1) 1px, transparent 1px)',
-        backgroundSize: '40px 40px'
-      }}></div>
+    <div
+      className="relative flex min-h-screen items-center justify-center overflow-hidden"
+      style={{
+        background:
+          'radial-gradient(900px 420px at 80% -10%, rgba(124,108,255,0.16), transparent 62%), radial-gradient(700px 380px at 5% 110%, rgba(102,217,232,0.10), transparent 60%), var(--cd-bg-deep)',
+        color: 'var(--cd-text-primary)',
+        fontFamily: 'var(--cd-font-mono)',
+      }}
+    >
+      <div
+        className="relative w-full max-w-md overflow-hidden border"
+        style={{
+          background: 'var(--cd-surface)',
+          borderColor: 'var(--cd-border-subtle)',
+          borderRadius: 'var(--cd-radius)',
+        }}
+      >
+        {/* barra superior (terminal) */}
+        <div
+          className="flex items-center gap-2 border-b px-3 py-2.5"
+          style={{ background: 'var(--cd-surface-raised)', borderColor: 'var(--cd-border-subtle)' }}
+        >
+          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: 'var(--cd-danger)' }} />
+          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: 'var(--cd-warning)' }} />
+          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: 'var(--cd-success)' }} />
+          <span className="ml-2 text-[11px]" style={{ color: 'var(--cd-text-muted)' }}>
+            auth://conciencia-platform
+          </span>
+          <span
+            className="ml-auto rounded-full border px-1.5 py-[1px] text-[10px]"
+            style={{ borderColor: 'var(--cd-border-subtle)', color: 'var(--cd-text-muted)' }}
+          >
+            control plane
+          </span>
+        </div>
 
-      <div className="relative max-w-md w-full bg-bg-900 border border-bg-700 rounded-xl shadow-neon p-8">
-        <div className="flex items-center justify-between px-4 py-2 bg-bg-950 border-b border-bg-700 rounded-t-lg -mt-8 -mx-8 mb-8">
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-alert-500 inline-block"></span>
-            <span className="w-3 h-3 rounded-full bg-yellow-500 inline-block"></span>
-            <span className="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
-            <span className="ml-3 text-xs text-gray-600">auth://conciencia-platform</span>
+        <div className="p-6">
+          {/* identidad */}
+          <div className="mb-6">
+            <p
+              className="text-[11px] uppercase tracking-[0.14em]"
+              style={{ color: 'var(--cd-text-muted)' }}
+            >
+              {isRegister ? 'registro de operador' : 'acceso al control plane'}
+            </p>
+            <h1
+              className="mt-2 text-2xl font-semibold"
+              style={{ fontFamily: 'var(--cd-font-sans)', color: 'var(--cd-text-primary)' }}
+            >
+              conciencia<span style={{ color: 'var(--cd-brand-violet)' }}>.</span>
+            </h1>
+            <p className="mt-1 text-[12.5px]" style={{ color: 'var(--cd-text-secondary)' }}>
+              Control para el trabajo autónomo.
+            </p>
           </div>
-        </div>
 
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-primary-400 tracking-widest">◉ CONCIENCIA PLATFORM</h1>
-          <p className="text-gray-600 mt-2 text-sm">&gt; software_factory_governance.sh</p>
-          <p className="text-primary-500/70 mt-1 text-xs">$ {isRegister ? 'register --new-operator' : 'login --operator'}</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {isRegister && (
-            <div>
-              <label className="block text-sm font-medium text-primary-400 mb-1">$ email</label>
-              <input
+          <form onSubmit={handleSubmit} className="space-y-3.5">
+            {isRegister && (
+              <Field
+                id="email"
+                label="email"
                 type="email"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
-                className="hack-input"
+                onChange={setEmail}
                 placeholder="you@example.com"
-                required
+                autoComplete="email"
               />
-            </div>
-          )}
+            )}
 
-          <div>
-            <label className="block text-sm font-medium text-primary-400 mb-1">$ username</label>
-            <input
+            <Field
+              id="username"
+              label="username"
               type="text"
               value={username}
-              onChange={e => setUsername(e.target.value)}
-              className="hack-input"
+              onChange={setUsername}
               placeholder="operator"
-              required
               autoComplete="username"
             />
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium text-primary-400 mb-1">$ password</label>
-            <input
+            <Field
+              id="password"
+              label="password"
               type="password"
               value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="hack-input"
+              onChange={setPassword}
               placeholder="••••••••"
-              required
               autoComplete="current-password"
             />
+
+            {error && (
+              <div
+                role="alert"
+                className="border px-3 py-2 text-[12.5px]"
+                style={{
+                  background: 'rgba(237,113,130,0.08)',
+                  borderColor: 'rgba(237,113,130,0.35)',
+                  borderRadius: 'var(--cd-radius)',
+                  color: 'var(--cd-danger)',
+                }}
+              >
+                <span aria-hidden="true">✗ </span>
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="cd-focus w-full border px-4 py-2.5 text-[13px] font-semibold uppercase tracking-[0.08em] transition-colors duration-150 disabled:opacity-50"
+              style={{
+                background: 'var(--cd-brand-violet)',
+                borderColor: 'var(--cd-brand-violet)',
+                borderRadius: 'var(--cd-radius)',
+                color: 'var(--cd-bg-deep)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--cd-brand-violet-hover)'
+                e.currentTarget.style.borderColor = 'var(--cd-brand-violet-hover)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'var(--cd-brand-violet)'
+                e.currentTarget.style.borderColor = 'var(--cd-brand-violet)'
+              }}
+            >
+              {loading ? 'autenticando…' : isRegister ? 'crear operador' : 'entrar'}
+            </button>
+          </form>
+
+          <div className="mt-5 text-center">
+            <button
+              type="button"
+              onClick={() => setIsRegister(!isRegister)}
+              className="cd-focus text-[12px]"
+              style={{ color: 'var(--cd-text-muted)' }}
+            >
+              {isRegister ? '< volver al login' : '// sin cuenta? registrar operador'}
+            </button>
           </div>
-
-          {error && (
-            <div className="bg-alert-500/10 border border-alert-500/40 text-alert-400 px-4 py-2 rounded-lg text-sm">
-              <span className="text-alert-500">✗</span> {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full px-4 py-2 bg-primary-600/90 text-bg-950 font-bold rounded-lg hover:bg-primary-500 hover:shadow-neon disabled:opacity-50 transition-all"
-          >
-            {loading ? 'AUTHENTICATING...' : isRegister ? '[ REGISTER ]' : '[ LOGIN ]'}
-          </button>
-        </form>
-
-        <div className="mt-6 text-center">
-          <button
-            onClick={() => setIsRegister(!isRegister)}
-            className="text-xs text-gray-600 hover:text-primary-400 transition-colors"
-          >
-            {isRegister ? '< back to login' : '// no account? register operator'}
-          </button>
         </div>
 
-        <div className="mt-6 pt-4 border-t border-bg-800 text-center">
-          <p className="text-xs text-gray-700 font-mono">Conciencia Platform v2.0 - agent orchestration engine</p>
+        <div
+          className="border-t px-6 py-3 text-center"
+          style={{ borderColor: 'var(--cd-border-subtle)' }}
+        >
+          <p className="text-[11px]" style={{ color: 'var(--cd-text-muted)' }}>
+            Conciencia Platform · agent orchestration engine
+          </p>
         </div>
       </div>
+    </div>
+  )
+}
+
+function Field({
+  id,
+  label,
+  type,
+  value,
+  onChange,
+  placeholder,
+  autoComplete,
+}: {
+  id: string
+  label: string
+  type: string
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+  autoComplete: string
+}) {
+  return (
+    <div>
+      <label
+        htmlFor={id}
+        className="mb-1 block text-[11px] uppercase tracking-[0.12em]"
+        style={{ color: 'var(--cd-text-muted)' }}
+      >
+        {label}
+      </label>
+      <input
+        id={id}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        required
+        className="cd-focus w-full border px-3 py-2 text-[13.5px] outline-none transition-colors duration-150"
+        style={{
+          background: 'var(--cd-bg)',
+          borderColor: 'var(--cd-border-subtle)',
+          borderRadius: 'var(--cd-radius)',
+          color: 'var(--cd-text-primary)',
+          caretColor: 'var(--cd-signal-cyan)',
+        }}
+      />
     </div>
   )
 }

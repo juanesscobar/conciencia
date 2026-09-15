@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { settingsApi, whatsappApi, emailApi, mcpApi } from '../services/api'
-import { useState } from 'react'
+import { settingsApi, whatsappApi, emailApi, mcpApi, leadsApi, agentsApi } from '../services/api'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
 const PROVIDERS = [
@@ -127,15 +127,81 @@ export default function Settings() {
   const [lhCron, setLhCron] = useState('')
   const [lhBbox, setLhBbox] = useState('')
   const [lhScope, setLhScope] = useState('bbox')
+  // Search Geography (spec §7-9): país default PY, allowlist, scope explícito
+  const [geoCountry, setGeoCountry] = useState('')
+  const [geoAllowed, setGeoAllowed] = useState('')
+  const [geoRegion, setGeoRegion] = useState('')
+  const [geocity, setGeocity] = useState('')
+  const [geoSearchScope, setGeoSearchScope] = useState('')
   const [lhMsg, setLhMsg] = useState('')
+  // ---- Ranking & Scoring (Fase 4, spec §15/§16) ----
+  const [rankWeights, setRankWeights] = useState('')
+  const [rankMsg, setRankMsg] = useState('')
+  const { data: rankData } = useQuery({
+    queryKey: ['ranking-weights'],
+    queryFn: () => leadsApi.rankingWeights().then(res => res.data),
+  })
+  useEffect(() => {
+    if (rankData && !rankWeights) setRankWeights(JSON.stringify(rankData, null, 2))
+  }, [rankData, rankWeights])
+  const saveRank = useMutation({
+    mutationFn: () => {
+      let parsed: any
+      try { parsed = JSON.parse(rankWeights) } catch { throw new Error('JSON inválido') }
+      return leadsApi.rankingWeightsSave(parsed)
+    },
+    onSuccess: () => { setRankMsg('Pesos guardados — aplican a búsquedas y detalles'); queryClient.invalidateQueries({ queryKey: ['ranking-weights'] }); setTimeout(() => setRankMsg(''), 5000) },
+    onError: (e: any) => { setRankMsg(e.response?.data?.detail || e.message || 'Error al guardar'); setTimeout(() => setRankMsg(''), 6000) },
+  })
+  // ---- Semantic Search (Fase 5, spec §14) ----
+  const [embEnabled, setEmbEnabled] = useState('')
+  const [embModel, setEmbModel] = useState('')
+  const [embProvider, setEmbProvider] = useState('')
+  const [embBackend, setEmbBackend] = useState('')
+  const [embBaseUrl, setEmbBaseUrl] = useState('')
+  const { data: semStatus } = useQuery({
+    queryKey: ['semantic-status'],
+    queryFn: () => leadsApi.semanticStatus().then(res => res.data),
+  })
   const saveLh = useMutation({
     mutationFn: () => Promise.all([
       settingsApi.set('LEADHUNTER_CRON', lhCron.trim()),
       settingsApi.set('LEADHUNTER_BBOX', lhBbox.trim()),
       settingsApi.set('LEADHUNTER_SCOPE', lhScope),
+      ...(geoCountry.trim() ? [settingsApi.set('SEARCH_DEFAULT_COUNTRY', geoCountry.trim().toUpperCase())] : []),
+      ...(geoAllowed.trim() ? [settingsApi.set('SEARCH_ALLOWED_COUNTRIES', geoAllowed.trim().toUpperCase())] : []),
+      ...(geoRegion.trim() ? [settingsApi.set('SEARCH_DEFAULT_REGION', geoRegion.trim())] : []),
+      ...(geocity.trim() ? [settingsApi.set('SEARCH_DEFAULT_CITY', geocity.trim())] : []),
+      ...(geoSearchScope ? [settingsApi.set('SEARCH_SCOPE', geoSearchScope)] : []),
+      ...(embEnabled ? [settingsApi.set('EMBEDDING_ENABLED', embEnabled)] : []),
+      ...(embModel.trim() ? [settingsApi.set('EMBEDDING_MODEL', embModel.trim())] : []),
+      ...(embProvider ? [settingsApi.set('EMBEDDING_PROVIDER', embProvider)] : []),
+      ...(embBackend ? [settingsApi.set('EMBEDDING_BACKEND', embBackend)] : []),
+      ...(embBaseUrl.trim() ? [settingsApi.set('EMBEDDING_BASE_URL', embBaseUrl.trim())] : []),
     ]),
-    onSuccess: () => { setLhMsg('Config de Lead Hunter guardada'); queryClient.invalidateQueries({ queryKey: ['integrations'] }); setTimeout(() => setLhMsg(''), 4000) },
+    onSuccess: () => { setLhMsg('Config de Lead Hunter guardada'); queryClient.invalidateQueries({ queryKey: ['integrations'] }); queryClient.invalidateQueries({ queryKey: ['semantic-status'] }); setTimeout(() => setLhMsg(''), 4000) },
     onError: (e: any) => { setLhMsg(e.response?.data?.detail || 'Error al guardar'); setTimeout(() => setLhMsg(''), 5000) },
+  })
+
+  // ---- Agent Runtimes (Fase 9: multi-runtime CLI) ----
+  const { data: rtConfigs, refetch: rtRefetch } = useQuery({
+    queryKey: ['agent-runtimes-config'],
+    queryFn: () => agentsApi.runtimeConfigs().then(res => res.data),
+  })
+  const [rtEdit, setRtEdit] = useState<Record<string, any>>({})
+  const [rtMsg, setRtMsg] = useState('')
+  const saveRuntimes = useMutation({
+    mutationFn: () => agentsApi.runtimeConfigsSave(
+      (rtConfigs || []).map((c: any) => ({
+        name: c.name,
+        enabled: (rtEdit[c.name]?.enabled ?? c.enabled),
+        command: (rtEdit[c.name]?.command ?? c.command),
+        cwd: (rtEdit[c.name]?.cwd ?? c.cwd),
+        timeout_s: Number(rtEdit[c.name]?.timeout_s ?? c.timeout_s),
+      })),
+    ),
+    onSuccess: () => { setRtMsg('Runtimes guardados — los CLI externos solo corren si están habilitados'); rtRefetch(); setRtEdit({}); setTimeout(() => setRtMsg(''), 5000) },
+    onError: (e: any) => { setRtMsg(e.response?.data?.detail || e.message || 'Error al guardar'); setTimeout(() => setRtMsg(''), 6000) },
   })
 
   // ---- Email (SMTP) ----
@@ -576,11 +642,82 @@ export default function Settings() {
           </div>
         </Card>
 
+        {/* Agent Runtimes (Fase 9: multi-runtime CLI) */}
+        <Card title="AGENT RUNTIMES" subtitle="Multi-runtime: corré agentes en Claude Code, Codex, OpenCode u OpenClaw desde la plataforma (solo si el dueño los habilita)">
+          <div className="space-y-2">
+            {(rtConfigs || []).map((cfg: any) => (
+              <div key={cfg.name} className="bg-bg-950 border border-bg-700 rounded-lg p-3 grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+                <div className="md:col-span-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={rtEdit[cfg.name]?.enabled ?? cfg.enabled}
+                      onChange={e => setRtEdit(prev => ({ ...prev, [cfg.name]: { ...(prev[cfg.name] || {}), enabled: e.target.checked } }))}
+                      disabled={!isAdmin}
+                      className="accent-primary-500"
+                    />
+                    <div>
+                      <p className="text-xs font-bold text-gray-200 font-mono">{cfg.name}</p>
+                      <p className="text-[10px] text-gray-600">{cfg.label}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="md:col-span-2">
+                  <StatusBadge ok={cfg.online} label={cfg.online ? 'online' : 'no instalado'} />
+                </div>
+                <div className="md:col-span-3">
+                  <input
+                    value={rtEdit[cfg.name]?.command ?? cfg.command}
+                    onChange={e => setRtEdit(prev => ({ ...prev, [cfg.name]: { ...(prev[cfg.name] || {}), command: e.target.value } }))}
+                    disabled={!isAdmin || cfg.type === 'internal' || cfg.type === 'mcp'}
+                    placeholder="comando"
+                    className="w-full px-2 py-1.5 bg-bg-900 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono"
+                  />
+                </div>
+                <div className="md:col-span-3">
+                  <input
+                    value={rtEdit[cfg.name]?.cwd ?? cfg.cwd}
+                    onChange={e => setRtEdit(prev => ({ ...prev, [cfg.name]: { ...(prev[cfg.name] || {}), cwd: e.target.value } }))}
+                    disabled={!isAdmin || cfg.type === 'internal' || cfg.type === 'mcp'}
+                    placeholder="cwd (vacío = home)"
+                    className="w-full px-2 py-1.5 bg-bg-900 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono"
+                  />
+                </div>
+                <div className="md:col-span-1">
+                  <input
+                    type="number"
+                    value={rtEdit[cfg.name]?.timeout_s ?? cfg.timeout_s}
+                    onChange={e => setRtEdit(prev => ({ ...prev, [cfg.name]: { ...(prev[cfg.name] || {}), timeout_s: e.target.value } }))}
+                    disabled={!isAdmin}
+                    title="Timeout en segundos"
+                    className="w-full px-2 py-1.5 bg-bg-900 border border-bg-700 rounded text-xs text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end mt-3">
+            <button
+              onClick={() => saveRuntimes.mutate()}
+              disabled={saveRuntimes.isPending || !isAdmin}
+              className="px-4 py-2 text-sm bg-primary-500/10 text-primary-400 border border-primary-500/40 rounded-lg hover:bg-primary-500/20 transition-all disabled:opacity-40"
+            >
+              {saveRuntimes.isPending ? 'Guardando...' : 'Guardar runtimes'}
+            </button>
+          </div>
+          {rtMsg && <p className="text-xs text-gray-400 mt-2">{rtMsg}</p>}
+          <p className="text-[11px] text-gray-600 mt-2">
+            🔒 Seguridad: los CLIs corren en subproceso con timeout y sin shell; la tarea se pasa como
+            argumento y el cwd debe existir. Ningún runtime externo corre si no está habilitado acá.
+          </p>
+        </Card>
+
         {/* Lead Hunter */}
         <Card title="LEAD HUNTER" subtitle="Configuración del descubrimiento automático de leads">
           <div className="flex items-center gap-2 mb-4">
             <StatusBadge ok={!!lh?.cron} label={`Cron: ${lh?.cron || 'deshabilitado'}`} />
-            <StatusBadge ok={lh?.scope === 'country'} label={`Scope: ${lh?.scope}`} />
+            <StatusBadge ok={lh?.scope === 'country'} label={`Scope legacy: ${lh?.scope}`} />
+            <StatusBadge ok label={`País default: ${lh?.geo?.default_country || 'PY'}`} />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
@@ -599,6 +736,116 @@ export default function Settings() {
               <input value={lhBbox} onChange={e => setLhBbox(e.target.value)} placeholder={lh?.bbox} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono" />
             </div>
           </div>
+
+          {/* Search Geography (spec §7-9) */}
+          <div className="mt-4 pt-4 border-t border-bg-700">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Search Geography — país default, allowlist y scope explícito</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">País default</label>
+                <input value={geoCountry} onChange={e => setGeoCountry(e.target.value)} placeholder={lh?.geo?.default_country || 'PY'} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono uppercase" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Países permitidos (CSV)</label>
+                <input value={geoAllowed} onChange={e => setGeoAllowed(e.target.value)} placeholder={lh?.geo?.allowed_countries || 'PY,BR,AR,UY'} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono uppercase" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Región default</label>
+                <input value={geoRegion} onChange={e => setGeoRegion(e.target.value)} placeholder={lh?.geo?.default_region || 'vacío'} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Ciudad default</label>
+                <input value={geocity} onChange={e => setGeocity(e.target.value)} placeholder={lh?.geo?.default_city || 'vacío'} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Scope de búsqueda (SEARCH_SCOPE)</label>
+                <select value={geoSearchScope} onChange={e => setGeoSearchScope(e.target.value)} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50">
+                  <option value="">Default (env / legacy)</option>
+                  <option value="city">Ciudad</option>
+                  <option value="region">Región</option>
+                  <option value="country">País</option>
+                  <option value="multi">Múltiples países</option>
+                  <option value="global">Global (requiere confirmación en cada caza)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Ranking & Scoring (spec §15/§16) */}
+          <div className="mt-4 pt-4 border-t border-bg-700">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Ranking & Scoring — relevancia ≠ lead score ≠ oportunidad (pesos configurables)</p>
+            <textarea
+              value={rankWeights}
+              onChange={e => setRankWeights(e.target.value)}
+              rows={9}
+              spellCheck={false}
+              className="w-full px-3 py-2 bg-bg-950 border border-bg-700 rounded text-xs text-gray-300 focus:outline-none focus:border-primary-500/50 font-mono"
+              placeholder='{"relevance": {...}, "lead": {...}, "opportunity": {...}}'
+            />
+            <div className="flex justify-end mt-2">
+              <button
+                onClick={() => saveRank.mutate()}
+                disabled={saveRank.isPending || !isAdmin}
+                className="px-3 py-1.5 text-xs bg-purple-500/10 text-purple-400 border border-purple-500/40 rounded-lg hover:bg-purple-500/20 transition-all disabled:opacity-40"
+              >
+                {saveRank.isPending ? 'Guardando...' : 'Guardar pesos'}
+              </button>
+            </div>
+            {rankMsg && <p className="text-xs text-gray-400 mt-2">{rankMsg}</p>}
+          </div>
+
+          {/* Semantic Search (spec §14) */}
+          <div className="mt-4 pt-4 border-t border-bg-700">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wider">Semantic Search — embeddings (spec §14)</p>
+              <StatusBadge
+                ok={!!semStatus?.enabled}
+                label={semStatus?.enabled
+                  ? `Indexados: ${semStatus?.indexed ?? 0} · ${semStatus?.backend}${semStatus?.simulated ? ' (simulado)' : ''}`
+                  : 'Deshabilitado (501)'}
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Habilitado</label>
+                <select value={embEnabled} onChange={e => setEmbEnabled(e.target.value)} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50">
+                  <option value="">Default (env)</option>
+                  <option value="1">Sí — EMBEDDING_ENABLED=1</option>
+                  <option value="0">No</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Backend vectorial</label>
+                <select value={embBackend} onChange={e => setEmbBackend(e.target.value)} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50">
+                  <option value="">Default (memory)</option>
+                  <option value="memory">InMemory (numpy — dev/SQLite)</option>
+                  <option value="pgvector">pgvector (Postgres + extensión)</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Modelo</label>
+                <input value={embModel} onChange={e => setEmbModel(e.target.value)} placeholder={semStatus?.model || 'text-embedding-3-small'} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Provider</label>
+                <select value={embProvider} onChange={e => setEmbProvider(e.target.value)} className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50">
+                  <option value="">Default (openai)</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="ollama">Ollama (local)</option>
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Base URL (opcional, OpenAI-compatible)</label>
+                <input value={embBaseUrl} onChange={e => setEmbBaseUrl(e.target.value)} placeholder="https://... (vacío = default del provider)" className="w-full mt-1 px-3 py-2 bg-bg-950 border border-bg-700 rounded text-sm text-gray-200 focus:outline-none focus:border-primary-500/50 font-mono" />
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-600 mt-2">
+              Sin API key de embeddings corre en modo simulado (determinístico, útil para demo).
+              Con OPENAI_API_KEY (u otro provider) usa embeddings reales. El botón 🧬 Semántica en Leads indexa y busca automáticamente.
+            </p>
+          </div>
+
           <div className="flex justify-end mt-3">
             <button
               onClick={() => saveLh.mutate()}
@@ -611,7 +858,8 @@ export default function Settings() {
           {lhMsg && <p className="text-xs text-gray-400 mt-2">{lhMsg}</p>}
           <p className="text-xs text-gray-600 mt-3">
             💡 Scope «Todo Paraguay» busca en todo el país sin restricción geográfica local.
-            El cron vacío deshabilita la caza automática.
+            El cron vacío deshabilita la caza automática. El país default (PY) y los países
+            permitidos evitan consultas al mundo por accidente (spec §9).
           </p>
         </Card>
 

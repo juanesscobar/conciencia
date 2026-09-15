@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "conciencia-platform"
+version = "0.6.0"
+description = "Conciencia Platform — AI Control Plane / Business Operating System (CLI: conciencia)"
+requires-python = ">=3.11"
+
+[project.scripts]
+conciencia = "cli:app"
+
+[tool.setuptools]
+py-modules = ["cli"]

@@ -115,7 +115,11 @@ def run_with_harness(
                     result.retries = total_retries
 
                 if token_stats:
-                    result.metadata["token_stats"] = token_stats
+                    metadata = getattr(result, "metadata", None)
+                    if not isinstance(metadata, dict):
+                        metadata = {}
+                        result.metadata = metadata
+                    metadata["token_stats"] = token_stats
 
                 log.info(
                     f"Harness success: provider={result.provider}, model={result.model}, "

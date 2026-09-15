@@ -99,14 +99,10 @@ def get_config(provider: Optional[str] = None, model: Optional[str] = None) -> d
 
 
 def is_configured() -> bool:
-    """Verifica si hay al menos un provider configurado."""
-    providers = ["deepseek", "openai", "anthropic", "google", "openrouter", "ollama"]
-    for p in providers:
-        if p == "ollama":
-            return True  # Ollama es local, no requiere key
-        if _get_api_key(p):
-            return True
-    return False
+    """Return readiness of the selected provider used by actual execution."""
+    from app.services.capability_readiness import provider_readiness
+
+    return provider_readiness()["ready"]
 
 
 def run_agent(agent_name: str, system_prompt: str, task: str, context: Optional[str] = None) -> dict:

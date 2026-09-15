@@ -4,14 +4,18 @@ from typing import Dict, List, Optional, Type
 
 
 class BaseLeadSource:
-    """Contrato mínimo de una fuente: fetch() -> lista de dicts normalizados."""
+    """Contrato mínimo de una fuente: fetch() -> lista de dicts normalizados.
+
+    Las fuentes pueden recibir un contexto geográfico efectivo (ver geo.build_geo_context)
+    para acotar la búsqueda al scope configurado. Fuentes que no lo soporten lo ignoran.
+    """
 
     name: str = "base"
     label: str = "Base"
     description: str = ""
     enabled: bool = True
 
-    def fetch(self, limit: Optional[int] = None) -> List[dict]:
+    def fetch(self, limit: Optional[int] = None, geo: Optional[dict] = None) -> List[dict]:
         raise NotImplementedError
 
 

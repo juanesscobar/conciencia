@@ -7,14 +7,15 @@ Sugiere acciones que la UI ejecuta por los flujos normales (con policies/approva
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.routers.auth import get_current_user
 from pydantic import BaseModel
 
 from app.database import SessionLocal
 from app.services import llm
 from app.models.audit import AuditEvent
 
-router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
+router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"], dependencies=[Depends(get_current_user)])
 
 SYSTEM_PROMPT = """Sos CONCIENCIA, el Command Center del Control Plane de una plataforma de trabajo autónomo con agentes de IA.
 

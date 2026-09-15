@@ -50,7 +50,8 @@ class WorkflowRun(Base):
     id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
     workflow_id = Column(String, nullable=False, index=True)
     status = Column(String(20), default="running")
-    step_results = Column(JSON, default=list)     # [{step_index, step_name, status, output, error, cost}]
+    step_results = Column(JSON, default=list)     # [{step_index, step_name, status, output, error, cost, tokens, runtime, ...}]
+    events = Column(JSON, default=list)           # Fase H: timeline estructurado [{ts, type, step, agent, runtime, tokens, cost, ...}]
     current_step = Column(Integer, default=0)
     paused_at = Column(DateTime, nullable=True)
     error = Column(String(500), nullable=True)
@@ -63,6 +64,7 @@ class WorkflowRun(Base):
             "workflow_id": self.workflow_id,
             "status": self.status,
             "step_results": self.step_results or [],
+            "events": self.events or [],
             "current_step": self.current_step,
             "paused_at": self.paused_at.isoformat() if self.paused_at else None,
             "error": self.error,

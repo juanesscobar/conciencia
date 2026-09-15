@@ -6,14 +6,15 @@ NO expone chain-of-thought: solo acciones, tools, resultados y outcomes.
 
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.routers.auth import get_current_user
 
 from app.database import SessionLocal
 from app.models.execution import AgentExecution
 from app.models.audit import AuditEvent
 from app.models.workflow import WorkflowRun
 
-router = APIRouter(prefix="/api/v1/traces", tags=["traces"])
+router = APIRouter(prefix="/api/v1/traces", tags=["traces"], dependencies=[Depends(get_current_user)])
 
 
 def _db() -> SessionLocal():

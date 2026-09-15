@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from app.routers.auth import get_current_user
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -7,7 +8,7 @@ from app.models import Sprint, Project
 from uuid import UUID
 from datetime import date
 
-router = APIRouter(prefix="/api/v1/sprints", tags=["sprints"])
+router = APIRouter(prefix="/api/v1/sprints", tags=["sprints"], dependencies=[Depends(get_current_user)])
 
 
 class SprintOut(BaseModel):

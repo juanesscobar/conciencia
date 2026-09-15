@@ -1,3 +1,4 @@
+import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -73,9 +74,9 @@ class DependencyCreate(BaseModel):
 
 
 class DependencyResponse(BaseModel):
-    id: str
-    task_id: str
-    depends_on_id: str
+    id: uuid.UUID
+    task_id: uuid.UUID
+    depends_on_id: uuid.UUID
     kind: str
 
     class Config:

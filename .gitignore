@@ -66,3 +66,14 @@ backups/
 *.dump
 *.sql
 *.pyc
+
+# Artefactos de scans locales (pueden contener credenciales — NUNCA commitear)
+*_vulscan_*.txt
+*_vulscan_*
+
+# Entornos/artefactos locales del CLI (no ir al repo)
+.venv311/
+.pytest-tmp/
+.pytest-tmp-*/
+backend/.pytest-tmp-*/
+.conciencia/

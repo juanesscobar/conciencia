@@ -13,6 +13,72 @@
 - resultado / estado
 ```
 
+## [Unreleased] — Mission Orchestration (master prompt: Fase A + B + C) 🎯
+
+### Final production-readiness hardening (2026-09-03)
+- **Context:** validación de existencia/proyecto para Context Packs explícitos; sin fallback silencioso.
+- **WebMCP:** allowlist obligatoria de hosts en producción, validación URL/payload/JSON y enforcement de Harness tools.
+- **Runs:** resume de approval resincroniza observabilidad, tokens, costos, errores y timestamps canónicos.
+- **Evidence:** extracción idempotente y limpieza de referencias al borrar Signals.
+- **Harness:** metadata de resultados tolerante a adapters que no inicializan un diccionario.
+- **JobScout:** corregido `NameError` en la tarea programada de expiración.
+
+### Fase B — Mission como unidad central (ad4d25a)
+- **Archivos:** backend `app/models/mission.py` (Mission + MissionRun, nuevo), `app/services/mission_service.py` (nuevo), `app/routers/missions.py` (nuevo), `cli.py` (mission/run/approvals/status), `app/main.py` (title "Conciencia"), `tests/test_missions.py` (6 tests), `docs/PHASE_A_AUDIT.md` (auditoría completa)
+- **Cambio:** Mission = capa de orquestación que REFERENCIA Task/Workflow/AgentExecution (no duplica); type/status como String para evitar ALTER TYPE en Postgres prod; run reusa workflow_engine (approval gates human-in-the-loop); CLI completo: mission create/list/inspect/plan/run + run list/inspect + approvals/approve + status
+- **Resultado:** suite 215 verdes (+6); CLI E2E create→plan→run→approve→completed verificado
+
+### Fase C — CLI Foundation (init/doctor/agent/workflow/runtime/tool/model/run-watch)
+- **Archivos:** backend `cli.py` (init, doctor, agent inspect/run, workflow, workflow-inspect, workflow-run, runtime, tool, model, run-watch), `tests/test_cli_phase_c.py` (11 tests), `docs/USAGE.md` (sección Fase C)
+- **Cambio:** CLI operativo de punta a punta sin web: init detecta git/stack/CI y crea .conciencia/; doctor diagnostica DB/tablas/runtimes/embeddings; agent inspect muestra SOUL/capabilities/permisos; agent run ejecuta por adapter (o runtime override); workflow list/inspect/run; runtime/tool/model listan registries; run-watch observa un run en vivo (rich Live)
+- **Resultado:** suite 226 verdes (+11); verificado en terminal local (doctor 12/12 ✅, runtimes 6, tools, models, workflow inspect)
+
+## [Unreleased] - LeadHunter Intelligence Engine (Fases 1-11) ?? COMPLETO
+
+---
+
+## [Unreleased] — LeadHunter Intelligence Engine (Fases 1-11) 🏁 COMPLETO
+
+### Fase 11 — E2E final + Definition of Done (spec §39/§50/§52)
+- **Archivos:** backend `tests/test_e2e_final.py` (nuevo), `nlu.py` (residuo ≤1 token descartado cuando hay filtros estructurados), `docs/ARCHITECTURE.md` (sección E2E final + DoD §50)
+- **Cambio:** test E2E del flujo §52 completo (interpret → search → ranking → detail → enrich agente → lista → export); fix real: el residuo "playas" (ruido de sinónimos) contradecía los filtros → se descarta (spec §5); documentación final con los 14 pasos + checklist 21/21
+- **Resultado:** suite final 140 verdes — **plan LeadHunter Intelligence COMPLETO (F1-F11, 30/08/2026)**
+
+### Fase 10 — Cache + Exports + Benchmark (spec §36/§37/§38/§40)
+- **Archivos:** backend `app/core/cache.py` (nuevo), `search.py` (cache + free-text por tokens OR + SearchQuery.source), `endpoints/search_endpoints.py` (GET /export), `routers/settings.py` (SEARCH_QUERY_CACHE_TTL), `scripts/benchmark_search.py` (nuevo), `tests/test_cache_exports.py` (nuevo)
+- **Cambio:** TTLCache thread-safe con invalidación por prefijo; SearchEngine cachea por firma (TTL configurable) e invalida en mutaciones; free-text multi-token ahora es OR (mejora real detectada por el benchmark); export CSV/JSON por API con los mismos filtros de /search; benchmark con las 5 queries de referencia (latencia + precision sector/geo)
+- **Resultado:** 12 tests nuevos, suite F1-F10 139 verdes — estado done
+
+### Fase 9 — Multi-Runtime Agent Integration (requisito CEO)
+- **Archivos:** backend `app/core/agent_runtime.py` (nuevo), `app/routers/agents.py` (runtimes/config + runtime override en run), `tests/test_agent_runtimes.py` (nuevo); frontend `pages/Agents.tsx` (selector runtime), `pages/Settings.tsx` (card AGENT RUNTIMES), `services/api.ts`
+- **Cambio:** registry de runtimes en Settings (AGENT_RUNTIMES JSON: generic/claude_code/codex/opencode/openclaw/mcp); runner CLI seguro (subprocess con timeout, sin shell, cwd validado); GET/PUT /agents/runtimes/config (admin); POST /agents/{id}/run acepta runtime override → ejecuta en CLI externo con execution + audit; UI: toggles + comando/cwd/timeout + status online; selector en consola de Agents
+- **Resultado:** 10 tests nuevos, suite F1-F9 127 verdes, tsc + build OK — estado done
+
+### Fase 8 — Agentes LeadHunter mínimos (spec §17/§18/§27/§28)
+- **Archivos:** backend `app/models/agent.py` (3 roles nuevos), `agents/lead_research|business_classification|contact_discovery/SOUL.md` (nuevos), `scripts/seed_agents.py` (11 agentes + permisos), `app/modules/leadhunter/agents.py` (nuevo), `endpoints/leads_endpoints.py` (POST /{id}/enrich/agent), `tests/test_leadhunter_agents.py` (nuevo)
+- **Cambio:** agentes LeadHunter con SOUL.md y permisos ALLOW/DENY (spec §28); run_lead_agent reusa adapters + AgentExecution + audit (§29); contact_discovery usa website_fetch real; endpoint con validación de acción/permisos y output en lead.meta.agents
+- **Resultado:** 9 tests nuevos, suite F1-F8 117 verdes, seed local con 11 agentes — estado done
+
+### Fase 7 — Boundaries de core + slimming (spec §42/§48)
+- **Archivos:** backend `router.py` (1126→52 ln), `helpers.py` (nuevo), `endpoints/` (search/hunt/lists/proposals/leads — nuevo), `service.py` (wrapper de ranking), `app/core/{__init__,config,interfaces}.py` (nuevo); frontend `pages/Leads.tsx` (1629→476 ln), `components/leads/` (LeadFilters, LeadTable, LeadDetail, PipelineBoard, LeadModal, types — nuevos)
+- **Cambio:** router.py queda como agregador delgado; handlers en endpoints/ con helpers compartidos; compute_score delega en ranking._blocks (única fuente de verdad); core/ con config unificada (env+DB) e interfaces (Protocols); UI de Leads dividida en componentes (refactor puro, comportamiento idéntico); fix de tipos (LeadPage vs LeadList)
+- **Resultado:** DoD cumplido (router < 400 ln, Leads.tsx < 600 ln), suite F1-F7 108 verdes, tsc + build OK — estado done
+
+### Fase 6 — CLI `conciencia` (spec §19/§41)
+- **Archivos:** `backend/cli.py` (nuevo), `backend/pyproject.toml` (nuevo, entry point `conciencia`), `requirements.txt` (+typer +rich), `tests/test_cli.py` (nuevo)
+- **Cambio:** CLI typer+rich con los mismos services que la API: `health`, `search` (igual que POST /search, con --country/--region/--category/--online/--min-score/--json), `leads list|export` (csv/json), `lead inspect|score|enrich` (con scores Fase 4 + reasons), `hunt run`, `config get|set search.country PY`, `agents`, `modules`; `_make_session` respeta DATABASE_URL
+- **Resultado:** 14 tests nuevos, suite F1-F6 108 verdes — estado done
+
+### Fase 5 — Búsqueda semántica foundation (spec §14)
+- **Archivos:** `backend/app/modules/leadhunter/embeddings.py` (nuevo), `router.py`, `schemas.py`, `config.py`, `routers/settings.py` (VISIBLE_KEYS), `requirements.txt` (+numpy), `tests/test_semantic.py` (nuevo); frontend `pages/Leads.tsx` (botón 🧬 + banner), `pages/Settings.tsx` (Semantic Search), `services/api.ts`
+- **Cambio:** VectorBackend abstracto + InMemoryBackend (numpy) + PgVectorBackend (pgvector autocontenido, fallback); embed real OpenAI-compatible o simulado determinístico (sin key); BusinessDocument en `leads.meta.semantic`; `POST /search/semantic` (501 si deshabilitado) + `GET /search/semantic/status`; indexación lazy incremental; settings EMBEDDING_*; UI: botón 🧬 Semántica + banner resultados + R: en badges + bloque Semantic Search en Settings
+- **Resultado:** 13 tests nuevos, suite F1-F5 94 verdes, tsc + build OK — estado done
+
+### Fase 4 — Ranking + Scoring separados + Data Quality (spec §15/§16/§34/§35)
+- **Archivos:** `backend/app/modules/leadhunter/ranking.py` (nuevo), `service.py` (refactor a bloques, contrato intacto), `schemas.py`, `search.py`, `router.py`, `routers/settings.py` (VISIBLE_KEYS), `tests/test_ranking.py` (nuevo); frontend `pages/Leads.tsx`, `pages/Settings.tsx`, `services/api.ts`
+- **Cambio:** SearchRelevance (por query) ≠ LeadScore (independiente, ponderado) ≠ OpportunityScore; DataQualityScore 0-100 (completitud+frescura+fuente); RankingWeights configurables via `RANKING_WEIGHTS` (Settings JSON) + `GET/PUT /api/v1/leads/ranking/weights` (PUT solo admin); `explain()` → "Why this lead matches"; LeadResponse gana `search_relevance/opportunity_score/data_quality/reasons`; UI: tabla con `O:n · Q:n` + tooltip razones, LeadDetail "Score Intelligence", Settings "Ranking & Scoring"
+- **Resultado:** 21 tests nuevos, suite F1-F4 81 verdes, tsc + build OK — estado done
+
 ## Convenciones
 
 - Cada PR = una entrada en este changelog

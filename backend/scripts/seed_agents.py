@@ -79,6 +79,31 @@ AGENTS = [
         "autonomy": AutonomyLevel.FULL,
         "runtime": AgentRuntime.GENERIC, "provider": AgentProvider.GOOGLE, "model": "gemini-2.0-flash",
     },
+    # --- Fase 8: agentes LeadHunter (spec §17/§18/§27/§28) ---
+    {
+        "role": AgentRole.LEAD_RESEARCH, "name": "LeadResearchBot", "emoji": "🔍",
+        "personality": "Investigador de empresas: convierte leads en perfiles accionables (señales, necesidad, confianza).",
+        "capabilities": ["leads.read", "search.execute", "website_fetch", "research"],
+        "autonomy": AutonomyLevel.PREVIEW,
+        "runtime": AgentRuntime.GENERIC, "provider": AgentProvider.DEEPSEEK, "model": "deepseek-chat",
+        "permissions": {"allow": ["leads.read", "search.execute", "website_fetch"], "deny": ["finance.write", "crm.write"]},
+    },
+    {
+        "role": AgentRole.BUSINESS_CLASSIFICATION, "name": "ClassifyBot", "emoji": "🎯",
+        "personality": "Clasificador de negocios: categoría canónica + scores (lead/oportunidad/calidad) + razones.",
+        "capabilities": ["leads.read", "search.execute", "classification"],
+        "autonomy": AutonomyLevel.PREVIEW,
+        "runtime": AgentRuntime.GENERIC, "provider": AgentProvider.DEEPSEEK, "model": "deepseek-chat",
+        "permissions": {"allow": ["leads.read", "search.execute"], "deny": ["finance.write"]},
+    },
+    {
+        "role": AgentRole.CONTACT_DISCOVERY, "name": "ContactBot", "emoji": "📞",
+        "personality": "Descubridor de contactos: emails/teléfonos/web con origen (observado vs inferido).",
+        "capabilities": ["leads.read", "website_fetch", "contact_discovery"],
+        "autonomy": AutonomyLevel.PREVIEW,
+        "runtime": AgentRuntime.GENERIC, "provider": AgentProvider.DEEPSEEK, "model": "deepseek-chat",
+        "permissions": {"allow": ["leads.read", "website_fetch"], "deny": ["finance.write"]},
+    },
 ]
 
 db = SessionLocal()
@@ -94,6 +119,8 @@ try:
             agent.runtime = a["runtime"]
             agent.provider = a["provider"]
             agent.model = a["model"]
+            if a.get("permissions"):
+                agent.config = {**(agent.config or {}), "permissions": a["permissions"]}
             print("update:", a["role"].value)
         else:
             db.add(Agent(
@@ -108,12 +135,13 @@ try:
                 runtime=a["runtime"],
                 provider=a["provider"],
                 model=a["model"],
+                config={"permissions": a["permissions"]} if a.get("permissions") else None,
                 health_status="online",
                 availability="available",
                 last_heartbeat=func.now(),
             ))
             print("create:", a["role"].value)
     db.commit()
-    print("OK: 8 agentes")
+    print(f"OK: {len(AGENTS)} agentes")
 finally:
     db.close()
